@@ -12,6 +12,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Plus, Edit2, Trash2, Eye, FileText, Save } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 interface Page {
   id: string;
   titleAr: string;
