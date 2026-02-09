@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>فحص localStorage</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 { color: #333; }
+        h2 { color: #666; margin-top: 20px; }
+        pre {
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            direction: ltr;
+            text-align: left;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .warning {
+            background: #fff3cd;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .error {
+            background: #f8d7da;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1976D2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 فحص بيانات الأخبار في localStorage</h1>
+        <button onclick="checkData()">🔄 تحديث البيانات</button>
+        <button onclick="clearData()">🗑️ مسح البيانات</button>
+        <button onclick="addTestNews()">➕ إضافة خبر تجريبي</button>
+    </div>
+
+    <div class="container">
+        <h2>📊 حالة البيانات</h2>
+        <div id="status"></div>
+    </div>
+
+    <div class="container">
+        <h2>📰 بيانات الأخبار</h2>
+        <div id="data"></div>
+    </div>
+
+    <script>
+        function checkData() {
+            const statusDiv = document.getElementById('status');
+            const dataDiv = document.getElementById('data');
+            
+            const newsData = localStorage.getItem('homepage_general_news');
+            
+            if (!newsData) {
+                statusDiv.innerHTML = `
+                    <div class="warning">
+                        ⚠️ لا توجد بيانات محفوظة في localStorage
+                        <br>
+                        المفتاح: homepage_general_news
+                    </div>
+                `;
+                dataDiv.innerHTML = '<p>لا توجد أخبار محفوظة</p>';
+                return;
+            }
+
+            try {
+                const news = JSON.parse(newsData);
+                
+                statusDiv.innerHTML = `
+                    <div class="info">
+                        ✅ تم العثور على البيانات
+                        <br>
+                        عدد الأخبار: ${news.length}
+                    </div>
+                `;
+
+                if (news.length === 0) {
+                    dataDiv.innerHTML = '<p>المصفوفة فارغة - لا توجد أخبار</p>';
+                    return;
+                }
+
+                let html = '';
+                news.forEach((item, index) => {
+                    const mediaCount = item.media ? item.media.length : 0;
+                    const imageCount = item.media ? item.media.filter(m => m.type === 'image').length : 0;
+                    const videoCount = item.media ? item.media.filter(m => m.type === 'video').length : 0;
+
+                    html += `
+                        <div class="container" style="background: #f9f9f9; margin-bottom: 15px;">
+                            <h3>خبر ${index + 1}: ${item.title || 'بدون عنوان'}</h3>
+                            <p><strong>الترتيب:</strong> ${item.order}</p>
+                            <p><strong>الوصف:</strong> ${item.description || 'بدون وصف'}</p>
+                            <p><strong>عدد الوسائط:</strong> ${mediaCount} (${imageCount} صورة، ${videoCount} فيديو)</p>
+                            ${item.buttonText ? `<p><strong>زر:</strong> ${item.buttonText} → ${item.buttonLink}</p>` : ''}
+                            
+                            ${mediaCount > 0 ? `
+                                <h4>الوسائط:</h4>
+                                ${item.media.map((m, i) => `
+                                    <div style="background: white; padding: 10px; margin: 5px 0; border-radius: 4px;">
+                                        <p><strong>وسيط ${i + 1}:</strong> ${m.type === 'video' ? '🎥 فيديو' : '🖼️ صورة'}</p>
+                                        <p><strong>العنوان:</strong> ${m.caption || 'بدون عنوان'}</p>
+                                        <p><strong>الرابط:</strong> <code>${m.url || 'بدون رابط'}</code></p>
+                                        ${m.type === 'image' && m.url ? `
+                                            <img src="${m.url}" style="max-width: 200px; max-height: 150px; border-radius: 4px;" 
+                                                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                            <p style="display: none; color: red;">❌ فشل تحميل الصورة</p>
+                                        ` : ''}
+                                    </div>
+                                `).join('')}
+                            ` : '<p style="color: #999;">لا توجد وسائط مضافة</p>'}
+                            
+                            <details>
+                                <summary>عرض JSON الكامل</summary>
+                                <pre>${JSON.stringify(item, null, 2)}</pre>
+                            </details>
+                        </div>
+                    `;
+                });
+
+                dataDiv.innerHTML = html;
+
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <div class="error">
+                        ❌ خطأ في قراءة البيانات: ${error.message}
+                    </div>
+                `;
+                dataDiv.innerHTML = `<pre>${newsData}</pre>`;
+            }
+        }
+
+        function clearData() {
+            if (confirm('هل أنت متأكد من مسح جميع الأخبار؟')) {
+                localStorage.removeItem('homepage_general_news');
+                alert('✅ تم مسح البيانات');
+                checkData();
+            }
+        }
+
+        function addTestNews() {
+            const testNews = {
+                id: Date.now().toString(),
+                title: 'خبر تجريبي',
+                description: 'هذا خبر تجريبي لاختبار النظام',
+                media: [
+                    {
+                        id: 'm1',
+                        type: 'image',
+                        url: 'https://via.placeholder.com/600x400/4CAF50/FFFFFF?text=Test+Image',
+                        caption: 'صورة تجريبية'
+                    }
+                ],
+                buttonText: 'اقرأ المزيد',
+                buttonLink: '/test',
+                order: 1
+            };
+
+            const existing = localStorage.getItem('homepage_general_news');
+            const news = existing ? JSON.parse(existing) : [];
+            news.push(testNews);
+            localStorage.setItem('homepage_general_news', JSON.stringify(news));
+            
+            alert('✅ تم إضافة خبر تجريبي');
+            checkData();
+        }
+
+        // Auto-load on page load
+        checkData();
+    </script>
+</body>
+</html>

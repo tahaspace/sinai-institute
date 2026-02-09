@@ -1,0 +1,13 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "framework": "nextjs",
+  "installCommand": "npm install",
+  "devCommand": "npm run dev",
+  "env": {
+    "DATABASE_URL": "postgresql://neondb_owner:npg_bVGvuJfK51gx@ep-shy-fire-ag4sxzsm.c-2.eu-central-1.aws.neon.tech/neondb?sslmode=require",
+    "NEXTAUTH_URL": "https://sinai-institute.vercel.app",
+    "NEXTAUTH_SECRET": "sinai-institute-secret-key-2026-very-secure-random-string-12345",
+    "NODE_ENV": "production"
+  }
+}

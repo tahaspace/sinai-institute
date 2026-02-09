@@ -1,0 +1,300 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      String   @default("EDITOR")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Department {
+  id              String           @id @default(cuid())
+  nameAr          String
+  nameEn          String
+  description     String?
+  image           String?
+  head            String?
+  order           Int              @default(0)
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  results         Result[]
+  schedules       Schedule[]
+  specializations Specialization[]
+}
+
+model Specialization {
+  id           String     @id @default(cuid())
+  departmentId String
+  nameAr       String
+  nameEn       String
+  year         Int
+  description  String?
+  order        Int        @default(0)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@index([departmentId])
+}
+
+model Result {
+  id            String          @id @default(cuid())
+  departmentId  String
+  year          Int
+  semester      String
+  academicYear  String
+  pdfUrl        String?
+  isVisible     Boolean         @default(false)
+  allowView     Boolean         @default(true)
+  allowDownload Boolean         @default(true)
+  publishDate   DateTime?
+  expiryDate    DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  department    Department      @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  students      StudentResult[]
+
+  @@index([departmentId])
+}
+
+model StudentResult {
+  id          String   @id @default(cuid())
+  resultId    String
+  studentId   String
+  studentName String
+  gpa         Float
+  grade       String
+  status      String
+  createdAt   DateTime @default(now())
+  result      Result   @relation(fields: [resultId], references: [id], onDelete: Cascade)
+
+  @@index([resultId])
+  @@index([studentId])
+}
+
+model Schedule {
+  id            String     @id @default(cuid())
+  departmentId  String
+  year          Int
+  semester      String
+  academicYear  String
+  pdfUrl        String?
+  isVisible     Boolean    @default(false)
+  allowView     Boolean    @default(true)
+  allowDownload Boolean    @default(true)
+  publishDate   DateTime?
+  expiryDate    DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  lectures      Lecture[]
+  department    Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@index([departmentId])
+}
+
+model Lecture {
+  id         String   @id @default(cuid())
+  scheduleId String
+  day        String
+  startTime  String
+  endTime    String
+  course     String
+  instructor String
+  room       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  schedule   Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId])
+}
+
+model News {
+  id          String    @id @default(cuid())
+  titleAr     String
+  titleEn     String
+  contentAr   String
+  contentEn   String
+  image       String?
+  category    String    @default("NEWS")
+  isFeatured  Boolean   @default(false)
+  isInTicker  Boolean   @default(false)
+  isPublished Boolean   @default(false)
+  publishDate DateTime?
+  order       Int       @default(0)
+  views       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([isPublished])
+  @@index([isFeatured])
+  @@index([isInTicker])
+}
+
+model Application {
+  id              String   @id @default(cuid())
+  fullName        String
+  nationalId      String   @unique
+  birthDate       DateTime
+  phone           String
+  email           String
+  address         String
+  highSchoolGrade Float
+  highSchoolYear  Int
+  firstChoice     String
+  secondChoice    String?
+  thirdChoice     String?
+  documentsUrl    String?
+  status          String   @default("PENDING")
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([email])
+}
+
+model Complaint {
+  id          String    @id @default(cuid())
+  studentName String
+  studentId   String?
+  email       String?
+  phone       String
+  type        String
+  subject     String
+  message     String
+  attachments String?
+  status      String    @default("PENDING")
+  response    String?
+  respondedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  subject   String
+  message   String
+  isRead    Boolean  @default(false)
+  response  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isRead])
+}
+
+model Page {
+  id             String        @id @default(cuid())
+  titleAr        String
+  titleEn        String
+  slug           String        @unique
+  contentAr      String?
+  contentEn      String?
+  parentId       String?
+  level          Int           @default(1)
+  showInHeader   Boolean       @default(false)
+  showInFooter   Boolean       @default(false)
+  isPublished    Boolean       @default(false)
+  order          Int           @default(0)
+  metaTitle      String?
+  metaDesc       String?
+  metaKeywords   String?
+  ogImage        String?
+  template       String        @default("blank")
+  customCSS      String?
+  customJS       String?
+  currentVersion Int           @default(1)
+  publishedAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  parent         Page?         @relation("PageHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children       Page[]        @relation("PageHierarchy")
+  blocks         PageBlock[]
+  versions       PageVersion[]
+
+  @@index([slug])
+  @@index([isPublished])
+  @@index([parentId])
+  @@index([showInHeader])
+  @@index([showInFooter])
+}
+
+model PageBlock {
+  id            String   @id @default(cuid())
+  pageId        String
+  type          String
+  content       String
+  settings      String
+  order         Int      @default(0)
+  parentBlockId String?
+  desktop       String?
+  tablet        String?
+  mobile        String?
+  isVisible     Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  page          Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId])
+  @@index([order])
+  @@index([type])
+}
+
+model PageVersion {
+  id         String   @id @default(cuid())
+  pageId     String
+  version    Int
+  title      String
+  blocksData String
+  comment    String?
+  createdBy  String?
+  createdAt  DateTime @default(now())
+  page       Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, version])
+  @@index([pageId])
+}
+
+model WidgetTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  type      String
+  thumbnail String?
+  data      String
+  category  String   @default("general")
+  isActive  Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([category])
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+}

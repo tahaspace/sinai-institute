@@ -1,0 +1,279 @@
+{
+  "common": {
+    "appName": "EduSaas",
+    "tagline": "Educational Institution Management Platform",
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "create": "Create",
+    "update": "Update",
+    "search": "Search",
+    "filter": "Filter",
+    "export": "Export",
+    "import": "Import",
+    "print": "Print",
+    "download": "Download",
+    "upload": "Upload",
+    "view": "View",
+    "back": "Back",
+    "next": "Next",
+    "previous": "Previous",
+    "submit": "Submit",
+    "confirm": "Confirm",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "all": "All",
+    "none": "None",
+    "selectAll": "Select All",
+    "deselectAll": "Deselect All",
+    "actions": "Actions",
+    "status": "Status",
+    "date": "Date",
+    "time": "Time",
+    "name": "Name",
+    "email": "Email",
+    "phone": "Phone",
+    "address": "Address",
+    "description": "Description",
+    "notes": "Notes",
+    "active": "Active",
+    "inactive": "Inactive",
+    "pending": "Pending",
+    "success": "Success",
+    "error": "Error",
+    "warning": "Warning",
+    "info": "Info",
+    "required": "Required",
+    "optional": "Optional",
+    "noData": "No data available",
+    "noResults": "No results found",
+    "rowsPerPage": "Rows per page",
+    "of": "of",
+    "page": "Page",
+    "showing": "Showing",
+    "to": "to",
+    "total": "Total",
+    "darkMode": "Dark Mode",
+    "lightMode": "Light Mode",
+    "language": "Language",
+    "arabic": "العربية",
+    "english": "English"
+  },
+  "nav": {
+    "home": "Home",
+    "features": "Features",
+    "pricing": "Pricing",
+    "about": "About",
+    "contact": "Contact",
+    "login": "Login",
+    "register": "Register",
+    "logout": "Logout",
+    "dashboard": "Dashboard",
+    "profile": "Profile",
+    "settings": "Settings",
+    "notifications": "Notifications",
+    "help": "Help"
+  },
+  "hero": {
+    "title": "Educational Institution Management System",
+    "subtitle": "The Most Integrated in Egypt",
+    "description": "An integrated SaaS platform for managing schools, universities, and institutes of all types. Powerful accounting system, e-learning, and smart reports.",
+    "cta": {
+      "trial": "Start Free Trial",
+      "demo": "Watch Demo",
+      "learnMore": "Learn More"
+    }
+  },
+  "institutions": {
+    "schools": {
+      "title": "Schools",
+      "description": "Complete system for managing all types of schools: governmental, private, languages, and international",
+      "types": {
+        "governmental": "Governmental",
+        "privateArabic": "Private Arabic",
+        "privateLanguage": "Private Languages",
+        "international": "International",
+        "community": "Community"
+      }
+    },
+    "universities": {
+      "title": "Universities",
+      "description": "Comprehensive system for managing universities: governmental, private, international, and national",
+      "types": {
+        "governmental": "Governmental",
+        "private": "Private",
+        "international": "International",
+        "national": "National"
+      }
+    },
+    "institutes": {
+      "title": "Institutes",
+      "description": "Complete system for managing institutes: higher, technical, vocational training",
+      "types": {
+        "higher": "Higher Institute",
+        "technical": "Technical",
+        "vocational": "Vocational Training"
+      }
+    }
+  },
+  "features": {
+    "studentManagement": "Student Management",
+    "teacherManagement": "Teacher Management",
+    "gradeManagement": "Grade Management",
+    "financeSystem": "Finance System",
+    "librarySystem": "Library System",
+    "parentPortal": "Parent Portal",
+    "onlineLearning": "Online Learning",
+    "reports": "Reports & Analytics"
+  },
+  "auth": {
+    "login": {
+      "title": "Login",
+      "subtitle": "Welcome back",
+      "email": "Email",
+      "password": "Password",
+      "rememberMe": "Remember me",
+      "forgotPassword": "Forgot password?",
+      "noAccount": "Don't have an account?",
+      "createAccount": "Create new account",
+      "button": "Login"
+    },
+    "register": {
+      "title": "Create New Account",
+      "subtitle": "Join our platform",
+      "institutionType": "Institution Type",
+      "institutionName": "Institution Name",
+      "fullName": "Full Name",
+      "email": "Email",
+      "phone": "Phone Number",
+      "password": "Password",
+      "confirmPassword": "Confirm Password",
+      "terms": "I agree to the Terms and Conditions",
+      "haveAccount": "Already have an account?",
+      "loginHere": "Login here",
+      "button": "Create Account"
+    },
+    "forgotPassword": {
+      "title": "Forgot Password",
+      "subtitle": "Enter your email to reset your password",
+      "email": "Email",
+      "button": "Send Reset Link",
+      "backToLogin": "Back to Login"
+    },
+    "resetPassword": {
+      "title": "Reset Password",
+      "newPassword": "New Password",
+      "confirmPassword": "Confirm New Password",
+      "button": "Change Password"
+    }
+  },
+  "dashboard": {
+    "welcome": "Welcome",
+    "overview": "Overview",
+    "quickActions": "Quick Actions",
+    "recentActivity": "Recent Activity",
+    "statistics": {
+      "totalStudents": "Total Students",
+      "totalTeachers": "Total Teachers",
+      "activeClasses": "Active Classes",
+      "revenue": "Revenue"
+    }
+  },
+  "students": {
+    "title": "Students",
+    "addStudent": "Add Student",
+    "editStudent": "Edit Student",
+    "studentDetails": "Student Details",
+    "fields": {
+      "studentId": "Student ID",
+      "nationalId": "National ID",
+      "firstName": "First Name",
+      "lastName": "Last Name",
+      "fullName": "Full Name",
+      "birthDate": "Birth Date",
+      "gender": "Gender",
+      "male": "Male",
+      "female": "Female",
+      "grade": "Grade",
+      "class": "Class",
+      "enrollmentDate": "Enrollment Date",
+      "guardian": "Guardian"
+    }
+  },
+  "teachers": {
+    "title": "Teachers",
+    "addTeacher": "Add Teacher",
+    "editTeacher": "Edit Teacher",
+    "teacherDetails": "Teacher Details",
+    "fields": {
+      "teacherId": "Teacher ID",
+      "subject": "Subject",
+      "qualification": "Qualification",
+      "experience": "Years of Experience",
+      "joinDate": "Join Date"
+    }
+  },
+  "grades": {
+    "title": "Grades",
+    "excellent": "Excellent",
+    "veryGood": "Very Good",
+    "good": "Good",
+    "pass": "Pass",
+    "fail": "Fail",
+    "term": {
+      "first": "First Term",
+      "second": "Second Term",
+      "summer": "Summer"
+    }
+  },
+  "finance": {
+    "title": "Finance",
+    "income": "Income",
+    "expenses": "Expenses",
+    "balance": "Balance",
+    "invoices": "Invoices",
+    "payments": "Payments",
+    "fees": "Fees"
+  },
+  "settings": {
+    "title": "Settings",
+    "general": "General",
+    "account": "Account",
+    "security": "Security",
+    "notifications": "Notifications",
+    "appearance": "Appearance",
+    "language": "Language",
+    "timezone": "Timezone"
+  },
+  "validation": {
+    "required": "This field is required",
+    "email": "Invalid email address",
+    "phone": "Invalid phone number",
+    "nationalId": "Invalid national ID",
+    "minLength": "Minimum {min} characters required",
+    "maxLength": "Maximum {max} characters allowed",
+    "passwordMismatch": "Passwords do not match",
+    "passwordStrength": "Password is too weak"
+  },
+  "messages": {
+    "saveSuccess": "Saved successfully",
+    "saveError": "Error while saving",
+    "deleteSuccess": "Deleted successfully",
+    "deleteError": "Error while deleting",
+    "confirmDelete": "Are you sure you want to delete?",
+    "loading": "Loading...",
+    "networkError": "Network connection error",
+    "sessionExpired": "Session expired"
+  },
+  "footer": {
+    "copyright": "All rights reserved",
+    "terms": "Terms & Conditions",
+    "privacy": "Privacy Policy",
+    "contact": "Contact Us"
+  }
+}
+

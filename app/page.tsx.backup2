@@ -1,0 +1,312 @@
+'use client';
+
+import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import {
+  GraduationCap,
+  Users,
+  BookOpen,
+  Award,
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
+
+// Mock data for slider
+const heroSlides = [
+  {
+    id: 1,
+    title: 'مرحباً بكم في معهد سيناء العالي',
+    subtitle: 'للدراسات النوعية',
+    description: 'التعليم المتميز هو طريقنا للمستقبل',
+    image: '/hero-1.jpg',
+    cta: 'التقديم الآن',
+    ctaLink: '/apply',
+  },
+  {
+    id: 2,
+    title: 'تعليم عالي الجودة',
+    subtitle: 'في 6 تخصصات متميزة',
+    description: 'إدارة ضيافة | إرشاد سياحي | دراسات سياحية | لغات | علوم إدارية',
+    image: '/hero-2.jpg',
+    cta: 'اكتشف الأقسام',
+    ctaLink: '/departments',
+  },
+  {
+    id: 3,
+    title: 'نتائج الفصل الدراسي',
+    subtitle: 'متاحة الآن',
+    description: 'يمكنك الاطلاع على نتيجتك من خلال الموقع',
+    image: '/hero-3.jpg',
+    cta: 'عرض النتائج',
+    ctaLink: '/results',
+  },
+];
+
+// Mock departments
+const departments = [
+  { name: 'إدارة ضيافة', icon: '🏨', students: 450, nameEn: 'Hospitality Management' },
+  { name: 'إرشاد سياحي', icon: '🗺️', students: 320, nameEn: 'Tour Guidance' },
+  { name: 'دراسات سياحية', icon: '✈️', students: 380, nameEn: 'Tourism Studies' },
+  { name: 'إنجليزي', icon: '🇬🇧', students: 290, nameEn: 'English Language' },
+  { name: 'فرنسي', icon: '🇫🇷', students: 210, nameEn: 'French Language' },
+  { name: 'علوم إدارية', icon: '📊', students: 340, nameEn: 'Administrative Sciences' },
+];
+
+// Mock stats
+const stats = [
+  { label: 'طالب وطالبة', value: '1990+', icon: Users },
+  { label: 'تخصص أكاديمي', value: '6', icon: BookOpen },
+  { label: 'عضو هيئة تدريس', value: '85+', icon: GraduationCap },
+  { label: 'خريج ناجح', value: '5000+', icon: Award },
+];
+
+export default function HomePage() {
+  const [currentSlide, setCurrentSlide] = useState(0);
+
+  // Auto-advance slides
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % heroSlides.length);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % heroSlides.length);
+  const prevSlide = () =>
+    setCurrentSlide((prev) => (prev - 1 + heroSlides.length) % heroSlides.length);
+
+  return (
+    <div className="pt-32">
+      {/* Hero Slider */}
+      <section className="relative h-[600px] overflow-hidden bg-gradient-to-br from-primary/20 to-secondary/20">
+        {heroSlides.map((slide, index) => (
+          <motion.div
+            key={slide.id}
+            initial={{ opacity: 0 }}
+            animate={{
+              opacity: currentSlide === index ? 1 : 0,
+              scale: currentSlide === index ? 1 : 1.1,
+            }}
+            transition={{ duration: 0.7 }}
+            className="absolute inset-0 flex items-center justify-center"
+          >
+            <div className="container mx-auto px-4 text-center">
+              <motion.div
+                initial={{ y: 30, opacity: 0 }}
+                animate={{
+                  y: currentSlide === index ? 0 : 30,
+                  opacity: currentSlide === index ? 1 : 0,
+                }}
+                transition={{ duration: 0.8, delay: 0.2 }}
+              >
+                <Badge className="mb-4 text-lg px-4 py-1">{slide.subtitle}</Badge>
+                <h1 className="text-5xl md:text-7xl font-bold mb-6">{slide.title}</h1>
+                <p className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-3xl mx-auto">
+                  {slide.description}
+                </p>
+                <Link href={slide.ctaLink}>
+                  <Button size="lg" className="text-lg px-8">
+                    {slide.cta}
+                    <ArrowRight className="mr-2 h-5 w-5" />
+                  </Button>
+                </Link>
+              </motion.div>
+            </div>
+          </motion.div>
+        ))}
+
+        {/* Slider Controls */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4">
+          <button
+            onClick={prevSlide}
+            className="p-2 rounded-full bg-background/80 hover:bg-background transition-colors"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+          <div className="flex gap-2">
+            {heroSlides.map((_, index) => (
+              <button
+                key={index}
+                onClick={() => setCurrentSlide(index)}
+                className={`h-2 rounded-full transition-all ${
+                  currentSlide === index ? 'w-8 bg-primary' : 'w-2 bg-muted'
+                }`}
+              />
+            ))}
+          </div>
+          <button
+            onClick={nextSlide}
+            className="p-2 rounded-full bg-background/80 hover:bg-background transition-colors"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+        </div>
+      </section>
+
+      {/* Stats */}
+      <section className="py-16 bg-muted/30">
+        <div className="container mx-auto px-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+            {stats.map((stat, index) => (
+              <motion.div
+                key={stat.label}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: index * 0.1 }}
+                viewport={{ once: true }}
+                className="text-center"
+              >
+                <stat.icon className="h-12 w-12 mx-auto mb-4 text-primary" />
+                <div className="text-4xl font-bold mb-2">{stat.value}</div>
+                <div className="text-muted-foreground">{stat.label}</div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* About Section */}
+      <section className="py-20">
+        <div className="container mx-auto px-4">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
+            <motion.div
+              initial={{ opacity: 0, x: -50 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.6 }}
+              viewport={{ once: true }}
+            >
+              <Badge className="mb-4">عن المعهد</Badge>
+              <h2 className="text-4xl font-bold mb-6">معهد سيناء العالي للدراسات النوعية</h2>
+              <p className="text-lg text-muted-foreground mb-6">
+                مؤسسة تعليمية رائدة في مجال التعليم العالي، نقدم برامج أكاديمية متميزة في 6
+                تخصصات مختلفة. نهدف إلى إعداد خريجين مؤهلين للمنافسة في سوق العمل المحلي والدولي.
+              </p>
+              <ul className="space-y-3 mb-8">
+                <li className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-primary" />
+                  <span>اعتماد أكاديمي من وزارة التعليم العالي</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-primary" />
+                  <span>هيئة تدريس متميزة</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-primary" />
+                  <span>مرافق حديثة ومجهزة</span>
+                </li>
+              </ul>
+              <Link href="/about">
+                <Button size="lg">
+                  اقرأ المزيد
+                  <ArrowRight className="mr-2 h-4 w-4" />
+                </Button>
+              </Link>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, x: 50 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.6 }}
+              viewport={{ once: true }}
+              className="relative h-[400px] rounded-2xl overflow-hidden bg-gradient-to-br from-primary/20 to-secondary/20"
+            >
+              {/* Placeholder for image */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <GraduationCap className="h-32 w-32 text-primary/40" />
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* Departments */}
+      <section className="py-20 bg-muted/30">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-12">
+            <Badge className="mb-4">الأقسام الأكاديمية</Badge>
+            <h2 className="text-4xl font-bold mb-4">اختر تخصصك</h2>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+              6 تخصصات أكاديمية متميزة تلبي احتياجات سوق العمل
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {departments.map((dept, index) => (
+              <motion.div
+                key={dept.name}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: index * 0.1 }}
+                viewport={{ once: true }}
+              >
+                <Card className="hover:shadow-lg transition-shadow cursor-pointer group">
+                  <CardHeader>
+                    <div className="text-5xl mb-4 group-hover:scale-110 transition-transform">
+                      {dept.icon}
+                    </div>
+                    <CardTitle className="text-xl">{dept.name}</CardTitle>
+                    <CardDescription>{dept.nameEn}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">
+                        {dept.students} طالب
+                      </span>
+                      <Link href="/departments">
+                        <Button variant="ghost" size="sm">
+                          التفاصيل
+                          <ArrowRight className="mr-2 h-4 w-4" />
+                        </Button>
+                      </Link>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+
+          <div className="text-center mt-12">
+            <Link href="/departments">
+              <Button size="lg" variant="outline">
+                عرض جميع الأقسام
+                <ArrowRight className="mr-2 h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Section */}
+      <section className="py-20">
+        <div className="container mx-auto px-4">
+          <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground">
+            <CardContent className="p-12 text-center">
+              <h2 className="text-4xl font-bold mb-4">ابدأ مستقبلك معنا</h2>
+              <p className="text-xl mb-8 opacity-90">
+                قدم الآن والتحق بأحد تخصصاتنا المتميزة
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Link href="/apply">
+                  <Button size="lg" variant="secondary" className="text-lg px-8">
+                    التقديم أونلاين
+                    <ArrowRight className="mr-2 h-5 w-5" />
+                  </Button>
+                </Link>
+                <Link href="/contact">
+                  <Button size="lg" variant="outline" className="text-lg px-8 text-primary-foreground border-primary-foreground hover:bg-primary-foreground hover:text-primary">
+                    اتصل بنا
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+    </div>
+  );
+}

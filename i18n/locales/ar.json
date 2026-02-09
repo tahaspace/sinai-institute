@@ -1,0 +1,279 @@
+{
+  "common": {
+    "appName": "إيدو ساس",
+    "tagline": "منصة إدارة المؤسسات التعليمية",
+    "loading": "جاري التحميل...",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "delete": "حذف",
+    "edit": "تعديل",
+    "add": "إضافة",
+    "create": "إنشاء",
+    "update": "تحديث",
+    "search": "بحث",
+    "filter": "تصفية",
+    "export": "تصدير",
+    "import": "استيراد",
+    "print": "طباعة",
+    "download": "تنزيل",
+    "upload": "رفع",
+    "view": "عرض",
+    "back": "رجوع",
+    "next": "التالي",
+    "previous": "السابق",
+    "submit": "إرسال",
+    "confirm": "تأكيد",
+    "close": "إغلاق",
+    "yes": "نعم",
+    "no": "لا",
+    "all": "الكل",
+    "none": "لا شيء",
+    "selectAll": "تحديد الكل",
+    "deselectAll": "إلغاء تحديد الكل",
+    "actions": "الإجراءات",
+    "status": "الحالة",
+    "date": "التاريخ",
+    "time": "الوقت",
+    "name": "الاسم",
+    "email": "البريد الإلكتروني",
+    "phone": "الهاتف",
+    "address": "العنوان",
+    "description": "الوصف",
+    "notes": "ملاحظات",
+    "active": "نشط",
+    "inactive": "غير نشط",
+    "pending": "معلق",
+    "success": "نجاح",
+    "error": "خطأ",
+    "warning": "تحذير",
+    "info": "معلومات",
+    "required": "مطلوب",
+    "optional": "اختياري",
+    "noData": "لا توجد بيانات",
+    "noResults": "لا توجد نتائج",
+    "rowsPerPage": "الصفوف لكل صفحة",
+    "of": "من",
+    "page": "صفحة",
+    "showing": "عرض",
+    "to": "إلى",
+    "total": "الإجمالي",
+    "darkMode": "الوضع الداكن",
+    "lightMode": "الوضع الفاتح",
+    "language": "اللغة",
+    "arabic": "العربية",
+    "english": "English"
+  },
+  "nav": {
+    "home": "الرئيسية",
+    "features": "المميزات",
+    "pricing": "الأسعار",
+    "about": "عن المنصة",
+    "contact": "اتصل بنا",
+    "login": "تسجيل الدخول",
+    "register": "التسجيل",
+    "logout": "تسجيل الخروج",
+    "dashboard": "لوحة التحكم",
+    "profile": "الملف الشخصي",
+    "settings": "الإعدادات",
+    "notifications": "الإشعارات",
+    "help": "المساعدة"
+  },
+  "hero": {
+    "title": "نظام إدارة المؤسسات التعليمية",
+    "subtitle": "الأكثر تكاملاً في مصر",
+    "description": "منصة SaaS متكاملة لإدارة المدارس والجامعات والمعاهد بجميع أنواعها. نظام حسابات قوي، تعليم إلكتروني، وتقارير ذكية.",
+    "cta": {
+      "trial": "ابدأ التجربة المجانية",
+      "demo": "شاهد العرض التوضيحي",
+      "learnMore": "تعرف على المزيد"
+    }
+  },
+  "institutions": {
+    "schools": {
+      "title": "المدارس",
+      "description": "نظام متكامل لإدارة جميع أنواع المدارس: حكومية، خاصة، لغات، وإنترناشيونال",
+      "types": {
+        "governmental": "حكومية",
+        "privateArabic": "خاصة عربي",
+        "privateLanguage": "خاصة لغات",
+        "international": "إنترناشيونال",
+        "community": "مجتمعية"
+      }
+    },
+    "universities": {
+      "title": "الجامعات",
+      "description": "نظام شامل لإدارة الجامعات: حكومية، خاصة، دولية، وأهلية",
+      "types": {
+        "governmental": "حكومية",
+        "private": "خاصة",
+        "international": "دولية",
+        "national": "أهلية"
+      }
+    },
+    "institutes": {
+      "title": "المعاهد",
+      "description": "نظام متكامل لإدارة المعاهد: العليا، الفنية، التدريب المهني",
+      "types": {
+        "higher": "معهد عالي",
+        "technical": "فني",
+        "vocational": "تدريب مهني"
+      }
+    }
+  },
+  "features": {
+    "studentManagement": "إدارة الطلاب",
+    "teacherManagement": "إدارة المعلمين",
+    "gradeManagement": "إدارة الدرجات",
+    "financeSystem": "نظام الحسابات",
+    "librarySystem": "نظام المكتبة",
+    "parentPortal": "بوابة أولياء الأمور",
+    "onlineLearning": "التعليم الإلكتروني",
+    "reports": "التقارير والإحصائيات"
+  },
+  "auth": {
+    "login": {
+      "title": "تسجيل الدخول",
+      "subtitle": "أهلاً بك مرة أخرى",
+      "email": "البريد الإلكتروني",
+      "password": "كلمة المرور",
+      "rememberMe": "تذكرني",
+      "forgotPassword": "نسيت كلمة المرور؟",
+      "noAccount": "ليس لديك حساب؟",
+      "createAccount": "إنشاء حساب جديد",
+      "button": "تسجيل الدخول"
+    },
+    "register": {
+      "title": "إنشاء حساب جديد",
+      "subtitle": "انضم إلى منصتنا",
+      "institutionType": "نوع المؤسسة",
+      "institutionName": "اسم المؤسسة",
+      "fullName": "الاسم الكامل",
+      "email": "البريد الإلكتروني",
+      "phone": "رقم الهاتف",
+      "password": "كلمة المرور",
+      "confirmPassword": "تأكيد كلمة المرور",
+      "terms": "أوافق على الشروط والأحكام",
+      "haveAccount": "لديك حساب بالفعل؟",
+      "loginHere": "تسجيل الدخول",
+      "button": "إنشاء الحساب"
+    },
+    "forgotPassword": {
+      "title": "نسيت كلمة المرور",
+      "subtitle": "أدخل بريدك الإلكتروني لإعادة تعيين كلمة المرور",
+      "email": "البريد الإلكتروني",
+      "button": "إرسال رابط الاستعادة",
+      "backToLogin": "العودة لتسجيل الدخول"
+    },
+    "resetPassword": {
+      "title": "إعادة تعيين كلمة المرور",
+      "newPassword": "كلمة المرور الجديدة",
+      "confirmPassword": "تأكيد كلمة المرور الجديدة",
+      "button": "تغيير كلمة المرور"
+    }
+  },
+  "dashboard": {
+    "welcome": "مرحباً",
+    "overview": "نظرة عامة",
+    "quickActions": "إجراءات سريعة",
+    "recentActivity": "النشاط الأخير",
+    "statistics": {
+      "totalStudents": "إجمالي الطلاب",
+      "totalTeachers": "إجمالي المعلمين",
+      "activeClasses": "الفصول النشطة",
+      "revenue": "الإيرادات"
+    }
+  },
+  "students": {
+    "title": "الطلاب",
+    "addStudent": "إضافة طالب",
+    "editStudent": "تعديل بيانات الطالب",
+    "studentDetails": "تفاصيل الطالب",
+    "fields": {
+      "studentId": "رقم الطالب",
+      "nationalId": "الرقم القومي",
+      "firstName": "الاسم الأول",
+      "lastName": "اسم العائلة",
+      "fullName": "الاسم الكامل",
+      "birthDate": "تاريخ الميلاد",
+      "gender": "النوع",
+      "male": "ذكر",
+      "female": "أنثى",
+      "grade": "الصف",
+      "class": "الفصل",
+      "enrollmentDate": "تاريخ الالتحاق",
+      "guardian": "ولي الأمر"
+    }
+  },
+  "teachers": {
+    "title": "المعلمون",
+    "addTeacher": "إضافة معلم",
+    "editTeacher": "تعديل بيانات المعلم",
+    "teacherDetails": "تفاصيل المعلم",
+    "fields": {
+      "teacherId": "رقم المعلم",
+      "subject": "المادة",
+      "qualification": "المؤهل",
+      "experience": "سنوات الخبرة",
+      "joinDate": "تاريخ الالتحاق"
+    }
+  },
+  "grades": {
+    "title": "الدرجات",
+    "excellent": "ممتاز",
+    "veryGood": "جيد جداً",
+    "good": "جيد",
+    "pass": "مقبول",
+    "fail": "ضعيف",
+    "term": {
+      "first": "الفصل الدراسي الأول",
+      "second": "الفصل الدراسي الثاني",
+      "summer": "الصيفي"
+    }
+  },
+  "finance": {
+    "title": "الحسابات",
+    "income": "الإيرادات",
+    "expenses": "المصروفات",
+    "balance": "الرصيد",
+    "invoices": "الفواتير",
+    "payments": "المدفوعات",
+    "fees": "الرسوم"
+  },
+  "settings": {
+    "title": "الإعدادات",
+    "general": "عام",
+    "account": "الحساب",
+    "security": "الأمان",
+    "notifications": "الإشعارات",
+    "appearance": "المظهر",
+    "language": "اللغة",
+    "timezone": "المنطقة الزمنية"
+  },
+  "validation": {
+    "required": "هذا الحقل مطلوب",
+    "email": "البريد الإلكتروني غير صحيح",
+    "phone": "رقم الهاتف غير صحيح",
+    "nationalId": "الرقم القومي غير صحيح",
+    "minLength": "الحد الأدنى للأحرف هو {min}",
+    "maxLength": "الحد الأقصى للأحرف هو {max}",
+    "passwordMismatch": "كلمات المرور غير متطابقة",
+    "passwordStrength": "كلمة المرور ضعيفة"
+  },
+  "messages": {
+    "saveSuccess": "تم الحفظ بنجاح",
+    "saveError": "حدث خطأ أثناء الحفظ",
+    "deleteSuccess": "تم الحذف بنجاح",
+    "deleteError": "حدث خطأ أثناء الحذف",
+    "confirmDelete": "هل أنت متأكد من الحذف؟",
+    "loading": "جاري التحميل...",
+    "networkError": "خطأ في الاتصال بالشبكة",
+    "sessionExpired": "انتهت صلاحية الجلسة"
+  },
+  "footer": {
+    "copyright": "جميع الحقوق محفوظة",
+    "terms": "الشروط والأحكام",
+    "privacy": "سياسة الخصوصية",
+    "contact": "اتصل بنا"
+  }
+}
+

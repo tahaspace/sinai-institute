@@ -1,0 +1,1555 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    /* الأزرق الجميل #0B69D4 = 205 96% 44% */
+    --primary: 205 96% 44%;
+    --primary-foreground: 0 0% 100%;
+
+    /* الذهبي الجميل #FFC700 = 47 100% 50% */
+    --secondary: 47 100% 50%;
+    --secondary-foreground: 222.2 84% 4.9%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 47 100% 50%;
+    --accent-foreground: 222.2 84% 4.9%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 205 96% 44%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    /* الأزرق الجميل للوضع الليلي */
+    --primary: 205 96% 44%;
+    --primary-foreground: 0 0% 100%;
+
+    /* الذهبي الجميل للوضع الليلي */
+    --secondary: 47 100% 50%;
+    --secondary-foreground: 222.2 84% 4.9%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 47 100% 50%;
+    --accent-foreground: 222.2 84% 4.9%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 205 96% 44%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Rich Text Editor Styles - Enhanced for Elementor-like features */
+.ProseMirror {
+  outline: none;
+  padding: 2rem;
+  min-height: 500px;
+  max-height: 700px;
+  overflow-y: auto;
+}
+
+/* Support for custom font sizes */
+.ProseMirror [style*="font-size"] {
+  font-size: inherit !important;
+}
+
+/* Support for custom line heights */
+.ProseMirror [style*="line-height"] {
+  line-height: inherit !important;
+}
+
+/* Support for custom letter spacing */
+.ProseMirror [style*="letter-spacing"] {
+  letter-spacing: inherit !important;
+}
+
+/* Support for text transform */
+.ProseMirror [style*="text-transform"] {
+  text-transform: inherit !important;
+}
+
+/* Support for text shadow */
+.ProseMirror [style*="text-shadow"] {
+  text-shadow: inherit !important;
+}
+
+.ProseMirror > * + * {
+  margin-top: 0.75em;
+}
+
+.ProseMirror h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+  color: #0B69D4;
+}
+
+.ProseMirror h2 {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-top: 1.25rem;
+  margin-bottom: 0.75rem;
+  color: #0B69D4;
+}
+
+.ProseMirror h3 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: #0B69D4;
+}
+
+.ProseMirror ul,
+.ProseMirror ol {
+  padding: 0 2rem;
+  margin: 1rem 0;
+}
+
+.ProseMirror ul {
+  list-style-type: disc;
+}
+
+.ProseMirror ol {
+  list-style-type: decimal;
+}
+
+.ProseMirror li {
+  margin: 0.5rem 0;
+}
+
+.ProseMirror a {
+  color: #0B69D4;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ProseMirror a:hover {
+  color: #FFC700;
+}
+
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin: 1rem 0;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.ProseMirror blockquote {
+  border-right: 4px solid #FFC700;
+  padding-right: 1rem;
+  margin: 1rem 0;
+  font-style: italic;
+  color: #6B7280;
+  background-color: #F9FAFB;
+  padding: 1rem;
+  border-radius: 0.25rem;
+}
+
+.ProseMirror code {
+  background-color: #F3F4F6;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.25rem;
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+  color: #EF4444;
+}
+
+.ProseMirror pre {
+  background-color: #1F2937;
+  color: #F9FAFB;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.ProseMirror pre code {
+  background-color: transparent;
+  padding: 0;
+  color: #F9FAFB;
+}
+
+.ProseMirror hr {
+  border: none;
+  border-top: 2px solid #E5E7EB;
+  margin: 2rem 0;
+}
+
+.ProseMirror table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 1rem 0;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.ProseMirror table td,
+.ProseMirror table th {
+  min-width: 1em;
+  border: 1px solid #D1D5DB;
+  padding: 0.75rem 1rem;
+  vertical-align: top;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.ProseMirror table th {
+  font-weight: 700;
+  text-align: right;
+  background-color: #0B69D4;
+  color: white;
+}
+
+.ProseMirror table td {
+  background-color: white;
+}
+
+.ProseMirror table tr:nth-child(even) td {
+  background-color: #F9FAFB;
+}
+
+.ProseMirror table .selectedCell:after {
+  z-index: 2;
+  position: absolute;
+  content: "";
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(11, 105, 212, 0.1);
+  pointer-events: none;
+}
+
+.ProseMirror table .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  background-color: #FFC700;
+  pointer-events: none;
+}
+
+.ProseMirror.resize-cursor {
+  cursor: ew-resize;
+  cursor: col-resize;
+}
+
+/* Placeholder */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: right;
+  color: #9CA3AF;
+  pointer-events: none;
+  height: 0;
+}
+
+/* RTL Support */
+.prose-rtl {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Selection */
+.ProseMirror ::selection {
+  background-color: rgba(11, 105, 212, 0.2);
+}
+
+/* Focus */
+.ProseMirror:focus {
+  outline: none;
+}
+
+/* Smooth scrollbar */
+.ProseMirror::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ProseMirror::-webkit-scrollbar-track {
+  background: #F3F4F6;
+}
+
+.ProseMirror::-webkit-scrollbar-thumb {
+  background: #0B69D4;
+  border-radius: 4px;
+}
+
+.ProseMirror::-webkit-scrollbar-thumb:hover {
+  background: #FFC700;
+}
+
+/* Highlight colors */
+mark {
+  padding: 0.1em 0.2em;
+  border-radius: 0.2em;
+}
+
+/* Subscript & Superscript */
+.ProseMirror sub {
+  vertical-align: sub;
+  font-size: 0.75em;
+}
+
+.ProseMirror sup {
+  vertical-align: super;
+  font-size: 0.75em;
+}
+
+/* Elementor-like Button Styles */
+.ProseMirror a[class*="bg-"] {
+  display: inline-block;
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+
+.ProseMirror a[class*="bg-"]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Spacer elements */
+.ProseMirror div[style*="height"] {
+  display: block;
+}
+
+/* Column layouts */
+.ProseMirror div[style*="grid-template-columns"] {
+  display: grid;
+}
+
+/* Enhanced focus state */
+.ProseMirror:focus-within {
+  box-shadow: 0 0 0 2px rgba(11, 105, 212, 0.1);
+}
+
+/* Custom scrollbar for editor */
+.ProseMirror::-webkit-scrollbar {
+  width: 10px;
+}
+
+.ProseMirror::-webkit-scrollbar-track {
+  background: linear-gradient(to bottom, #f3f4f6, #e5e7eb);
+  border-radius: 5px;
+}
+
+.ProseMirror::-webkit-scrollbar-thumb {
+  background: linear-gradient(to bottom, #0B69D4, #0857b0);
+  border-radius: 5px;
+}
+
+.ProseMirror::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to bottom, #FFC700, #e6b300);
+}
+
+/* ========================================
+   🎨 Elementor Widgets Styles & Animations
+   ======================================== */
+
+/* Keyframes Animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(-50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+@keyframes progressLoad {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: var(--progress-width);
+  }
+}
+
+@keyframes countUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes starPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+}
+
+/* ========================================
+   🎬 Video Widget
+   ======================================== */
+.elementor-video-widget {
+  position: relative;
+  padding-bottom: 56.25%;
+  height: 0;
+  overflow: hidden;
+  margin: 2rem 0;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  animation: fadeInUp 0.6s ease-out;
+  transition: all 0.3s ease;
+}
+
+.elementor-video-widget:hover {
+  box-shadow: 0 15px 50px rgba(0, 0, 0, 0.3);
+  transform: translateY(-5px);
+}
+
+.elementor-video-widget iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.elementor-video-widget::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: 16px;
+}
+
+.elementor-video-widget:hover::before {
+  opacity: 1;
+}
+
+/* ========================================
+   📊 Counter Widget
+   ======================================== */
+.elementor-counter-widget {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 16px;
+  margin: 2rem 0;
+  box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+  animation: fadeInUp 0.8s ease-out;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.elementor-counter-widget::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    45deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+  transform: rotate(45deg);
+  animation: shimmer 3s infinite;
+}
+
+.elementor-counter-widget:hover {
+  transform: translateY(-10px) scale(1.02);
+  box-shadow: 0 20px 50px rgba(102, 126, 234, 0.5);
+}
+
+.elementor-counter-widget > div:first-child {
+  font-size: 4rem;
+  font-weight: 900;
+  margin-bottom: 0.75rem;
+  animation: countUp 1s ease-out;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.elementor-counter-widget > div:last-child {
+  font-size: 1.5rem;
+  opacity: 0.95;
+  font-weight: 500;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ========================================
+   ⭐ Star Rating Widget
+   ======================================== */
+.elementor-star-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 2.5rem;
+  color: #FFC107;
+  margin: 1rem 0;
+  animation: fadeIn 0.5s ease-out;
+  filter: drop-shadow(0 2px 4px rgba(255, 193, 7, 0.3));
+}
+
+.elementor-star-rating:hover {
+  animation: starPulse 0.6s ease-in-out;
+}
+
+/* ========================================
+   📈 Progress Bar Widget
+   ======================================== */
+.elementor-progress-bar {
+  margin: 2rem 0;
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.elementor-progress-bar > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  font-weight: 700;
+  font-size: 1.125rem;
+  color: #1F2937;
+}
+
+.elementor-progress-bar > div:last-child {
+  background: linear-gradient(to right, #E5E7EB, #F3F4F6);
+  height: 28px;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+  position: relative;
+}
+
+.elementor-progress-bar > div:last-child > div {
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  height: 100%;
+  border-radius: 14px;
+  transition: width 1.5s cubic-bezier(0.65, 0, 0.35, 1);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+}
+
+.elementor-progress-bar > div:last-child > div::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+  animation: shimmer 2s infinite;
+}
+
+/* ========================================
+   🔔 Alert Widget
+   ======================================== */
+.elementor-alert-widget {
+  padding: 1.25rem 1.75rem;
+  border-right: 5px solid;
+  border-radius: 10px;
+  margin: 1.5rem 0;
+  font-weight: 500;
+  font-size: 1rem;
+  animation: slideInRight 0.5s ease-out;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.elementor-alert-widget:hover {
+  transform: translateX(5px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+.elementor-alert-widget::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 5px;
+  height: 100%;
+  background: inherit;
+  animation: pulse 2s infinite;
+}
+
+/* ========================================
+   💬 Testimonial Widget
+   ======================================== */
+.elementor-testimonial-widget {
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  padding: 3rem 2.5rem;
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+  margin: 2rem 0;
+  text-align: center;
+  animation: fadeInUp 0.7s ease-out;
+  position: relative;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(102, 126, 234, 0.1);
+}
+
+.elementor-testimonial-widget:hover {
+  transform: translateY(-10px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+}
+
+.elementor-testimonial-widget > div:first-child {
+  font-size: 4rem;
+  color: #667eea;
+  margin-bottom: 1.5rem;
+  opacity: 0.3;
+  line-height: 0.5;
+}
+
+.elementor-testimonial-widget p {
+  font-size: 1.25rem;
+  font-style: italic;
+  color: #4B5563;
+  margin-bottom: 2rem;
+  line-height: 1.8;
+  position: relative;
+  padding: 0 2rem;
+}
+
+.elementor-testimonial-widget > div:last-child {
+  border-top: 2px solid rgba(102, 126, 234, 0.2);
+  padding-top: 1.5rem;
+  margin-top: 1rem;
+}
+
+.elementor-testimonial-widget > div:last-child > div:first-child {
+  font-weight: 700;
+  color: #111827;
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.elementor-testimonial-widget > div:last-child > div:last-child {
+  color: #667eea;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+/* ========================================
+   🗺️ Google Map Widget
+   ======================================== */
+.elementor-google-map {
+  margin: 2rem 0;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  animation: fadeInUp 0.6s ease-out;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.elementor-google-map:hover {
+  box-shadow: 0 15px 60px rgba(0, 0, 0, 0.2);
+  transform: translateY(-5px);
+}
+
+.elementor-google-map::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.elementor-google-map:hover::before {
+  opacity: 1;
+}
+
+.elementor-google-map iframe {
+  display: block;
+  width: 100%;
+  height: 450px;
+  border: 0;
+}
+
+/* ========================================
+   📱 Social Icons Widget
+   ======================================== */
+.elementor-social-icons {
+  display: flex;
+  gap: 1.25rem;
+  justify-content: center;
+  margin: 2rem 0;
+  animation: fadeIn 0.5s ease-out;
+}
+
+.elementor-social-icons a {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 1.5rem;
+  transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  position: relative;
+  overflow: hidden;
+}
+
+.elementor-social-icons a::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transition: width 0.6s, height 0.6s, top 0.6s, left 0.6s;
+}
+
+.elementor-social-icons a:hover {
+  transform: translateY(-10px) scale(1.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.elementor-social-icons a:hover::before {
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+}
+
+.elementor-social-icons a:active {
+  transform: translateY(-5px) scale(1.05);
+}
+
+/* ========================================
+   📦 Icon Box Widget
+   ======================================== */
+.elementor-icon-box {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border-radius: 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  margin: 1.5rem 0;
+  transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  animation: fadeInUp 0.6s ease-out;
+  position: relative;
+  overflow: hidden;
+  border: 2px solid transparent;
+}
+
+.elementor-icon-box::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(102, 126, 234, 0.1) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.elementor-icon-box:hover {
+  transform: translateY(-15px) scale(1.03);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+  border-color: rgba(102, 126, 234, 0.3);
+}
+
+.elementor-icon-box:hover::before {
+  opacity: 1;
+}
+
+.elementor-icon-box > div:first-child {
+  font-size: 5rem;
+  margin-bottom: 1.5rem;
+  animation: bounceIn 0.8s ease-out;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
+  transition: all 0.3s ease;
+}
+
+.elementor-icon-box:hover > div:first-child {
+  transform: scale(1.1) rotate(5deg);
+}
+
+.elementor-icon-box h3 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 1rem;
+  transition: color 0.3s ease;
+}
+
+.elementor-icon-box:hover h3 {
+  color: #667eea;
+}
+
+.elementor-icon-box p {
+  color: #6B7280;
+  line-height: 1.8;
+  font-size: 1.05rem;
+}
+
+/* ========================================
+   📋 Accordion Widget
+   ======================================== */
+.elementor-accordion {
+  margin: 2rem 0;
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.elementor-accordion details {
+  background: white;
+  border: 2px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1rem;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.elementor-accordion details:hover {
+  border-color: #667eea;
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.15);
+  transform: translateX(5px);
+}
+
+.elementor-accordion details[open] {
+  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+  border-color: #667eea;
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.2);
+}
+
+.elementor-accordion summary {
+  font-weight: 700;
+  cursor: pointer;
+  color: #111827;
+  padding: 0.75rem 1rem;
+  user-select: none;
+  position: relative;
+  padding-right: 2rem;
+  font-size: 1.125rem;
+  transition: all 0.3s ease;
+}
+
+.elementor-accordion summary::-webkit-details-marker {
+  display: none;
+}
+
+.elementor-accordion summary::after {
+  content: '+';
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #667eea;
+  transition: all 0.3s ease;
+}
+
+.elementor-accordion details[open] summary::after {
+  content: '−';
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.elementor-accordion summary:hover {
+  color: #667eea;
+}
+
+.elementor-accordion details > div {
+  padding-top: 1.25rem;
+  color: #4B5563;
+  border-top: 2px solid #E5E7EB;
+  margin-top: 1rem;
+  line-height: 1.8;
+  font-size: 1.05rem;
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* ========================================
+   🎨 Global Widget Enhancements
+   ======================================== */
+
+/* Smooth scroll behavior */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Widget responsiveness */
+@media (max-width: 768px) {
+  .elementor-counter-widget {
+    padding: 2rem 1.5rem;
+  }
+  
+  .elementor-counter-widget > div:first-child {
+    font-size: 3rem;
+  }
+  
+  .elementor-icon-box {
+    padding: 2rem 1.5rem;
+  }
+  
+  .elementor-icon-box > div:first-child {
+    font-size: 4rem;
+  }
+  
+  .elementor-testimonial-widget {
+    padding: 2rem 1.5rem;
+  }
+  
+  .elementor-testimonial-widget p {
+    padding: 0 1rem;
+    font-size: 1.1rem;
+  }
+  
+  .elementor-social-icons a {
+    width: 50px;
+    height: 50px;
+    font-size: 1.25rem;
+  }
+}
+
+/* Print styles */
+@media print {
+  .elementor-video-widget,
+  .elementor-google-map {
+    display: none;
+  }
+}
+
+/* ========================================
+   📝 GrapesJS Page Builder Styles
+   ======================================== */
+
+#gjs {
+  border: none !important;
+  font-family: 'Tajawal', sans-serif;
+}
+
+.gjs-cv-canvas {
+  background-color: #ffffff;
+}
+
+/* Blocks Styling - IMPORTANT OVERRIDES */
+.gjs-block {
+  width: calc(50% - 10px) !important;
+  min-height: 90px !important;
+  padding: 15px 10px !important;
+  margin: 5px !important;
+  background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%) !important;
+  border: 2px solid #bfdbfe !important;
+  border-radius: 10px !important;
+  cursor: pointer !important;
+  transition: all 0.3s ease !important;
+  display: inline-flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+}
+
+.gjs-block:hover {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%) !important;
+  border-color: #0B69D4 !important;
+  transform: translateY(-5px) scale(1.03) !important;
+  box-shadow: 0 12px 24px rgba(11, 105, 212, 0.3) !important;
+}
+
+.gjs-block-label {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+  color: #1e3a8a !important;
+  margin-top: 8px !important;
+  line-height: 1.4 !important;
+  direction: rtl !important;
+  font-family: 'Tajawal', sans-serif !important;
+}
+
+.gjs-block i,
+.gjs-block .fa {
+  font-size: 36px !important;
+  margin-bottom: 10px !important;
+  display: block !important;
+  color: #0B69D4 !important;
+}
+
+.gjs-block-category .gjs-title {
+  background: linear-gradient(135deg, #0B69D4 0%, #0857b0 100%) !important;
+  color: white !important;
+  padding: 14px 18px !important;
+  font-weight: 700 !important;
+  font-size: 15px !important;
+  border-radius: 8px !important;
+  margin: 8px 5px 15px 5px !important;
+  box-shadow: 0 4px 8px rgba(11, 105, 212, 0.4) !important;
+  text-align: right !important;
+  direction: rtl !important;
+  font-family: 'Tajawal', sans-serif !important;
+}
+
+.gjs-blocks-c {
+  padding: 12px !important;
+  background: #f9fafb !important;
+}
+
+.gjs-block-category {
+  margin-bottom: 20px !important;
+}
+
+.gjs-sm-sector .gjs-sm-title {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%) !important;
+  padding: 14px 18px !important;
+  font-weight: 700 !important;
+  font-size: 14px !important;
+  cursor: pointer !important;
+  border-radius: 8px !important;
+  margin: 10px 8px !important;
+  color: #1e3a8a !important;
+  direction: rtl !important;
+  text-align: right !important;
+  font-family: 'Tajawal', sans-serif !important;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.2) !important;
+}
+
+.gjs-sm-sector .gjs-sm-title:hover {
+  background: linear-gradient(135deg, #bfdbfe 0%, #93c5fd 100%) !important;
+  transform: translateX(-3px) !important;
+  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3) !important;
+}
+
+.gjs-sm-property {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.gjs-sm-label {
+  font-weight: 600;
+  color: #4b5563;
+  font-size: 12px;
+}
+
+.gjs-field input,
+.gjs-field select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 2px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.gjs-field input:focus,
+.gjs-field select:focus {
+  outline: none;
+  border-color: #0B69D4;
+  box-shadow: 0 0 0 3px rgba(11, 105, 212, 0.1);
+}
+
+.gjs-toolbar {
+  background: white;
+  border: 2px solid #0B69D4;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(11, 105, 212, 0.2);
+  padding: 4px;
+}
+
+.gjs-toolbar-item {
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-radius: 4px;
+  margin: 0 2px;
+}
+
+.gjs-toolbar-item:hover {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  transform: scale(1.1);
+}
+
+/* RTL Support for GrapesJS */
+.gjs-frame [dir="rtl"] {
+  text-align: right;
+  direction: rtl;
+}
+
+/* Custom blocks styling */
+.gjs-selected {
+  outline: 3px solid #0B69D4 !important;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(11, 105, 212, 0.15) !important;
+}
+
+.gjs-hovered {
+  outline: 2px dashed #FFC700 !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(255, 199, 0, 0.1) !important;
+}
+
+/* Panel buttons */
+.gjs-pn-btn {
+  background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+  border: 2px solid #e5e7eb;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: all 0.3s;
+  border-radius: 6px;
+  margin: 2px;
+}
+
+.gjs-pn-btn:hover {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-color: #0B69D4;
+  transform: scale(1.05);
+}
+
+.gjs-pn-btn.gjs-pn-active {
+  background: linear-gradient(135deg, #0B69D4 0%, #0857b0 100%);
+  color: white;
+  border-color: #0B69D4;
+  box-shadow: 0 4px 8px rgba(11, 105, 212, 0.3);
+}
+
+/* Layer manager */
+.gjs-layer {
+  padding: 12px 14px !important;
+  border-bottom: 2px solid #f3f4f6 !important;
+  cursor: pointer !important;
+  transition: all 0.3s ease !important;
+  border-radius: 6px !important;
+  margin: 4px 6px !important;
+  font-size: 13px !important;
+  font-family: 'Tajawal', sans-serif !important;
+}
+
+.gjs-layer:hover {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%) !important;
+  transform: translateX(-6px) !important;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15) !important;
+}
+
+.gjs-layer.gjs-selected {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%) !important;
+  border-right: 5px solid #0B69D4 !important;
+  font-weight: 700 !important;
+  color: #1e3a8a !important;
+  box-shadow: 0 4px 12px rgba(11, 105, 212, 0.25) !important;
+}
+
+/* Traits manager */
+.gjs-trt-trait {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f3f4f6;
+  margin-bottom: 8px;
+}
+
+.gjs-trt-trait__label {
+  font-weight: 600;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #374151;
+  direction: rtl;
+  text-align: right;
+}
+
+/* Custom scrollbar for GrapesJS panels */
+.gjs-blocks-c::-webkit-scrollbar,
+.gjs-sm-sectors::-webkit-scrollbar,
+.gjs-layers::-webkit-scrollbar {
+  width: 8px;
+}
+
+.gjs-blocks-c::-webkit-scrollbar-thumb,
+.gjs-sm-sectors::-webkit-scrollbar-thumb,
+.gjs-layers::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.gjs-blocks-c::-webkit-scrollbar-track,
+.gjs-sm-sectors::-webkit-scrollbar-track,
+.gjs-layers::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+
+/* ========================================
+   ✨ GrapesJS Enhanced Styling
+   ======================================== */
+
+/* Canvas Frame */
+.gjs-frame {
+  border: 3px solid #d1d5db !important;
+  border-radius: 12px !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12) !important;
+  background: white !important;
+}
+
+/* Panels Container */
+.gjs-pn-panels {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%) !important;
+  padding: 10px !important;
+}
+
+/* Top Toolbar */
+.gjs-pn-commands {
+  background: white !important;
+  border-bottom: 2px solid #e5e7eb !important;
+  padding: 8px 12px !important;
+}
+
+/* Block Categories */
+.gjs-block-categories {
+  padding: 8px;
+}
+
+/* Component Outline */
+.gjs-comp-selected {
+  outline: 3px solid #0B69D4 !important;
+  outline-offset: 4px;
+}
+
+/* Resize Handler */
+.gjs-resizer-h {
+  background: #0B69D4 !important;
+}
+
+.gjs-resizer-h-tl,
+.gjs-resizer-h-tr,
+.gjs-resizer-h-tc,
+.gjs-resizer-h-cl,
+.gjs-resizer-h-cr,
+.gjs-resizer-h-bl,
+.gjs-resizer-h-br,
+.gjs-resizer-h-bc {
+  width: 10px !important;
+  height: 10px !important;
+  background: #0B69D4 !important;
+  border: 2px solid white !important;
+  border-radius: 50% !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Sidebar Headers */
+.gjs-sm-sectors,
+.gjs-layers,
+.gjs-trt-traits {
+  background: white;
+}
+
+/* Better Typography */
+.gjs-layer__name,
+.gjs-sm-label,
+.gjs-trt-trait__label {
+  font-family: 'Tajawal', sans-serif !important;
+}
+
+/* Scrollbar for all panels */
+.gjs-blocks-c::-webkit-scrollbar,
+.gjs-sm-sectors::-webkit-scrollbar,
+.gjs-layers::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.gjs-blocks-c::-webkit-scrollbar-track,
+.gjs-sm-sectors::-webkit-scrollbar-track,
+.gjs-layers::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 4px;
+}
+
+.gjs-blocks-c::-webkit-scrollbar-thumb,
+.gjs-sm-sectors::-webkit-scrollbar-thumb,
+.gjs-layers::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #cbd5e1 0%, #94a3b8 100%);
+  border-radius: 4px;
+}
+
+.gjs-blocks-c::-webkit-scrollbar-thumb:hover,
+.gjs-sm-sectors::-webkit-scrollbar-thumb:hover,
+.gjs-layers::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+}
+
+/* Empty State */
+.gjs-cv-canvas__frames {
+  background: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
+}
+
+/* Drop Zone Indicator */
+.gjs-dashed {
+  border: 2px dashed #0B69D4 !important;
+  background: rgba(11, 105, 212, 0.05) !important;
+}
+
+
+/* ========================================
+   🎯 Force Better GrapesJS Styling
+   ======================================== */
+
+/* Force white background for canvas */
+.gjs-cv-canvas {
+  background: #ffffff !important;
+}
+
+/* Better panel styling */
+.gjs-pn-panel {
+  background: white !important;
+  border-radius: 8px !important;
+  margin: 5px !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Sidebar backgrounds */
+#blocks,
+#styles,
+#layers,
+#traits {
+  background: #fafafa !important;
+}
+
+/* Better headers for sidebars */
+.gjs-blocks-c,
+.gjs-sm-sectors,
+.gjs-layers-c {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%) !important;
+  padding: 15px 10px !important;
+}
+
+/* Make block labels more visible */
+.gjs-block * {
+  pointer-events: none !important;
+}
+
+.gjs-block {
+  pointer-events: all !important;
+}
+
+/* Better component selection */
+.gjs-comp-selected {
+  outline: 4px solid #0B69D4 !important;
+  outline-offset: 5px !important;
+  box-shadow: 0 0 0 8px rgba(11, 105, 212, 0.15) !important;
+}
+
+/* Better hover state */
+.gjs-comp-hovered {
+  outline: 3px dashed #FFC700 !important;
+  outline-offset: 4px !important;
+}
+
+/* Panel buttons better styling */
+.gjs-pn-btn {
+  min-width: 40px !important;
+  min-height: 40px !important;
+  border-radius: 8px !important;
+  margin: 3px !important;
+}
+
+/* Toolbar improvements */
+.gjs-toolbar {
+  backdrop-filter: blur(10px) !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+
+
+/* ========================================
+   🎯 Fix Category Display - Force All Open
+   ======================================== */
+
+/* Make all categories visible and open by default */
+.gjs-block-category {
+  display: block !important;
+  opacity: 1 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+/* Category header clickable */
+.gjs-block-category .gjs-title {
+  cursor: pointer !important;
+}
+
+/* Make sure blocks inside categories are visible */
+.gjs-block-category .gjs-blocks-c {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  max-height: none !important;
+}
+
+/* Fix blocks panel scrolling */
+#blocks {
+  overflow-y: auto !important;
+  max-height: calc(100vh - 200px) !important;
+}
+
+/* Better scrollbar for blocks */
+#blocks::-webkit-scrollbar {
+  width: 8px !important;
+}
+
+#blocks::-webkit-scrollbar-track {
+  background: #f1f5f9 !important;
+  border-radius: 4px !important;
+}
+
+#blocks::-webkit-scrollbar-thumb {
+  background: #0B69D4 !important;
+  border-radius: 4px !important;
+}
+
+#blocks::-webkit-scrollbar-thumb:hover {
+  background: #0857b0 !important;
+}
+
+/* Ensure categories don't collapse */
+.gjs-block-category.gjs-open .gjs-blocks-c {
+  display: flex !important;
+  flex-wrap: wrap !important;
+}
+
