@@ -12,9 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Plus, Edit2, Trash2, Eye, FileText, Save } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
-// Force dynamic rendering
-export const dynamic = 'force-dynamic';
-
 interface Page {
   id: string;
   titleAr: string;
@@ -473,7 +470,7 @@ export default function PagesManagementPage() {
 
       {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent key={selectedPage?.id || 'new'} className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>تعديل الصفحة</DialogTitle>
           </DialogHeader>
