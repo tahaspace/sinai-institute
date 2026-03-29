@@ -30,6 +30,8 @@ export default function PagesManagementPage() {
   const router = useRouter();
   const [pages, setPages] = useState<Page[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedPage, setSelectedPage] = useState<Page | null>(null);
@@ -53,6 +55,7 @@ export default function PagesManagementPage() {
   const loadPages = async () => {
     try {
       setIsLoading(true);
+      setIsError(false);
       const response = await fetch('/api/pages');
       if (!response.ok) throw new Error('Failed to load pages');
       
@@ -60,10 +63,17 @@ export default function PagesManagementPage() {
       setPages(data.pages);
     } catch (error) {
       console.error('Error loading pages:', error);
+      setIsError(true);
+      setErrorMessage('فشل في الاتصال بقاعدة البيانات — تحقق من إعدادات الاتصال');
       toast.error('فشل في تحميل الصفحات');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleRetry = () => {
+    setIsError(false);
+    loadPages();
   };
 
   const generateSlug = (title: string) => {
@@ -404,6 +414,19 @@ export default function PagesManagementPage() {
             <CardContent className="p-12 text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
               <p>جاري التحميل...</p>
+            </CardContent>
+          </Card>
+        ) : isError ? (
+          <Card className="border-destructive bg-destructive/5">
+            <CardContent className="p-12 text-center">
+              <div className="h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">
+                <span className="text-destructive font-bold text-2xl">!</span>
+              </div>
+              <h3 className="text-lg font-semibold text-destructive mb-2">خطأ في الاتصال</h3>
+              <p className="text-destructive/80 mb-6">{errorMessage}</p>
+              <Button variant="destructive" onClick={handleRetry}>
+                إعادة المحاولة
+              </Button>
             </CardContent>
           </Card>
         ) : pages.length === 0 ? (

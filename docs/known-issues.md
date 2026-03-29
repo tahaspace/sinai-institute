@@ -1,12 +1,38 @@
 # Known Issues
 
 **Legend**: 🔴 Critical · 🟠 High · 🟡 Medium · 🔵 Low · ✅ Verified in code/live audit  
-**Last updated**: 2026-03-28 — consolidated from all audit phases  
+**Last updated**: 2026-03-29 — added 002-cms-pages-fix resolution  
 **Source hierarchy**: code > Vercel API > compiled docs > chats
 
 ---
 
 ## Security
+
+### KI-CMS-001 — CMS Pages "لا توجد صفحات" regression 🟠 High ✅ (Resolved 2026-03-29)
+
+**Symptoms**:
+- `/cms/pages` displayed "لا توجد صفحات" even though 13 pages existed in the DB
+- `GET /api/pages` returned HTTP 500 with `FATAL: Tenant or user not found`
+- Homepage header showed only "الرئيسية" (no CMS-driven nav links)
+- Page Builder inaccessible (cascading from page list failure)
+
+**Root Cause (two-layer)**:
+1. **Primary — Supabase project paused**: Project `eacpjbbpwonwmthutxow` (eu-west-1) entered paused state (Supabase auto-pauses inactive free-tier projects). All DB connections reject with `FATAL: Tenant or user not found` — misleading message; actual cause is the DB process is not running.
+2. **Secondary — Silent false empty-state in UI**: `app/(cms)/cms/pages/page.tsx` catch block showed only a toast, leaving `pages === []`. This caused the UI to display "لا توجد صفحات" instead of a connectivity error.
+
+**Fix Applied (2026-03-29)**:
+- Operator resumed the Supabase project from dashboard
+- Operator updated `.env` with current active DB password (port 5432, direct session mode)
+- Dev server restarted to reload `DATABASE_URL` into Prisma client runtime
+- `app/(cms)/cms/pages/page.tsx`: added `isError` + `errorMessage` state, distinct red error card with retry button; `pages.length === 0` now only fires for genuinely empty databases
+- `PUT /api/pages/[id]` and `DELETE /api/pages/[id]` auth guards added (constitution Principle III)
+- Page Builder Back buttons corrected to `/cms/pages` (was `/cms/pages-new`)
+
+**Verified**: `GET /api/pages` → HTTP 200, 13 pages, 7 header-eligible. All auth guards active.
+
+**Ref**: `specs/002-cms-pages-fix/`, `docs/cms-pages-regression-stabilization-review.md`
+
+---
 
 ### KI-001 — Multiple secrets in git history 🔴 Critical ✅ (Resolved 2026-03-29)
 **Files confirmed**: `lib/prisma.ts` (Supabase URL + password), `vercel.json` (Neon URL, NEXTAUTH_SECRET), `.env` (Supabase keys, Cloudinary secrets), `prisma/seed.ts` (hardcoded admin password in comments).  

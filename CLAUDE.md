@@ -38,6 +38,18 @@ npx tsc --noEmit             # TypeScript check (bypassed during build — run m
 
 **No test runner. Zero test files in repo.**
 
+> ⚠️ **If `GET /api/pages` returns `FATAL: Tenant or user not found`:**
+> This means the Supabase project is **PAUSED** (not a wrong password).
+> 1. Open Supabase dashboard → Project `eacpjbbpwonwmthutxow` → click **Resume**
+> 2. Wait ~60s for ACTIVE_HEALTHY status
+> 3. Restart dev server: `pkill -f next-server && npm run dev`
+> 
+> If the error is `authentication failed` instead → the `.env` `DATABASE_URL` password is wrong.
+> Get the current password from Supabase → Settings → Database → Connection string.
+> **Always use port `5432`** (direct session mode) in local `.env`.
+> Port `6543` (pgbouncer/transaction mode) is for Vercel production only.
+
+
 ---
 
 ## Critical Code Realities — Read All 15

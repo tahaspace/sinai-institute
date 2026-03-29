@@ -20,17 +20,17 @@
 
 **⚠️ CRITICAL**: Complete all Phase 1 tasks and record findings before proceeding to Phase 2.
 
-- [ ] T001 Verify local dev server is running: `curl -s http://localhost:3001/ -o /dev/null -w "%{http_code}"` — must return 200
-- [ ] T002 Check exact HTTP status of `GET /api/pages`: `curl -s -o /tmp/pages.json -w "%{http_code}" http://localhost:3001/api/pages` — record status code and save body
-- [ ] T003 Inspect error body from T002: `python3 -m json.tool /tmp/pages.json` — confirm `"error"` key present and `"details"` contains `FATAL: Tenant or user not found`
-- [ ] T004 [P] Confirm `lib/prisma.ts` reads `DATABASE_URL` from env only (no hardcoded string): `grep -n "postgresql\|supabase\|neon" lib/prisma.ts` — must return zero matches
-- [ ] T005 [P] Confirm `GET /api/pages` handler has no auth guard (intentionally public): `grep -n "getServerSession" app/api/pages/route.ts` — must show guard only in POST/PATCH handlers, not in GET
-- [ ] T006 [P] Inspect current `DATABASE_URL` host and port in `.env` (password redacted): `cat .env | grep "^DATABASE_URL" | sed 's/:[^:@]*@/:REDACTED@/'` — record host and port
+- [x] T001 Verify local dev server is running: `curl -s http://localhost:3001/ -o /dev/null -w "%{http_code}"` — must return 200
+- [x] T002 Check exact HTTP status of `GET /api/pages`: `curl -s -o /tmp/pages.json -w "%{http_code}" http://localhost:3001/api/pages` — record status code and save body
+- [x] T003 Inspect error body from T002: `python3 -m json.tool /tmp/pages.json` — confirm `"error"` key present and `"details"` contains `FATAL: Tenant or user not found`
+- [x] T004 [P] Confirm `lib/prisma.ts` reads `DATABASE_URL` from env only (no hardcoded string): `grep -n "postgresql\|supabase\|neon" lib/prisma.ts` — must return zero matches
+- [x] T005 [P] Confirm `GET /api/pages` handler has no auth guard (intentionally public): `grep -n "getServerSession" app/api/pages/route.ts` — must show guard only in POST/PATCH handlers, not in GET
+- [x] T006 [P] Inspect current `DATABASE_URL` host and port in `.env` (password redacted): `cat .env | grep "^DATABASE_URL" | sed 's/:[^:@]*@/:REDACTED@/'` — record host and port
 - [ ] T007 **[OPERATOR — EXTERNAL DB]** Open Supabase dashboard → Project `eacpjbbpwonwmthutxow` → Settings → Database → Connection string → confirm whether the password was rotated (T008 from phase-0 operator tasks). Record: `ROTATED: yes/no` and the current active password.
 - [ ] T008 **[OPERATOR — BROWSER]** Open `http://localhost:3001` in browser → DevTools → Application → Local Storage → `localhost:3001` → check key `cms_pages` — record: `PRESENT: yes/no` and approximate item count if present
-- [ ] T009 [P] Confirm Page Builder route file exists: `ls app/\(cms\)/cms/page-builder-grapes/\[id\]/page.tsx` — must exist
-- [ ] T010 [P] Confirm Page Builder uses dynamic import with `ssr: false`: `grep -n "dynamic\|ssr" app/\(cms\)/cms/page-builder-grapes/\[id\]/page.tsx` — must show `ssr: false`
-- [ ] T011 [P] Inspect homepage header fetch logic: `grep -n "api/pages\|localStorage\|cms_pages" components/layouts/public-header.tsx | head -20` — confirm it calls `/api/pages?published=true` and falls back to localStorage
+- [x] T009 [P] Confirm Page Builder route file exists: `ls app/\(cms\)/cms/page-builder-grapes/\[id\]/page.tsx` — must exist
+- [x] T010 [P] Confirm Page Builder uses dynamic import with `ssr: false`: `grep -n "dynamic\|ssr" app/\(cms\)/cms/page-builder-grapes/\[id\]/page.tsx` — must show `ssr: false`
+- [x] T011 [P] Inspect homepage header fetch logic: `grep -n "api/pages\|localStorage\|cms_pages" components/layouts/public-header.tsx | head -20` — confirm it calls `/api/pages?published=true` and falls back to localStorage
 
 **Checkpoint — Phase 1 Gate**: All of the following must be true before Phase 2 starts:
 - T002: HTTP status confirmed (expected: 500)
@@ -65,10 +65,10 @@
 
 ### Implementation for User Story 1
 
-- [ ] T016 [US1] Open `app/(cms)/cms/pages/page.tsx` and add `isError` + `errorMessage` state variables alongside the existing `isLoading` state (line ~32): `const [isError, setIsError] = useState(false);` and `const [errorMessage, setErrorMessage] = useState('');`
-- [ ] T017 [US1] In the `loadPages()` function catch block (line ~61), replace the existing `toast.error` + fall-through behavior: set `setIsError(true)`, `setErrorMessage('فشل في الاتصال بقاعدة البيانات — تحقق من إعدادات الاتصال')`, keep `toast.error` for visibility. Do NOT leave `pages` as `[]` as the only signal.
-- [ ] T018 [US1] Add a `handleRetry` function that calls `setIsError(false)` then `loadPages()` — allows the admin to retry without a full page reload
-- [ ] T019 [US1] In the JSX render section (line ~401 area), add an `isError` branch between `isLoading` and `pages.length === 0` checks in `app/(cms)/cms/pages/page.tsx`:
+- [x] T016 [US1] Open `app/(cms)/cms/pages/page.tsx` and add `isError` + `errorMessage` state variables alongside the existing `isLoading` state (line ~32): `const [isError, setIsError] = useState(false);` and `const [errorMessage, setErrorMessage] = useState('');`
+- [x] T017 [US1] In the `loadPages()` function catch block (line ~61), replace the existing `toast.error` + fall-through behavior: set `setIsError(true)`, `setErrorMessage('فشل في الاتصال بقاعدة البيانات — تحقق من إعدادات الاتصال')`, keep `toast.error` for visibility. Do NOT leave `pages` as `[]` as the only signal.
+- [x] T018 [US1] Add a `handleRetry` function that calls `setIsError(false)` then `loadPages()` — allows the admin to retry without a full page reload
+- [x] T019 [US1] In the JSX render section (line ~401 area), add an `isError` branch between `isLoading` and `pages.length === 0` checks in `app/(cms)/cms/pages/page.tsx`:
   ```
   if (isLoading)         → spinner (existing)
   else if (isError)      → error card with message + retry button (NEW)
