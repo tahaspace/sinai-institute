@@ -114,7 +114,7 @@ export default function PageBuilderGrapesPage() {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <p className="text-xl mb-4">الصفحة غير موجودة</p>
-          <Button onClick={() => router.push('/cms/pages-new')}>
+          <Button onClick={() => router.push('/cms/pages')}>
             <ArrowLeft className="ml-2 h-4 w-4" />
             العودة للصفحات
           </Button>
@@ -131,7 +131,7 @@ export default function PageBuilderGrapesPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.push('/cms/pages-new')}
+            onClick={() => router.push('/cms/pages')}
           >
             <ArrowLeft className="ml-2 h-4 w-4" />
             رجوع

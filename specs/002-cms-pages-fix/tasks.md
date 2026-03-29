@@ -108,7 +108,7 @@
 
 - [ ] T025 [US3] With dev server running and DB connected: `curl -s "http://localhost:3001/api/pages?published=true" | python3 -c "import sys,json; pages=[p for p in json.load(sys.stdin).get('pages',[]) if p.get('showInHeader')]; print('header pages:', len(pages), [p['titleAr'] for p in pages])"` — record which pages should appear in header
 - [ ] T026 [US3] Open `http://localhost:3001/` in browser → inspect header navigation → confirm all pages from T025 appear as links
-- [ ] T027 [US3] **If T025 returns 0 header-eligible pages but DB has pages (T015)**: the pages exist but none are configured as `showInHeader=true` or `isPublished=true`. This is a content configuration issue, NOT a code bug. Open CMS → edit a page → check "إظهار في Header" + set to Published → verify it appears in header.
+- [ ] T027 ⚠️ DATA RISK [US3] **If T025 returns 0 header-eligible pages but DB has pages (T015)**: the pages exist but none are configured as `showInHeader=true` or `isPublished=true`. Open CMS → edit a page → check "إظهار في Header" + set to Published. NOTE: this is a non-destructive DB write via `PATCH /api/pages` — it edits page config but does not delete data. Confirm the page appears in header after save.
 - [ ] T028 [US3] **If `cms_pages` localStorage was present (T008)** and the header was using stale data: confirm that after DB connectivity is restored, the fresh API data takes precedence over the localStorage fallback (API call succeeds → `return` before localStorage read in `public-header.tsx` line ~52)
 
 **Checkpoint — US3**: Homepage header renders at least one CMS-driven navigation link (or is confirmed to have zero header-eligible pages by design — both are valid outcomes).
@@ -128,7 +128,13 @@
 
 ---
 
-## Dependencies & Execution Order
+## Phase 7: Analysis Remediation (C1, C2, F1/F3)
+
+**Purpose**: Apply the three remediations identified by `/speckit-analyze` before committing.
+
+- [ ] T035 **[ALREADY APPLIED — VERIFY]** Confirm `PUT /api/pages/[id]` now returns HTTP 401 for unauthenticated requests: `curl -s -X PUT http://localhost:3001/api/pages/TESTID -H 'Content-Type: application/json' -d '{"titleAr":"test"}' | python3 -c "import sys,json; d=json.load(sys.stdin); print('status field:', d.get('error','missing'))"` — must print `Unauthorized`
+- [ ] T036 **[ALREADY APPLIED — VERIFY]** Confirm both Back buttons in `app/(cms)/cms/page-builder-grapes/[id]/page.tsx` now navigate to `/cms/pages` (not `/cms/pages-new`): `grep 'router.push' app/\(cms\)/cms/page-builder-grapes/\[id\]/page.tsx` — must show only `/cms/pages` paths
+- [ ] T037 **[ALREADY APPLIED — VERIFY]** Confirm `DELETE /api/pages/[id]` also returns HTTP 401 for unauthenticated requests: `curl -s -X DELETE http://localhost:3001/api/pages/TESTID | python3 -c "import sys,json; d=json.load(sys.stdin); print('status field:', d.get('error','missing'))"` — must print `Unauthorized`
 
 ### Phase Dependencies
 

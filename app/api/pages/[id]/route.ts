@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 
 // GET /api/pages/[id] - Get single page
 export async function GET(
@@ -49,12 +51,18 @@ export async function GET(
   }
 }
 
-// PUT /api/pages/[id] - Update page
+// PUT /api/pages/[id] - Update page [SECURITY: requires authenticated session]
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // [SECURITY] Principle III: verify session before any write
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { id } = await params;
     const body = await request.json();
 
@@ -120,11 +128,18 @@ export async function PUT(
 }
 
 // DELETE /api/pages/[id] - Delete page
+// DELETE /api/pages/[id] - Delete page [SECURITY: requires authenticated session]
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // [SECURITY] Principle III: verify session before delete
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { id } = await params;
 
     // Check if page exists
