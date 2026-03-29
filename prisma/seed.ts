@@ -4,6 +4,18 @@ import { hash } from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
+  // PRODUCTION GUARD — prevents seed from running against live data
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV) {
+    console.error('');
+    console.error('❌ SEED BLOCKED: Running against production is forbidden.');
+    console.error('   This command deletes and recreates departments and news.');
+    console.error('');
+    console.error('   To seed a development database:');
+    console.error('   DATABASE_URL="<dev-db-url>" NODE_ENV=development npx tsx prisma/seed.ts');
+    console.error('');
+    process.exit(1);
+  }
+
   console.log('🌱 بدء إضافة البيانات التجريبية...');
 
   // 1. إنشاء مستخدم Admin
