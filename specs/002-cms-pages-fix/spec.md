@@ -72,7 +72,7 @@ A public visitor loading the homepage (`/`) expects to see the full site navigat
 ### Functional Requirements
 
 - **FR-001**: The page list endpoint MUST return all stored pages as a successful response when the database is reachable and credentials are valid.
-- **FR-002**: The CMS page list screen MUST display the error state with an explanatory message when the pages API returns an error — it MUST NOT render the same empty-state UI for both "zero pages" and "API failure".
+- **FR-002**: The CMS page list screen MUST display a distinct, visually differentiated error state (e.g., an error card with retry option) when the pages API returns a non-2xx response — it MUST NOT render the same "لا توجد صفحات" empty-state for both genuine zero rows and an API failure. This requires a code change to the CMS component in addition to the credential fix.
 - **FR-003**: The CMS page list screen MUST display all pages returned by the API when the API succeeds, without requiring any additional interaction.
 - **FR-004**: When the pages API succeeds and returns pages, each page card MUST show: Arabic title, slug, published status, and a link to open the Page Builder.
 - **FR-005**: Opening the Page Builder for an existing page MUST load the correct page's content (blocks, if any) without error.
@@ -81,6 +81,7 @@ A public visitor loading the homepage (`/`) expects to see the full site navigat
 - **FR-008**: The local development environment MUST be configurable to connect to the database without requiring a code change — connectivity is restored through environment configuration, not code modification where possible.
 - **FR-009**: Any error encountered by the pages API MUST surface a distinguishable error response that the client can use to render a distinct error state (versus an authentic empty list).
 - **FR-010**: After this stabilization, the database connectivity verification described in the local pre-deployment verification plan MUST pass all checks without manual intervention beyond environment configuration.
+- **FR-011**: All component-level changes MUST be scoped to `app/(cms)/cms/pages/page.tsx` only. The duplicate route at `app/(cms)/cms/pages-new/page.tsx` is explicitly OUT OF SCOPE for this stabilization.
 
 ### Key Entities
 
@@ -102,13 +103,27 @@ A public visitor loading the homepage (`/`) expects to see the full site navigat
 
 ---
 
+## Clarifications
+
+### Session 2026-03-29
+
+- Q: Has the Supabase database password been rotated (operator task T008), or does the original password still apply? → A: Unsure — Supabase dashboard must be checked to determine current password status before `.env` can be corrected. The correct password to use in `.env` is whichever is currently active in Supabase, which cannot be determined from the codebase alone.
+- Q: Is the homepage header showing only "الرئيسية" because the `localStorage['cms_pages']` fallback is empty, or because the fallback is not being read? → A: Not verified yet — the browser's localStorage has not been inspected. Verification must be performed in a browser devtools session before implementation to determine whether the fallback has pre-existing page data or is genuinely empty.
+- Q: How should the CMS page list behave when the API returns an error — and should a code fix accompany the credential fix? → A: Both fixes required. Restore `.env` credentials to resolve root cause (primary fix); also add a distinct error state to the CMS component so the admin sees "API error" not "no pages" for any future transient failure (secondary fix). Both are in scope for this slice.
+- Q: Which pages management route is canonical — `/cms/pages` or `/cms/pages-new`? → A: `/cms/pages` is canonical. `/cms/pages-new` is a duplicate and is out of scope for this stabilization. All component-level fixes apply only to `app/(cms)/cms/pages/page.tsx`.
+- Q: Should local `.env` switch to port 6543 + pgbouncer to match production, or keep port 5432 for local dev tools? → A: Use port 5432 (direct session mode) in local `.env`. Port 6543 + pgbouncer is for Vercel serverless production only. Local development uses 5432 so that `prisma db pull`, `prisma studio`, and schema tools work without restriction.
+
+---
+
 ## Assumptions
 
 - The external production database (Supabase PostgreSQL, eu-west-1) is active and reachable. If it is paused or the project is deleted, connectivity cannot be restored through code changes alone.
 - The database schema already contains the `Page` and `PageBlock` tables. If these tables do not exist in production, a schema migration will be needed — but no migration is performed by default in this spec without explicit evidence.
 - Pages with content already exist in the production database based on historical context (seeding and migration operations were performed in prior sessions per chat history).
-- The root cause of the "لا توجد صفحات" symptom is a database credential mismatch in the local `.env` file — the code path itself is not structurally broken (the API returns a 500 with `FATAL: Tenant or user not found` because the password in `.env` does not match Supabase's current credentials).
-- The homepage header navigation reads pages from the same API (`/api/pages?showInHeader=true` or equivalent). Fixing the API connectivity will restore header content without additional code changes — unless the header component has independent rendering logic that bypasses the API.
-- The GrapesJS Page Builder at `/cms/page-builder-grapes/[id]` is already wired to the correct API. It is inaccessible only because no page cards are rendered (cascading failure from the list regression).
+- **The Supabase database password status is unconfirmed** — the operator must verify in the Supabase dashboard whether T008 (password rotation) was completed. If rotated, the new password must be placed in `.env`; if not rotated, the original password `SinaiInstitute2026!` is still active and must be placed in `.env`.
+- **Local `.env` `DATABASE_URL` must use port 5432** (direct session mode) for local development. Port 6543 with `pgbouncer=true` is reserved for the Vercel dashboard `DATABASE_URL` (production serverless). The two environments intentionally use different connection strings. Pattern: `postgresql://postgres.PROJECTREF:PASSWORD@aws-1-eu-west-1.pooler.supabase.com:5432/postgres`.
+- The root cause of the "لا توجد صفحات" symptom is confirmed as a database credential mismatch — the API returns HTTP 500 with `FATAL: Tenant or user not found`, meaning authentication against Supabase fails. The code path itself is not structurally broken.
+- The homepage header (`components/layouts/public-header.tsx`) fetches `/api/pages?published=true` and falls back to `localStorage['cms_pages']` on error. Restoring DB connectivity will restore the header. The localStorage fallback is why only "الرئيسية" appears — it is a hardcoded fallback, not DB data.
+- The GrapesJS Page Builder route exists at `app/(cms)/cms/page-builder-grapes/[id]/page.tsx` with correct dynamic import (`ssr: false`). It is inaccessible only because the page list fails to render page cards — a cascading failure, not a routing or flag bug.
 - Only the single CMS administrator user (`admin@sainaiinstitute.com`) uses the CMS. No multi-user access control is involved in this stabilization.
 - This spec does not require schema changes. If schema changes become necessary during investigation, they will be out of scope and require a separate spec.
