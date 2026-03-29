@@ -26,7 +26,6 @@ npm run dev                  # Next.js dev server (usually :3001 per .env NEXTAU
                              # ⚠️ Targets PRODUCTION Supabase DB — no dev/prod isolation
 
 npm run build                # prisma generate && next build
-                             # ⚠️ NODE_ENV=production → lib/prisma.ts uses HARDCODED Supabase string
                              # ⚠️ TypeScript + ESLint errors suppressed — build always passes
 
 npm run prisma:generate      # safe — regenerates Prisma client

@@ -85,7 +85,7 @@ vercel --prod triggers:
 2. npm run build:
    └── prisma generate (again — redundant but harmless)
    └── next build
-       └── NODE_ENV=production → lib/prisma.ts hardcoded Supabase URL
+       └── NODE_ENV=production → lib/prisma.ts reads DATABASE_URL from env (dashboard-injected)
        └── TypeScript errors: IGNORED (ignoreBuildErrors: true)
        └── ESLint: IGNORED (ignoreDuringBuilds: true)
 3. .next/ output deployed to Vercel CDN + serverless functions
