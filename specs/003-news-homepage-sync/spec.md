@@ -7,6 +7,18 @@
 
 ---
 
+## Clarifications
+
+### Session 2026-04-05
+
+- Q: Should the fix wire both the CMS homepage manager and the public homepage to the existing news API endpoint (DB-backed), replacing all localStorage reads/writes for institute news? → A: **Yes — Option A**: wire both to the existing `/api/news` endpoint; replace `localStorage` reads and writes for `homepage_institute_news` / `homepage_general_news` with API calls.
+- Q: Should the fix correct **all** field name mismatches in the news data service (GET filter, GET orderBy, POST create) or only the GET read path? → A: **Option A — fix all**: correct `published` → `isPublished` in GET filter, `publishedAt` → `publishDate` in GET orderBy, and align POST field names (`published` → `isPublished`, `publishedAt` → `publishDate`) to the schema in the same change. The `titleAr`/`titleEn` shape reconciliation is deferred to planning (Option C baseline applied).
+- Q: How should the CMS flat field shape (`title`, `description`) be reconciled with the bilingual schema fields (`titleAr`, `titleEn`, `contentAr`, `contentEn`) when wiring CMS writes to the news API? → A: **Option A**: map CMS `title` → `titleAr`, CMS `description` → `contentAr`; set `titleEn` and `contentEn` to empty strings as defaults. No schema change, no new UI fields required. Platform is Arabic-first.
+- Q: Which read-only verification checks must be performed before any code change? → A: **Option A — all four**: (1) `GET /api/news` to confirm endpoint returns error/500, (2) direct Supabase DB read to confirm news rows exist, (3) browser network tab on `/` to confirm no `/api/news` request fires, (4) browser network tab on `/cms/homepage` to confirm no `/api/news` request fires from the CMS editor.
+- Q: How should institute news and general news be distinguished in the shared data service when both are stored in the same `News` table? → A: **Option A**: use the existing `category` field. CMS sends `category: "INSTITUTE_NEWS"` for institute news and `category: "GENERAL_NEWS"` for general news on POST. Public homepage fetches each section with `GET /api/news?category=INSTITUTE_NEWS&published=true` and `GET /api/news?category=GENERAL_NEWS&published=true` respectively. No schema change required.
+
+---
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 — Visitor Sees Institute News on Homepage (Priority: P1)
@@ -70,15 +82,25 @@ When a CMS admin adds, updates, or removes an institute news entry and saves it,
 
 ### Functional Requirements
 
-- **FR-001**: The public homepage MUST display institute news entries from a shared, persistent data store that is accessible by any visitor on any device or browser, without requiring prior browser state.
+- **FR-001**: The public homepage MUST fetch and display institute news entries from the centralised news data service — not from any browser-local storage — so that all visitors on any device or browser see the same content without requiring prior browser state. The fetch MUST filter by `category=INSTITUTE_NEWS` and `published=true` to show only the correct, published entries. *[Clarified 2026-04-05: replaces current `localStorage` read of `homepage_institute_news`; category filter added Q5.]*
 
-- **FR-002**: The CMS "أخبار المعهد" management section MUST read institute news entries from the same shared, persistent data store used by the public homepage — not from browser-local state.
+- **FR-002**: The CMS "أخبار المعهد" management section MUST load institute news entries from the centralised news data service on page mount, replacing the current `localStorage` read. The displayed list MUST reflect the shared, server-persisted state. *[Clarified 2026-04-05.]*
 
-- **FR-003**: The CMS "أخبار المعهد" management section MUST write (create, update, delete) institute news entries to the shared, persistent data store, such that changes are immediately visible to all users system-wide.
+- **FR-003**: The CMS "أخبار المعهد" management section MUST persist new, updated, and deleted institute news entries to the centralised news data service (create/update/delete operations), replacing the current `localStorage` write. Changes MUST be immediately visible to all users system-wide after save. *[Clarified 2026-04-05.]*
 
 - **FR-004**: Institute news entries MUST be retrievable and displayable on the public homepage without requiring the visitor to have ever interacted with the CMS on that browser.
 
-- **FR-005**: The read path for institute news MUST correctly apply any publication/visibility filters (e.g., only showing published or active entries to public visitors). The filter logic MUST use the correct field name as defined in the data schema — no silent filtering failures are acceptable.
+- **FR-005**: The read path for institute news MUST correctly apply the publication visibility filter using the canonical schema field `isPublished` — not the incorrect alias `published`. The `GET ?published=true` query MUST return only entries where `isPublished = true`. No silent filtering bypass is acceptable. *[Clarified 2026-04-05: current code uses `where.published` which is silently ignored by the data layer.]*
+
+- **FR-011**: The news data service GET handler MUST order results by the canonical date field `publishDate` (descending) — not `publishedAt`, which does not exist in the schema and causes a runtime error on every request. *[Clarified 2026-04-05: current `orderBy: { publishedAt: 'desc' }` throws a data layer error (P2009) on every GET, making the endpoint non-functional.]*
+
+- **FR-012**: The news data service POST (create) handler MUST write the publication flag to the canonical schema field `isPublished` and the publication timestamp to `publishDate` — replacing the current incorrect field names `published` and `publishedAt` respectively. *[Clarified 2026-04-05.]*
+
+- **FR-013**: When the CMS homepage manager sends a new institute news entry to the news data service, it MUST map its internal field shape to the canonical schema fields as follows: CMS `title` → `titleAr`, CMS `description` or `content` → `contentAr`; `titleEn` and `contentEn` MUST be sent as empty strings; `category` MUST be set to `"INSTITUTE_NEWS"` for institute news or `"GENERAL_NEWS"` for general news. No schema migration is required. *[Clarified 2026-04-05: Arabic-first mapping; category distinction added Q5; bilingual UI is out of scope for this fix.]*
+
+- **FR-014**: Before any code change is made, the implementer MUST perform all of the following read-only verification steps and document the result: (1) send `GET /api/news` and confirm the HTTP status and error type; (2) read the `News` table in the production DB directly and confirm whether rows exist; (3) open a browser network tab on the public homepage `/` and confirm that no request to the news data service is fired during page load; (4) open a browser network tab on `/cms/homepage` and confirm that no request to the news data service is fired during page load. *[Clarified 2026-04-05: all four checks required; each is read-only and safe.]*
+
+- **FR-015**: The news data service GET handler MUST support a `category` query parameter filter. When `?category=INSTITUTE_NEWS` is passed, it MUST return only entries where `category = "INSTITUTE_NEWS"`. When `?category=GENERAL_NEWS` is passed, it MUST return only `category = "GENERAL_NEWS"` entries. This MUST be combinable with the `?published=true` filter. No schema change is required — the `category` field already exists. *[Clarified 2026-04-05: enables the two separate homepage news sections (institute vs. general) to each fetch their own data independently.]*
 
 - **FR-006**: All existing institute news entries currently persisted in the production data store MUST be preserved intact; no destructive data operation (deletion, overwrite, schema reset) is permitted as part of this fix.
 
@@ -92,9 +114,10 @@ When a CMS admin adds, updates, or removes an institute news entry and saves it,
 
 ### Key Entities
 
-- **Institute News Entry**: A content item representing a single news article or announcement for the institute. Key attributes: title, body/content, publication status, display order, associated media. Must be persisted in the shared production data store.
-- **Publication Status**: A flag or field on each news entry that controls whether it appears to public visitors. Must be correctly evaluated when fetching entries for the public homepage.
-- **Shared Data Store**: The central persistent storage system (production database) that holds authoritative institute news data accessible to both the CMS and the public homepage, independent of any individual browser or device.
+- **Institute News Entry**: A content item representing a single news article or announcement. Canonical schema fields: `titleAr` (Arabic title), `titleEn` (English title, defaults to empty string), `contentAr`, `contentEn` (defaults to empty string), `image` (URL), `isPublished` (Boolean), `publishDate` (timestamp), `order` (Integer), `isFeatured`, `isInTicker`, `category`. Must be persisted in the production database. *[Field names confirmed from schema — Q2.]*
+- **Publication Status**: The `isPublished` Boolean field on each news entry. Controls whether the entry appears to public visitors. The data service filter MUST reference this exact field name. `publishDate` is the associated timestamp field.
+- **News Category**: The `category` String field distinguishes news types. Canonical values used by this feature: `"INSTITUTE_NEWS"` (for أخبار المعهد section) and `"GENERAL_NEWS"` (for the general news section). *[Clarified 2026-04-05 — Q5.]*
+- **Shared Data Store**: The production database (`News` model) accessed via the news data service endpoint, independent of any individual browser or device.
 
 ---
 
@@ -118,12 +141,13 @@ When a CMS admin adds, updates, or removes an institute news entry and saves it,
 
 ## Assumptions
 
+- **Confirmed root cause (Q1)**: Both `app/(cms)/cms/homepage/page.tsx` and `app/(public)/page.tsx` currently read and write institute news exclusively via `localStorage` (`homepage_institute_news`, `homepage_general_news`). Neither file calls the news data service. The news data service endpoint and the `News` database model exist independently and are unused by both pages. The fix wires both pages to the data service, replacing localStorage.
+- **Colleague visibility explained**: The colleague who sees news is the person (or is on the same browser) that previously entered news via the CMS on that specific device — the data was written to that browser's `localStorage` only, making it visible only there.
 - The production database (Supabase) is currently active and accessible. If it is paused, the operator will resume it before testing (as documented in CLAUDE.md and KI-CMS-001).
-- Institute news entries are strongly believed to already exist in the production database. This spec does not require creating new data — only fixing the read/write path so existing data is visible.
+- Institute news entries are strongly believed to already exist in the production database (from direct DB writes or prior admin entry). This spec does not require creating new data — only fixing the read/write path.
 - The CMS authentication is operational for the admin user (using the current credentials as documented). This spec does not change or fix the authentication system.
-- "Shared, persistent data store" refers to the production Supabase PostgreSQL database accessed via the platform's data access layer.
-- The fix will not require a schema migration that adds new columns or tables — the existing schema is assumed to have all required fields for news persistence. If a non-destructive schema change is discovered to be strictly necessary, it will be explicitly justified and limited to additive changes only.
+- The fix will not require a schema migration — the existing `News` model has all required fields. If a non-destructive additive change is discovered to be strictly necessary, it will be explicitly justified.
 - The fix will require a production deployment to take effect on `sinaiinstitute.com`. The operator controls the deployment timing.
-- The production deployment is currently stale (~57+ days) and two bug-fix commits are pending. This fix will be an additional commit; a combined deployment is acceptable.
-- No new third-party services, CDN configurations, or infrastructure changes are required—the fix is confined to application code and/or data layer configuration.
-- Image/media URLs for news entries may be stored as external URLs (Cloudinary). Image display issues are considered a separate concern unless they are directly causing news entries to be invisible.
+- The production deployment is currently stale (~57+ days). This fix will be an additional commit; a combined deployment is acceptable.
+- No new third-party services or infrastructure changes are required — the fix is confined to application code.
+- Image/media URLs for news entries may be stored as external URLs (Cloudinary). Image display issues are a separate concern unless they are directly causing news entries to be invisible.
