@@ -115,10 +115,11 @@ DB query block is commented out with `// TODO: Enable DB authentication when MyS
 
 ---
 
-### KI-009 — Homepage content is browser-local (localStorage) 🟠 High ✅
-**Affected**: Hero slides, news ticker, stats section, specialization cards, social media links — all in `localStorage`.  
-**Impact**: Admin changes on one browser are invisible site-wide (other browsers see defaults). Lost on cache clear. Cannot be server-side rendered → SEO gap.  
-**Fix**: Migrate each to `Setting` table (key/value store already in schema) with `GET/PUT /api/settings`.
+### KI-009 — Homepage content is browser-local (localStorage) 🟠 High ⚠️ Partially Resolved
+**Affected**: Hero slides, news ticker, stats section, specialization cards, social media links — all still in `localStorage`.  
+**✅ Resolved (2026-04-05, `003-news-homepage-sync`)**: Institute news (`homepage_institute_news`) and general news (`homepage_general_news`) are now wired to `/api/news` (DB-backed). Both public homepage and CMS homepage manager use the API as the single source of truth.  
+**Remaining**: Hero slides, news ticker, stats section, specialization cards, and social media links remain `localStorage`-only.  
+**Fix (remaining)**: Migrate each to `Setting` table (key/value store already in schema) with `GET/PUT /api/settings`.
 
 ---
 
@@ -218,10 +219,10 @@ DB query block is commented out with `// TODO: Enable DB authentication when MyS
 
 ---
 
-### KI-024 — `/api/news` GET filter uses wrong field name 🟠 High ✅
+### KI-024 — `/api/news` GET filter uses wrong field name 🟠 High ✅ Resolved 2026-04-05
 **Code**: Filters on `{ published: ... }`, schema field is `isPublished`.  
-**Impact**: Published filter is silently ignored; returns all news regardless of publication status.  
-**Fix**: Update GET handler to use `isPublished`.
+**Impact**: Published filter silently ignored; returned all news regardless of publication status.  
+**✅ Resolution (2026-04-05, `003-news-homepage-sync`)**: GET filter updated to `isPublished`; `orderBy` updated to `publishDate`; POST maps `published→isPublished`, `title→titleAr`, `content→contentAr`; PUT handler fixed (raw spread → explicit field mapping, prevents Prisma P2009). Both `/` and `/cms/homepage` wired to `/api/news`.
 
 ---
 
@@ -238,3 +239,5 @@ DB query block is commented out with `// TODO: Enable DB authentication when MyS
 | KI-005 | NEXTAUTH_URL wrong domain | Fixed in dashboard |
 | KI-007 | DB port 5432 (session) | Now port 6543 + pgbouncer in dashboard |
 | KI-017 | Debug HTML tool | Deleted |
+| KI-024 | `/api/news` GET filter (`published` vs `isPublished`) | Fixed 2026-04-05 (`003-news-homepage-sync`) — GET filter, orderBy, POST, PUT all corrected |
+| KI-009 (partial) | Homepage institute/general news in localStorage | Fixed 2026-04-05 (`003-news-homepage-sync`) — news sections wired to `/api/news`; other homepage sections remain localStorage |

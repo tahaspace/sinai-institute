@@ -103,7 +103,7 @@ export default function HomePage() {
   useEffect(() => {
     const savedSlides = localStorage.getItem('homepage_slides');
     const savedStats = localStorage.getItem('homepage_stats');
-    const savedInstituteNews = localStorage.getItem('homepage_institute_news');
+    // Removed localStorage read for institute news
     const savedSpecializations = localStorage.getItem('homepage_specializations');
     
     if (savedSlides) {
@@ -115,10 +115,25 @@ export default function HomePage() {
       setStats(JSON.parse(savedStats));
     }
     
-    if (savedInstituteNews) {
-      const news = JSON.parse(savedInstituteNews);
-      setInstituteNews(news.sort((a: any, b: any) => a.order - b.order));
-    }
+    // Fetch Institute News from API
+    fetch('/api/news?category=INSTITUTE_NEWS&published=true')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((item: any) => ({
+            id: item.id,
+            title: item.titleAr,
+            description: item.contentAr,
+            imageUrl: item.image || '',
+            order: item.order || 0,
+            points: [],
+            buttonText: 'اقرأ المزيد',
+            buttonLink: `/news/${item.id}`
+          }));
+          setInstituteNews(mapped.sort((a: any, b: any) => a.order - b.order));
+        }
+      })
+      .catch(err => console.error('Failed to fetch institute news:', err));
 
     if (savedSpecializations) {
       const specs = JSON.parse(savedSpecializations);
@@ -141,14 +156,24 @@ export default function HomePage() {
       }
     }
 
-    const savedGeneralNews = localStorage.getItem('homepage_general_news');
-    if (savedGeneralNews) {
-      const news = JSON.parse(savedGeneralNews);
-      console.log('📰 General News loaded from localStorage:', news);
-      setGeneralNews(news.sort((a: any, b: any) => a.order - b.order));
-    } else {
-      console.log('⚠️ No general news found in localStorage');
-    }
+    // Fetch General News from API
+    fetch('/api/news?category=GENERAL_NEWS&published=true')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((item: any) => ({
+            id: item.id,
+            title: item.titleAr,
+            description: item.contentAr,
+            media: item.image ? [{ id: 'm1', type: 'image' as const, url: item.image, caption: item.titleAr }] : [],
+            order: item.order || 0,
+            buttonText: 'اعرف المزيد',
+            buttonLink: `/news/${item.id}`
+          }));
+          setGeneralNews(mapped.sort((a: any, b: any) => a.order - b.order));
+        }
+      })
+      .catch(err => console.error('Failed to fetch general news:', err));
   }, []);
 
   // Auto-advance slides

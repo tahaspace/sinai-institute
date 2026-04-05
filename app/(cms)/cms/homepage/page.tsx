@@ -194,10 +194,22 @@ export default function HomepageManagementPage() {
       setNewsItems(JSON.parse(savedNews));
     }
 
-    const savedInstituteNews = localStorage.getItem('homepage_institute_news');
-    if (savedInstituteNews) {
-      setInstituteNews(JSON.parse(savedInstituteNews));
-    }
+    fetch('/api/news?category=INSTITUTE_NEWS')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setInstituteNews(data.map((n: any) => ({
+            id: n.id,
+            title: n.titleAr,
+            description: n.contentAr,
+            points: [],
+            buttonText: 'اقرأ المزيد',
+            buttonLink: `/news/${n.id}`,
+            imageUrl: n.image || '',
+            order: n.order || 0
+          })));
+        }
+      }).catch(console.error);
 
     const savedSpecializations = localStorage.getItem('homepage_specializations');
     if (savedSpecializations) {
@@ -209,10 +221,21 @@ export default function HomepageManagementPage() {
       setSocialMediaLinks(JSON.parse(savedSocialMedia));
     }
 
-    const savedGeneralNews = localStorage.getItem('homepage_general_news');
-    if (savedGeneralNews) {
-      setGeneralNews(JSON.parse(savedGeneralNews));
-    }
+    fetch('/api/news?category=GENERAL_NEWS')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setGeneralNews(data.map((n: any) => ({
+            id: n.id,
+            title: n.titleAr,
+            description: n.contentAr,
+            media: n.image ? [{ id: 'm1', type: 'image', url: n.image, caption: n.titleAr }] : [],
+            buttonText: 'اعرف المزيد',
+            buttonLink: `/news/${n.id}`,
+            order: n.order || 0
+          })));
+        }
+      }).catch(console.error);
   }, []);
 
   // Save to localStorage when data changes
@@ -228,9 +251,7 @@ export default function HomepageManagementPage() {
     localStorage.setItem('homepage_news', JSON.stringify(newsItems));
   }, [newsItems]);
 
-  useEffect(() => {
-    localStorage.setItem('homepage_institute_news', JSON.stringify(instituteNews));
-  }, [instituteNews]);
+  // removed instituteNews localStorage persistence
 
   useEffect(() => {
     localStorage.setItem('homepage_specializations', JSON.stringify(specializations));
@@ -240,9 +261,7 @@ export default function HomepageManagementPage() {
     localStorage.setItem('homepage_social_media', JSON.stringify(socialMediaLinks));
   }, [socialMediaLinks]);
 
-  useEffect(() => {
-    localStorage.setItem('homepage_general_news', JSON.stringify(generalNews));
-  }, [generalNews]);
+  // removed generalNews localStorage persistence
 
   const [newSlide, setNewSlide] = useState({
     title: '',
@@ -406,60 +425,86 @@ export default function HomepageManagementPage() {
     toast('تم إلغاء التعديل');
   };
 
-  const handleAddInstituteNews = () => {
+  const handleAddInstituteNews = async () => {
     if (!newInstituteNews.title) {
       toast.error('يرجى إدخال العنوان');
       return;
     }
 
-    if (editingInstituteNewsId) {
-      // Update existing news
-      setInstituteNews(
-        instituteNews.map((n) =>
-          n.id === editingInstituteNewsId
-            ? {
-                ...n,
-                title: newInstituteNews.title,
-                description: newInstituteNews.description,
-                points: newInstituteNews.points.filter((p) => p.trim() !== ''),
-                buttonText: newInstituteNews.buttonText,
-                buttonLink: newInstituteNews.buttonLink,
-                imageUrl: newInstituteNews.imageUrl,
-              }
-            : n
-        )
-      );
-      setEditingInstituteNewsId(null);
-      toast.success('تم تحديث الخبر');
-    } else {
-      // Add new news
-      const news: InstituteNews = {
-        id: Date.now().toString(),
-        title: newInstituteNews.title,
-        description: newInstituteNews.description,
-        points: newInstituteNews.points.filter((p) => p.trim() !== ''),
-        buttonText: newInstituteNews.buttonText,
-        buttonLink: newInstituteNews.buttonLink,
-        imageUrl: newInstituteNews.imageUrl,
-        order: instituteNews.length + 1,
-      };
-      setInstituteNews([...instituteNews, news]);
-      toast.success('تمت إضافة الخبر');
-    }
+    const isUpdate = !!editingInstituteNewsId;
+    const method = isUpdate ? 'PUT' : 'POST';
+    const body = {
+      ...(isUpdate ? { id: editingInstituteNewsId } : {}),
+      title: newInstituteNews.title,
+      content: newInstituteNews.description,
+      image: newInstituteNews.imageUrl,
+      category: 'INSTITUTE_NEWS',
+      published: true
+    };
 
-    setNewInstituteNews({ title: '', description: '', points: [''], buttonText: '', buttonLink: '', imageUrl: '' });
-    setUploadedImagePreview(null);
-  };
-
-  const handleDeleteInstituteNews = (id: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذا الخبر؟')) return;
-    setInstituteNews(instituteNews.filter((n) => n.id !== id));
-    if (editingInstituteNewsId === id) {
+    try {
+      const res = await fetch('/api/news', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      
+      if (isUpdate) {
+        setInstituteNews(
+          instituteNews.map((n) =>
+            n.id === editingInstituteNewsId
+              ? {
+                  ...n,
+                  title: newInstituteNews.title,
+                  description: newInstituteNews.description,
+                  points: newInstituteNews.points.filter((p) => p.trim() !== ''),
+                  buttonText: newInstituteNews.buttonText,
+                  buttonLink: newInstituteNews.buttonLink,
+                  imageUrl: newInstituteNews.imageUrl,
+                }
+              : n
+          )
+        );
+        toast.success('تم تحديث الخبر بنجاح');
+      } else {
+        const news: InstituteNews = {
+          id: data.id,
+          title: newInstituteNews.title,
+          description: newInstituteNews.description,
+          points: newInstituteNews.points.filter((p) => p.trim() !== ''),
+          buttonText: newInstituteNews.buttonText,
+          buttonLink: newInstituteNews.buttonLink,
+          imageUrl: newInstituteNews.imageUrl,
+          order: instituteNews.length + 1,
+        };
+        setInstituteNews([news, ...instituteNews]);
+        toast.success('تمت إضافة الخبر بنجاح');
+      }
       setEditingInstituteNewsId(null);
       setNewInstituteNews({ title: '', description: '', points: [''], buttonText: '', buttonLink: '', imageUrl: '' });
       setUploadedImagePreview(null);
+    } catch {
+      toast.error('حدث خطأ أثناء الحفظ');
     }
-    toast.success('تم الحذف');
+  };
+
+  const handleDeleteInstituteNews = async (id: string) => {
+    if (!confirm('هل أنت متأكد من حذف هذا الخبر؟')) return;
+    try {
+      const res = await fetch(`/api/news?id=${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      setInstituteNews(instituteNews.filter((n) => n.id !== id));
+      if (editingInstituteNewsId === id) {
+        setEditingInstituteNewsId(null);
+        setNewInstituteNews({ title: '', description: '', points: [''], buttonText: '', buttonLink: '', imageUrl: '' });
+        setUploadedImagePreview(null);
+      }
+      toast.success('تم الحذف');
+    } catch {
+      toast.error('حدث خطأ أثناء الحذف');
+    }
   };
 
   const handleEditInstituteNews = (news: InstituteNews) => {
@@ -852,58 +897,62 @@ export default function HomepageManagementPage() {
   };
 
   // General News Handlers
-  const handleAddGeneralNews = () => {
+  const handleAddGeneralNews = async () => {
     if (!newGeneralNews.title) {
       toast.error('يرجى إدخال عنوان الخبر');
       return;
     }
 
-    if (editingGeneralNewsId) {
-      // Update existing
-      setGeneralNews(
-        generalNews.map((n) =>
-          n.id === editingGeneralNewsId
-            ? {
-                ...n,
-                title: newGeneralNews.title,
-                description: newGeneralNews.description,
-                media: newGeneralNews.media,
-                buttonText: newGeneralNews.buttonText,
-                buttonLink: newGeneralNews.buttonLink,
-              }
-            : n
-        )
-      );
-      setEditingGeneralNewsId(null);
-      toast.success('تم تحديث الخبر');
-    } else {
-      // Add new
-      const news: GeneralNews = {
-        id: Date.now().toString(),
-        title: newGeneralNews.title,
-        description: newGeneralNews.description,
-        media: newGeneralNews.media,
-        buttonText: newGeneralNews.buttonText,
-        buttonLink: newGeneralNews.buttonLink,
-        order: generalNews.length + 1,
-      };
-      setGeneralNews([...generalNews, news]);
-      toast.success('تمت إضافة الخبر');
-    }
+    const isUpdate = !!editingGeneralNewsId;
+    const method = isUpdate ? 'PUT' : 'POST';
+    const mainImage = newGeneralNews.media.find(m => m.type === 'image')?.url || null;
+    const body = {
+      ...(isUpdate ? { id: editingGeneralNewsId } : {}),
+      title: newGeneralNews.title,
+      content: newGeneralNews.description,
+      image: mainImage,
+      category: 'GENERAL_NEWS',
+      published: true
+    };
 
-    setNewGeneralNews({
-      title: '',
-      description: '',
-      media: [],
-      buttonText: '',
-      buttonLink: '',
-    });
-  };
+    try {
+      const res = await fetch('/api/news', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
 
-  const handleDeleteGeneralNews = (id: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذا الخبر؟')) return;
-    setGeneralNews(generalNews.filter((n) => n.id !== id));
-    if (editingGeneralNewsId === id) {
+      if (isUpdate) {
+        setGeneralNews(
+          generalNews.map((n) =>
+            n.id === editingGeneralNewsId
+              ? {
+                  ...n,
+                  title: newGeneralNews.title,
+                  description: newGeneralNews.description,
+                  media: newGeneralNews.media,
+                  buttonText: newGeneralNews.buttonText,
+                  buttonLink: newGeneralNews.buttonLink,
+                }
+              : n
+          )
+        );
+        toast.success('تم تحديث الخبر');
+      } else {
+        const news: GeneralNews = {
+          id: data.id,
+          title: newGeneralNews.title,
+          description: newGeneralNews.description,
+          media: newGeneralNews.media,
+          buttonText: newGeneralNews.buttonText,
+          buttonLink: newGeneralNews.buttonLink,
+          order: generalNews.length + 1,
+        };
+        setGeneralNews([news, ...generalNews]);
+        toast.success('تمت إضافة الخبر');
+      }
       setEditingGeneralNewsId(null);
       setNewGeneralNews({
         title: '',
@@ -912,8 +961,31 @@ export default function HomepageManagementPage() {
         buttonText: '',
         buttonLink: '',
       });
+    } catch {
+      toast.error('حدث خطأ أثناء الحفظ');
     }
-    toast.success('تم الحذف');
+  };
+
+  const handleDeleteGeneralNews = async (id: string) => {
+    if (!confirm('هل أنت متأكد من حذف هذا الخبر؟')) return;
+    try {
+      const res = await fetch(`/api/news?id=${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      setGeneralNews(generalNews.filter((n) => n.id !== id));
+      if (editingGeneralNewsId === id) {
+        setEditingGeneralNewsId(null);
+        setNewGeneralNews({
+          title: '',
+          description: '',
+          media: [],
+          buttonText: '',
+          buttonLink: '',
+        });
+      }
+      toast.success('تم الحذف');
+    } catch {
+      toast.error('حدث خطأ أثناء الحذف');
+    }
   };
 
   const handleEditGeneralNews = (news: GeneralNews) => {

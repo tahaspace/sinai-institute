@@ -17,13 +17,13 @@ export async function GET(request: NextRequest) {
     }
 
     if (published !== null) {
-      where.published = published === 'true';
+      where.isPublished = published === 'true';
     }
 
     const news = await prisma.news.findMany({
       where,
       orderBy: {
-        publishedAt: 'desc',
+        publishDate: 'desc',
       },
     });
 
@@ -52,12 +52,10 @@ export async function POST(request: NextRequest) {
     const {
       title,
       content,
-      summary,
       category,
       image,
       published,
       featured,
-      showInSlider,
       showInTicker,
     } = body;
 
@@ -70,16 +68,16 @@ export async function POST(request: NextRequest) {
 
     const news = await prisma.news.create({
       data: {
-        title,
-        content,
-        summary,
-        category: category || 'GENERAL',
-        image,
-        published: published !== undefined ? published : true,
-        featured: featured || false,
-        showInSlider: showInSlider || false,
-        showInTicker: showInTicker || false,
-        publishedAt: published ? new Date() : null,
+        titleAr: title,
+        titleEn: '',
+        contentAr: content,
+        contentEn: '',
+        category: category || 'NEWS',
+        image: image || null,
+        isPublished: published !== undefined ? published : true,
+        isFeatured: featured || false,
+        isInTicker: showInTicker || false,
+        publishDate: published !== false ? new Date() : null,
       },
     });
 
@@ -105,7 +103,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, ...data } = body;
+    const { id, title, content, image, category, published } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -116,7 +114,17 @@ export async function PUT(request: NextRequest) {
 
     const news = await prisma.news.update({
       where: { id },
-      data,
+      data: {
+        ...(title !== undefined && { titleAr: title }),
+        ...(content !== undefined && { contentAr: content }),
+        ...(image !== undefined && { image: image || null }),
+        ...(category !== undefined && { category }),
+        ...(published !== undefined && {
+          isPublished: published,
+          // Restore publishDate when re-publishing a previously unpublished item
+          ...(published === true && { publishDate: new Date() }),
+        }),
+      },
     });
 
     return NextResponse.json(news);
