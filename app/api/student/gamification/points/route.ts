@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { resolveStudent } from '@/lib/student';
+import { requireFeature } from '@/lib/authz';
 
 const CATEGORY_LABEL: Record<string, string> = {
   grade: 'الدرجات', attendance: 'الحضور', assignment: 'الواجبات', bonus: 'مكافآت', general: 'عام',
@@ -9,6 +10,8 @@ const CATEGORY_LABEL: Record<string, string> = {
 // GET /api/student/gamification/points — breakdown by category + recent activity + rules.
 export async function GET(request: NextRequest) {
   try {
+    const feat = await requireFeature('gamification.enabled');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
     const { searchParams } = new URL(request.url);
     const student = await resolveStudent(searchParams.get('studentCode'));
     if (!student) return NextResponse.json({ error: 'الطالب غير موجود' }, { status: 404 });

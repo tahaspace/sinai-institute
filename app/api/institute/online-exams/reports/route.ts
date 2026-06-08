@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { requirePermission } from '@/lib/authz';
+import { requirePermission, requireFeature } from '@/lib/authz';
 
 const letterOf = (pct: number) =>
   pct >= 90 ? 'A' : pct >= 85 ? 'A-' : pct >= 80 ? 'B+' : pct >= 75 ? 'B' : pct >= 70 ? 'C+' : pct >= 65 ? 'C' : pct >= 60 ? 'D' : 'F';
@@ -8,6 +8,9 @@ const letterOf = (pct: number) =>
 // GET /api/institute/online-exams/reports?courseId= — exam analytics from Enrollment grades.
 export async function GET(request: NextRequest) {
   try {
+    const feat = await requireFeature('exams.online');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
+
     const guard = await requirePermission('onlineexam.view');
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 

@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { requirePermission } from '@/lib/authz';
+import { requirePermission, requireFeature } from '@/lib/authz';
 
 // GET /api/admin/library — read-only summary for the library-admin dashboard.
 export async function GET() {
   try {
+    const feat = await requireFeature('library.enabled');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
+
     const guard = await requirePermission('library.view');
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 

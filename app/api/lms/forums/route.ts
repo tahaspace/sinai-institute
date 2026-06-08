@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireSession } from '@/lib/student';
+import { requireFeature } from '@/lib/authz';
 
 // GET /api/lms/forums — categories + topics (with reply counts) + stats.
 export async function GET() {
   try {
+    const feat = await requireFeature('lms.enabled');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
+
     const guard = await requireSession();
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 

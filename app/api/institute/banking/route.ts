@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { requirePermission } from '@/lib/authz';
+import { requirePermission, requireFeature } from '@/lib/authz';
 
 // GET /api/institute/banking — treasury accounts + recent transactions.
 export async function GET() {
   try {
+    const feat = await requireFeature('finance.banking');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
+
     const guard = await requirePermission('banking.view');
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 

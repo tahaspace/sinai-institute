@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { requirePermission } from '@/lib/authz';
+import { requirePermission, requireFeature } from '@/lib/authz';
 
 // Shape the page renders for each table row. Status is lowercased here so the
 // page's getStatusBadge() switch ('pending'|'approved'|'rejected') works as-is.
@@ -27,6 +27,9 @@ interface TransferStats {
 // on TransferRequest — none is a hardcoded placeholder.
 export async function GET() {
   try {
+    const feat = await requireFeature('admission.transfers');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
+
     const guard = await requirePermission('transfer.view');
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
@@ -90,6 +93,9 @@ export async function GET() {
 // wiring the per-row action buttons. Mirrors the admissions PATCH guard/shape.
 export async function PATCH(request: NextRequest) {
   try {
+    const feat = await requireFeature('admission.transfers');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
+
     const guard = await requirePermission('transfer.approve');
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 

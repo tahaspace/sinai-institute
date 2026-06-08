@@ -3,6 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useSession } from "next-auth/react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   LayoutDashboard,
@@ -198,12 +199,42 @@ const navItems = [
   },
 ]
 
+// A nav item is shown only if the signed-in user holds its permission.
+// (Access is enforced by middleware regardless; this just hides links a role can't use.)
+const NAV_REQUIRES: Record<string, string> = {
+  "/institute/dashboard": "institute.dashboard.view",
+  "/institute/departments": "department.view",
+  "/institute/admission": "admission.registration.view",
+  "/institute/students": "student.view",
+  "/institute/faculty": "hr.staff.view",
+  "/institute/exams": "exam.schedule.view",
+  "/institute/online-exams": "onlineexam.view",
+  "/institute/accounting": "finance.view",
+  "/institute/communication": "communication.view",
+  "/institute/library": "library.view",
+  "/institute/activities": "activities.view",
+  "/institute/quality": "quality.view",
+  "/institute/payroll": "payroll.view",
+  "/institute/banking": "banking.view",
+  "/institute/settings": "settings.view",
+}
+
 export default function InstituteLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
   const pathname = usePathname()
+  const { data: session, status } = useSession()
+  const perms = (session?.user as { permissions?: string[] } | undefined)?.permissions ?? []
+  // While the session is loading, show everything (avoids an empty-sidebar flash);
+  // once authenticated, filter by permission. Platform admin ('*') sees all.
+  const canSee = (href: string) => {
+    const req = NAV_REQUIRES[href]
+    if (status !== "authenticated" || !req || perms.includes("*")) return true
+    return perms.includes(req)
+  }
+  const visibleNav = navItems.filter((item) => canSee(item.href))
   const { theme, setTheme } = useTheme()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -277,7 +308,7 @@ export default function InstituteLayout({
         {/* Navigation */}
         <ScrollArea className="h-[calc(100vh-4rem)]">
           <nav className="p-4 space-y-1">
-            {navItems.map((item) => {
+            {visibleNav.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
               const isExpanded = expandedItems.includes(item.href)
               const hasChildren = item.children && item.children.length > 0

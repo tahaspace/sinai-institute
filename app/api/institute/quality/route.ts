@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { requirePermission } from '@/lib/authz';
+import { requirePermission, requireFeature } from '@/lib/authz';
 
 // GET /api/institute/quality — quality indicators + aggregate stats.
 export async function GET() {
   try {
+    const feat = await requireFeature('quality.enabled');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
+
     const guard = await requirePermission('quality.view');
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 

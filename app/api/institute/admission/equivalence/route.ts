@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { requirePermission } from '@/lib/authz';
+import { requirePermission, requireFeature } from '@/lib/authz';
 
 interface EquivalenceRow {
   id: string;
@@ -17,6 +17,9 @@ interface EquivalenceRow {
 // Lists course-equivalence (transfer-credit) requests + derived stats.
 export async function GET() {
   try {
+    const feat = await requireFeature('admission.transfers');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
+
     const guard = await requirePermission('equivalence.view');
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
@@ -63,6 +66,9 @@ export async function GET() {
 // PATCH /api/institute/admission/equivalence — approve/reject a request.
 export async function PATCH(request: NextRequest) {
   try {
+    const feat = await requireFeature('admission.transfers');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
+
     const guard = await requirePermission('equivalence.approve');
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 

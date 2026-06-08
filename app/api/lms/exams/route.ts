@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireSession } from '@/lib/student';
+import { requireFeature } from '@/lib/authz';
 
 // GET /api/lms/exams?courseId= — exam sessions + results for a course.
 export async function GET(request: NextRequest) {
   try {
+    const feat = await requireFeature('lms.enabled');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
+
     const guard = await requireSession();
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 

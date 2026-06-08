@@ -73,7 +73,6 @@ function matchArea(path: string): string[] | null {
 // Most-specific first. Features default ON; only an explicit per-tenant OFF blocks.
 const AREA_FEATURE: Array<[string, string]> = [
   ['/institute/online-exams', 'exams.online'],
-  ['/institute/exams', 'exams.online'],
   ['/institute/banking', 'finance.banking'],
   ['/institute/payroll', 'finance.payroll'],
   ['/institute/library', 'library.enabled'],

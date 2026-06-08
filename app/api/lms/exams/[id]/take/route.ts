@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireSession, resolveStudent } from '@/lib/student';
+import { requireFeature } from '@/lib/authz';
 
 // Maps the stored ExamQuestion.type to the UI question-type union the
 // exam components understand. The schema documents mcq | essay | truefalse | short.
@@ -48,6 +49,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const feat = await requireFeature('lms.enabled');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
+
     const guard = await requireSession();
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
@@ -116,6 +120,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const feat = await requireFeature('lms.enabled');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
+
     const guard = await requireSession();
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 

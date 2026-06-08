@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { resolveStudent } from '@/lib/student';
+import { requireFeature } from '@/lib/authz';
 
 // GET /api/student/gamification/rewards — rewards catalog + affordability vs the student's points.
 export async function GET(request: NextRequest) {
   try {
+    const feat = await requireFeature('gamification.enabled');
+    if (!feat.ok) return NextResponse.json({ error: feat.error }, { status: feat.status });
     const { searchParams } = new URL(request.url);
     const student = await resolveStudent(searchParams.get('studentCode'));
     if (!student) return NextResponse.json({ error: 'الطالب غير موجود' }, { status: 404 });
