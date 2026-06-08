@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,21 +15,97 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Award, CheckCircle, Clock, FileText, Download, Eye, Users, GraduationCap } from "lucide-react"
+import { Award, CheckCircle, Clock, FileText, Download, Eye, X } from "lucide-react"
+
+interface GraduationRequest {
+  id: string
+  student: string
+  studentCode: string
+  department: string
+  program: string
+  completedHours: number
+  requiredHours: number
+  gpa: number
+  status: "PENDING" | "APPROVED" | "REJECTED"
+  statusLabel: string
+  date: string
+}
+
+interface GraduationStats {
+  total: number
+  pending: number
+  approved: number
+  rejected: number
+}
 
 export default function GraduationPage() {
-  const gradStats = [
-    { label: "طلبات التخرج", value: "185", icon: FileText, color: "text-institute-blue" },
-    { label: "مؤهل للتخرج", value: "142", icon: CheckCircle, color: "text-institute-blue" },
-    { label: "قيد المراجعة", value: "28", icon: Clock, color: "text-yellow-600" },
-    { label: "خريجين هذا العام", value: "520", icon: Award, color: "text-institute-gold" },
-  ]
+  const [graduationRequests, setGraduationRequests] = useState<GraduationRequest[]>([])
+  const [apiStats, setApiStats] = useState<GraduationStats>({ total: 0, pending: 0, approved: 0, rejected: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [actioning, setActioning] = useState<string | null>(null)
 
-  const graduationRequests = [
-    { id: 1, name: "أحمد محمد علي", studentId: "STU2020001", department: "الهندسة", program: "هندسة الحاسبات", gpa: 3.45, creditHours: 160, status: "approved" },
-    { id: 2, name: "سارة أحمد حسن", studentId: "STU2020002", department: "الحاسبات", program: "علوم الحاسب", gpa: 3.82, creditHours: 140, status: "pending" },
-    { id: 3, name: "محمد علي إبراهيم", studentId: "STU2020003", department: "إدارة الأعمال", program: "إدارة الأعمال", gpa: 3.15, creditHours: 128, status: "review" },
-    { id: 4, name: "نور محمود سعيد", studentId: "STU2020004", department: "المحاسبة", program: "المحاسبة", gpa: 3.68, creditHours: 130, status: "approved" },
+  async function load() {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/institute/students/graduation`)
+      if (!res.ok) throw new Error("فشل في جلب طلبات التخرج")
+      const json = await res.json()
+      setGraduationRequests(json.graduationRequests ?? [])
+      setApiStats(json.stats ?? { total: 0, pending: 0, approved: 0, rejected: 0 })
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    async function initialLoad() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/students/graduation`)
+        if (!res.ok) throw new Error("فشل في جلب طلبات التخرج")
+        const json = await res.json()
+        if (!cancelled) {
+          setGraduationRequests(json.graduationRequests ?? [])
+          setApiStats(json.stats ?? { total: 0, pending: 0, approved: 0, rejected: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    initialLoad()
+    return () => { cancelled = true }
+  }, [])
+
+  async function updateStatus(id: string, status: "APPROVED" | "REJECTED") {
+    setActioning(id)
+    try {
+      const res = await fetch(`/api/institute/students/graduation`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      })
+      if (!res.ok) throw new Error("فشل في تحديث حالة الطلب")
+      await load()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setActioning(null)
+    }
+  }
+
+  const gradStats = [
+    { label: "إجمالي الطلبات", value: String(apiStats.total), icon: FileText, color: "text-institute-blue" },
+    { label: "قيد المراجعة", value: String(apiStats.pending), icon: Clock, color: "text-yellow-600" },
+    { label: "مقبول", value: String(apiStats.approved), icon: CheckCircle, color: "text-institute-blue" },
+    { label: "مرفوض", value: String(apiStats.rejected), icon: X, color: "text-red-600" },
   ]
 
   const requirements = [
@@ -39,16 +116,16 @@ export default function GraduationPage() {
     { name: "السداد المالي", required: 100, current: 100, completed: true },
   ]
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "approved":
-        return <Badge className="bg-institute-blue text-green-700"><CheckCircle className="w-3 h-3 ml-1" />مؤهل للتخرج</Badge>
-      case "pending":
-        return <Badge className="bg-yellow-100 text-yellow-700"><Clock className="w-3 h-3 ml-1" />في الانتظار</Badge>
-      case "review":
-        return <Badge className="bg-institute-blue text-blue-700"><FileText className="w-3 h-3 ml-1" />قيد المراجعة</Badge>
+  const getStatusBadge = (request: GraduationRequest) => {
+    switch (request.status) {
+      case "APPROVED":
+        return <Badge className="bg-institute-blue text-green-700"><CheckCircle className="w-3 h-3 ml-1" />{request.statusLabel}</Badge>
+      case "PENDING":
+        return <Badge className="bg-yellow-100 text-yellow-700"><Clock className="w-3 h-3 ml-1" />{request.statusLabel}</Badge>
+      case "REJECTED":
+        return <Badge className="bg-red-100 text-red-700"><X className="w-3 h-3 ml-1" />{request.statusLabel}</Badge>
       default:
-        return <Badge variant="secondary">{status}</Badge>
+        return <Badge variant="secondary">{request.statusLabel}</Badge>
     }
   }
 
@@ -73,6 +150,9 @@ export default function GraduationPage() {
           </Button>
         </div>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل طلبات التخرج...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -162,12 +242,12 @@ export default function GraduationPage() {
                       <div className="flex items-center gap-2">
                         <Avatar className="w-8 h-8">
                           <AvatarFallback className="bg-institute-blue text-institute-blue text-xs">
-                            {request.name.charAt(0)}
+                            {request.student.charAt(0)}
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium text-sm">{request.name}</p>
-                          <p className="text-xs text-muted-foreground">{request.studentId}</p>
+                          <p className="font-medium text-sm">{request.student}</p>
+                          <p className="text-xs text-muted-foreground">{request.studentCode}</p>
                         </div>
                       </div>
                     </TableCell>
@@ -181,13 +261,40 @@ export default function GraduationPage() {
                       <span className="font-bold text-institute-blue">{request.gpa.toFixed(2)}</span>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{request.creditHours}</Badge>
+                      <div className="space-y-1 min-w-[120px]">
+                        <p className="text-xs font-medium">{request.completedHours} / {request.requiredHours} ساعة</p>
+                        <Progress value={request.requiredHours > 0 ? (request.completedHours / request.requiredHours) * 100 : 0} className="h-2" />
+                      </div>
                     </TableCell>
-                    <TableCell>{getStatusBadge(request.status)}</TableCell>
+                    <TableCell>{getStatusBadge(request)}</TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="icon">
-                        <Eye className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        {request.status === "PENDING" && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-institute-blue"
+                              disabled={actioning === request.id}
+                              onClick={() => updateStatus(request.id, "APPROVED")}
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-red-600"
+                              disabled={actioning === request.id}
+                              onClick={() => updateStatus(request.id, "REJECTED")}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </>
+                        )}
+                        <Button variant="ghost" size="icon">
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

@@ -1,50 +1,86 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { MessageSquare, Search, Plus, Send, Paperclip, Star, Archive, Trash2, Reply, MoreVertical, Inbox, SendHorizontal } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { MessageSquare, Search, Plus, Send, Paperclip, Star, Archive, Trash2, MoreVertical, Inbox, SendHorizontal } from "lucide-react"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-const messages = [
-  { id: 1, from: "أحمد محمد علي", studentId: "20240001", subject: "استفسار عن مشروع التخرج", preview: "السلام عليكم دكتور، أريد الاستفسار عن متطلبات مشروع التخرج...", date: "منذ 30 دقيقة", unread: true, starred: false },
-  { id: 2, from: "سارة أحمد حسن", studentId: "20240002", subject: "طلب موعد", preview: "دكتور، أرجو حجز موعد في الساعات المكتبية لمناقشة...", date: "منذ ساعة", unread: true, starred: true },
-  { id: 3, from: "محمود عبدالله", studentId: "20240003", subject: "شكر وتقدير", preview: "شكراً جزيلاً على المساعدة في فهم موضوع...", date: "أمس", unread: false, starred: false },
-  { id: 4, from: "فاطمة السيد", studentId: "20240004", subject: "استفسار عن الواجب", preview: "دكتور، هل يمكن توضيح المطلوب في السؤال الثالث...", date: "أمس", unread: false, starred: true },
-  { id: 5, from: "عمر خالد", studentId: "20240005", subject: "طلب تأجيل التسليم", preview: "أرجو قبول طلب تأجيل تسليم الواجب بسبب...", date: "منذ يومين", unread: false, starred: false },
-]
-
-const selectedMessage = {
-  id: 1,
-  from: "أحمد محمد علي",
-  studentId: "20240001",
-  subject: "استفسار عن مشروع التخرج",
-  date: "15 يناير 2025 - 10:30 ص",
-  content: `السلام عليكم ورحمة الله وبركاته
-
-دكتور محمد، تحية طيبة وبعد،
-
-أريد الاستفسار عن متطلبات مشروع التخرج للفصل القادم. هل يمكنني اختيار موضوع في مجال الذكاء الاصطناعي؟ وما هي المتطلبات الأساسية التي يجب أن أستوفيها قبل البدء؟
-
-شكراً جزيلاً على وقتكم.
-
-مع خالص التقدير،
-أحمد محمد علي`
+interface MessageRow {
+  id: string
+  from: string
+  role: string
+  subject: string
+  body: string
+  read: boolean
+  date: string
 }
 
 export default function MessagesPage() {
   const [searchTerm, setSearchTerm] = useState("")
-  const [selectedId, setSelectedId] = useState<number | null>(1)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [replyText, setReplyText] = useState("")
+  const [messages, setMessages] = useState<MessageRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const unreadCount = messages.filter(m => m.unread).length
-  const starredCount = messages.filter(m => m.starred).length
+  async function reload() {
+    setError(null)
+    try {
+      const res = await fetch(`/api/messages`)
+      if (!res.ok) throw new Error("فشل في جلب الرسائل")
+      const json = await res.json()
+      setMessages(json.messages ?? [])
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/messages`)
+        if (!res.ok) throw new Error("فشل في جلب الرسائل")
+        const json = await res.json()
+        if (!cancelled) setMessages(json.messages ?? [])
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const unreadCount = messages.filter(m => !m.read).length
+  const starredCount = 0
+
+  const selectedMessage = messages.find(m => m.id === selectedId) ?? messages[0] ?? null
+
+  async function openMessage(id: string) {
+    setSelectedId(id)
+    const msg = messages.find(m => m.id === id)
+    if (msg && !msg.read) {
+      try {
+        await fetch(`/api/messages`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, read: true }),
+        })
+        await reload()
+      } catch (e) {
+        setError((e as Error).message)
+      }
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -61,6 +97,9 @@ export default function MessagesPage() {
           رسالة جديدة
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-gray-500">جارٍ تحميل الرسائل...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -99,32 +138,36 @@ export default function MessagesPage() {
           <CardContent className="p-0">
             <ScrollArea className="h-[500px]">
               <div className="divide-y">
-                {messages.map((msg) => (
+                {messages.map((msg) => {
+                  const unread = !msg.read
+                  const starred = false
+                  return (
                   <div
                     key={msg.id}
-                    className={`p-4 cursor-pointer transition-colors ${selectedId === msg.id ? 'bg-indigo-50' : 'hover:bg-gray-50'} ${msg.unread ? 'bg-blue-50/50' : ''}`}
-                    onClick={() => setSelectedId(msg.id)}
+                    className={`p-4 cursor-pointer transition-colors ${(selectedMessage?.id ?? selectedId) === msg.id ? 'bg-indigo-50' : 'hover:bg-gray-50'} ${unread ? 'bg-blue-50/50' : ''}`}
+                    onClick={() => openMessage(msg.id)}
                   >
                     <div className="flex items-start gap-3">
                       <Avatar>
-                        <AvatarFallback className={`${msg.unread ? 'bg-indigo-500 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                        <AvatarFallback className={`${unread ? 'bg-indigo-500 text-white' : 'bg-gray-100 text-gray-700'}`}>
                           {msg.from.split(" ").map(n => n[0]).join("").slice(0, 2)}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
-                          <p className={`font-medium truncate ${msg.unread ? 'text-gray-900' : 'text-gray-600'}`}>{msg.from}</p>
+                          <p className={`font-medium truncate ${unread ? 'text-gray-900' : 'text-gray-600'}`}>{msg.from}</p>
                           <div className="flex items-center gap-1">
-                            {msg.starred && <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />}
+                            {starred && <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />}
                             <span className="text-xs text-gray-400">{msg.date}</span>
                           </div>
                         </div>
-                        <p className={`text-sm truncate ${msg.unread ? 'font-medium' : 'text-gray-500'}`}>{msg.subject}</p>
-                        <p className="text-xs text-gray-400 truncate mt-1">{msg.preview}</p>
+                        <p className={`text-sm truncate ${unread ? 'font-medium' : 'text-gray-500'}`}>{msg.subject}</p>
+                        <p className="text-xs text-gray-400 truncate mt-1">{msg.body}</p>
                       </div>
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </ScrollArea>
           </CardContent>
@@ -132,7 +175,7 @@ export default function MessagesPage() {
 
         {/* Message Content */}
         <Card className="lg:col-span-2">
-          {selectedId ? (
+          {selectedMessage ? (
             <>
               <CardHeader className="border-b">
                 <div className="flex items-center justify-between">
@@ -144,7 +187,7 @@ export default function MessagesPage() {
                     </Avatar>
                     <div>
                       <p className="font-bold">{selectedMessage.from}</p>
-                      <p className="text-sm text-gray-500">{selectedMessage.studentId}</p>
+                      <p className="text-sm text-gray-500">{selectedMessage.role}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -161,7 +204,7 @@ export default function MessagesPage() {
               </CardHeader>
               <CardContent className="p-6">
                 <div className="prose max-w-none">
-                  <pre className="whitespace-pre-wrap font-sans text-gray-700 bg-transparent p-0">{selectedMessage.content}</pre>
+                  <pre className="whitespace-pre-wrap font-sans text-gray-700 bg-transparent p-0">{selectedMessage.body}</pre>
                 </div>
 
                 {/* Reply Box */}

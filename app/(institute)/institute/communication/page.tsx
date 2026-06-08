@@ -1,27 +1,66 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { MessageSquare, Send, Users, Bell, Mail, Search, Plus } from "lucide-react"
+import { MessageSquare, Users, Bell, Mail, Search, Plus } from "lucide-react"
+
+interface MessageRow {
+  id: string
+  from: string
+  role: string
+  subject: string
+  body: string
+  read: boolean
+  date: string
+}
 
 export default function CommunicationPage() {
+  const [messages, setMessages] = useState<MessageRow[]>([])
+  const [apiStats, setApiStats] = useState<{ total: number; unread: number }>({ total: 0, unread: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/messages`)
+        if (!res.ok) throw new Error("فشل في جلب الرسائل")
+        const json = await res.json()
+        if (!cancelled) {
+          setMessages(json.messages ?? [])
+          setApiStats(json.stats ?? { total: 0, unread: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
   const stats = [
-    { label: "رسائل جديدة", value: "15", icon: MessageSquare, color: "text-institute-blue" },
-    { label: "إشعارات مرسلة", value: "248", icon: Bell, color: "text-institute-blue" },
-    { label: "بريد إلكتروني", value: "85", icon: Mail, color: "text-institute-gold" },
-    { label: "مجموعات", value: "12", icon: Users, color: "text-institute-gold" },
+    { label: "رسائل جديدة", value: String(apiStats.unread), icon: MessageSquare, color: "text-institute-blue" },
+    { label: "إشعارات مرسلة", value: "—", icon: Bell, color: "text-institute-blue" },
+    { label: "بريد إلكتروني", value: "—", icon: Mail, color: "text-institute-gold" },
+    { label: "مجموعات", value: "—", icon: Users, color: "text-institute-gold" },
   ]
 
-  const recentMessages = [
-    { from: "أحمد محمد - الهندسة", subject: "استفسار عن تسجيل المقررات", time: "منذ 10 دقائق", unread: true },
-    { from: "د. سارة علي", subject: "تحديث جدول المحاضرات", time: "منذ 30 دقيقة", unread: true },
-    { from: "إدارة القبول", subject: "تقرير القبول الأسبوعي", time: "منذ ساعة", unread: false },
-    { from: "الشؤون المالية", subject: "تذكير بموعد التحصيل", time: "منذ ساعتين", unread: false },
-  ]
+  const recentMessages = messages.map((m) => ({
+    from: m.from,
+    subject: m.subject,
+    time: m.date,
+    unread: !m.read,
+  }))
 
   return (
     <div className="space-y-6">
@@ -38,6 +77,9 @@ export default function CommunicationPage() {
           رسالة جديدة
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الرسائل...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

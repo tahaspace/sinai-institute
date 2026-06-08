@@ -1,9 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -13,31 +12,71 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Calendar, Clock, Users, AlertTriangle, CheckCircle, XCircle, TrendingUp } from "lucide-react"
+import { Calendar, Clock, Users, AlertTriangle, CheckCircle, TrendingUp } from "lucide-react"
+
+interface AttendanceStatsData {
+  trackedStudents: number
+  avgAttendance: number
+  atRisk: number
+}
+
+interface DepartmentAttendance {
+  name: string
+  attendance: number
+}
+
+interface WarningStudent {
+  id: string
+  studentCode: string
+  name: string
+  department: string
+  attendance: number
+  absences: number
+}
 
 export default function AttendancePage() {
   const [selectedCourse, setSelectedCourse] = useState("all")
+  const [stats, setStats] = useState<AttendanceStatsData>({ trackedStudents: 0, avgAttendance: 0, atRisk: 0 })
+  const [departmentAttendance, setDepartmentAttendance] = useState<DepartmentAttendance[]>([])
+  const [warningStudents, setWarningStudents] = useState<WarningStudent[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/students/attendance`)
+        if (!res.ok) throw new Error("فشل في جلب بيانات الحضور")
+        const json = await res.json()
+        if (!cancelled) {
+          setStats(json.stats ?? { trackedStudents: 0, avgAttendance: 0, atRisk: 0 })
+          setDepartmentAttendance(json.departmentAttendance ?? [])
+          setWarningStudents(json.warningStudents ?? [])
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
 
   const attendanceStats = [
-    { label: "نسبة الحضور العامة", value: "87%", icon: TrendingUp, color: "text-institute-blue" },
-    { label: "طلاب محرومين", value: "12", icon: AlertTriangle, color: "text-red-600" },
-    { label: "تحذير حرمان", value: "28", icon: Clock, color: "text-yellow-600" },
-    { label: "حضور كامل", value: "850", icon: CheckCircle, color: "text-institute-blue" },
+    { label: "متوسط الحضور", value: `${stats.avgAttendance}%`, icon: TrendingUp, color: "text-institute-blue" },
+    { label: "طلاب متابَعون", value: String(stats.trackedStudents), icon: CheckCircle, color: "text-institute-blue" },
+    { label: "طلاب تحت الخطر", value: String(stats.atRisk), icon: AlertTriangle, color: "text-red-600" },
+    { label: "تحذير حرمان", value: String(warningStudents.length), icon: Clock, color: "text-yellow-600" },
   ]
 
-  const courseAttendance = [
-    { code: "CS301", name: "الذكاء الاصطناعي", students: 85, present: 78, absent: 7, rate: 91.8 },
-    { code: "MATH301", name: "رياضيات متقدمة", students: 120, present: 98, absent: 22, rate: 81.7 },
-    { code: "CS302", name: "شبكات الحاسب", students: 75, present: 65, absent: 10, rate: 86.7 },
-    { code: "BUS301", name: "إدارة المشاريع", students: 90, present: 82, absent: 8, rate: 91.1 },
-    { code: "ENG301", name: "اللغة الإنجليزية المتقدمة", students: 60, present: 45, absent: 15, rate: 75.0 },
-  ]
-
-  const warningStudents = [
-    { name: "أحمد محمد", course: "MATH301", absences: 8, maxAllowed: 10, rate: 70 },
-    { name: "سارة علي", course: "ENG301", absences: 7, maxAllowed: 10, rate: 65 },
-    { name: "محمد حسن", course: "CS302", absences: 9, maxAllowed: 10, rate: 60 },
-  ]
+  const courseAttendance = departmentAttendance.map((dept) => ({
+    name: dept.name,
+    rate: dept.attendance,
+  }))
 
   return (
     <div className="space-y-6">
@@ -60,6 +99,9 @@ export default function AttendancePage() {
           </SelectContent>
         </Select>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل بيانات الحضور...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -91,15 +133,15 @@ export default function AttendancePage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Users className="w-5 h-5" />
-              الحضور حسب المقرر
+              الحضور حسب القسم
             </CardTitle>
-            <CardDescription>نسب الحضور لكل مقرر اليوم</CardDescription>
+            <CardDescription>نسب الحضور لكل قسم</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {courseAttendance.map((course, index) => (
                 <motion.div
-                  key={course.code}
+                  key={course.name}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.1 }}
@@ -108,11 +150,7 @@ export default function AttendancePage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-medium">{course.name}</p>
-                      <p className="text-sm text-muted-foreground">{course.code}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge className="bg-institute-blue text-green-700">{course.present} حاضر</Badge>
-                      <Badge className="bg-red-100 text-red-700">{course.absent} غائب</Badge>
+                      <p className="text-sm text-muted-foreground">القسم</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -141,27 +179,30 @@ export default function AttendancePage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {warningStudents.map((student, index) => (
+              {warningStudents.map((student) => (
                 <motion.div
-                  key={index}
+                  key={student.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
+                  transition={{ delay: 0.1 }}
                   className="p-4 rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-900/10"
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium">{student.name}</h4>
-                    <Badge variant="outline">{student.course}</Badge>
+                    <div>
+                      <h4 className="font-medium">{student.name}</h4>
+                      <p className="text-sm text-muted-foreground">{student.studentCode}</p>
+                    </div>
+                    <Badge variant="outline">{student.department}</Badge>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">
-                      غيابات: <span className="font-bold text-red-600">{student.absences}</span> / {student.maxAllowed}
+                      غيابات: <span className="font-bold text-red-600">{student.absences}</span>
                     </span>
                     <span className="text-muted-foreground">
-                      نسبة الحضور: <span className="font-bold text-yellow-600">{student.rate}%</span>
+                      نسبة الحضور: <span className="font-bold text-yellow-600">{student.attendance}%</span>
                     </span>
                   </div>
-                  <Progress value={student.rate} className="h-2 mt-2 [&>div]:bg-yellow-500" />
+                  <Progress value={student.attendance} className="h-2 mt-2 [&>div]:bg-yellow-500" />
                 </motion.div>
               ))}
             </div>

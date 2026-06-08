@@ -1,16 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import Link from "next/link"
 import {
   FileText,
   Calendar,
-  Clock,
   Users,
   CheckCircle,
   AlertTriangle,
@@ -22,50 +20,61 @@ import {
   ClipboardList,
 } from "lucide-react"
 
-export default function ExamsPage() {
-  const [activeTab, setActiveTab] = useState("schedules")
+interface ExamScheduleRow {
+  id: string
+  course: string
+  code: string
+  department: string
+  date: string
+  time: string
+  durationMins: number
+  duration: string
+  hall: string
+  students: number
+  examType: string
+}
 
-  const examSchedules = [
-    {
-      id: 1,
-      course: "الرياضيات (1)",
-      code: "MATH101",
-      department: "الهندسة",
-      date: "2025-01-15",
-      time: "9:00 AM",
-      duration: "3 ساعات",
-      hall: "قاعة A1",
-      students: 120,
-    },
-    {
-      id: 2,
-      course: "البرمجة المتقدمة",
-      code: "CS201",
-      department: "الحاسبات",
-      date: "2025-01-16",
-      time: "11:00 AM",
-      duration: "2 ساعات",
-      hall: "معمل 3",
-      students: 85,
-    },
-    {
-      id: 3,
-      course: "مبادئ الإدارة",
-      code: "BUS101",
-      department: "إدارة الأعمال",
-      date: "2025-01-17",
-      time: "9:00 AM",
-      duration: "2 ساعات",
-      hall: "قاعة B2",
-      students: 95,
-    },
-  ]
+interface ExamApiStats {
+  total: number
+  thisWeek: number
+  studentsRegistered: number
+  published: number
+}
+
+export default function ExamsPage() {
+  const [schedules, setSchedules] = useState<ExamScheduleRow[]>([])
+  const [apiStats, setApiStats] = useState<ExamApiStats>({ total: 0, thisWeek: 0, studentsRegistered: 0, published: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/exams`)
+        if (!res.ok) throw new Error("فشل في جلب جداول الامتحانات")
+        const json = await res.json()
+        if (!cancelled) {
+          setSchedules(json.schedules ?? [])
+          setApiStats(json.stats ?? { total: 0, thisWeek: 0, studentsRegistered: 0, published: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
 
   const stats = [
-    { label: "امتحانات الفصل", value: "156", icon: FileText, color: "text-institute-blue" },
-    { label: "امتحانات هذا الأسبوع", value: "12", icon: Calendar, color: "text-institute-blue" },
-    { label: "طلاب مسجلين", value: "2,180", icon: Users, color: "text-institute-gold" },
-    { label: "نتائج معلنة", value: "89", icon: CheckCircle, color: "text-institute-gold" },
+    { label: "امتحانات الفصل", value: String(apiStats.total), icon: FileText, color: "text-institute-blue" },
+    { label: "امتحانات هذا الأسبوع", value: String(apiStats.thisWeek), icon: Calendar, color: "text-institute-blue" },
+    { label: "طلاب مسجلين", value: apiStats.studentsRegistered.toLocaleString("en-US"), icon: Users, color: "text-institute-gold" },
+    { label: "نتائج معلنة", value: String(apiStats.published), icon: CheckCircle, color: "text-institute-gold" },
   ]
 
   const quickLinks = [
@@ -75,6 +84,9 @@ export default function ExamsPage() {
     { title: "الكنترول", href: "/institute/exams/control", icon: Award, color: "text-institute-gold", desc: "لجان الكنترول" },
     { title: "النتائج", href: "/institute/exams/results", icon: BarChart3, color: "text-institute-blue", desc: "إعلان النتائج" },
     { title: "التظلمات", href: "/institute/exams/appeals", icon: AlertTriangle, color: "text-red-600", desc: "طلبات التظلم" },
+    { title: "الحالة الأكاديمية", href: "/institute/exams/academic-standing", icon: Award, color: "text-institute-gold", desc: "الإنذارات وقائمة الشرف والتخرج" },
+    { title: "الحضور والحرمان", href: "/institute/exams/attendance", icon: AlertTriangle, color: "text-red-600", desc: "إنذارات الغياب والحرمان" },
+    { title: "التقارير", href: "/institute/reports", icon: BarChart3, color: "text-institute-blue", desc: "كشوف الرصد والنتائج والخريجين" },
   ]
 
   return (
@@ -101,6 +113,9 @@ export default function ExamsPage() {
           </Button>
         </div>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل جداول الامتحانات...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -159,7 +174,7 @@ export default function ExamsPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {examSchedules.map((exam, index) => (
+            {schedules.map((exam, index) => (
               <motion.div
                 key={exam.id}
                 initial={{ opacity: 0, x: -20 }}

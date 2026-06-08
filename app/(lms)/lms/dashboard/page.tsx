@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { motion } from "framer-motion"
 import {
@@ -7,56 +8,101 @@ import {
   BookOpen,
   FileText,
   ClipboardList,
-  Users,
   Clock,
   Play,
   TrendingUp,
   ChevronLeft,
-  Calendar,
-  CheckCircle2,
 } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 
-// Stats
-const stats = [
-  { title: "الفصول الافتراضية", value: 12, icon: Video, color: "from-red-500 to-red-600", href: "/lms/virtual-classes" },
-  { title: "المحتوى التعليمي", value: 156, icon: BookOpen, color: "from-blue-500 to-blue-600", href: "/lms/content" },
-  { title: "الواجبات", value: 24, icon: FileText, color: "from-orange-500 to-orange-600", href: "/lms/assignments" },
-  { title: "الاختبارات", value: 8, icon: ClipboardList, color: "from-green-500 to-green-600", href: "/lms/exams" },
-]
+// --- API response shapes (served by /api/lms/dashboard) ---
+interface DashboardStats {
+  content: number
+  classes: number
+  topics: number
+  assignments: number
+}
+interface UpcomingClass {
+  id: string
+  title: string
+  date: string
+  time: string
+  platform: string
+  status: string
+}
+interface RecentContentItem {
+  id: string
+  title: string
+  type: string
+  unit: string
+  views: number
+}
+interface PendingAssignment {
+  id: string
+  title: string
+  course: string
+  dueDate: string
+}
+interface DashboardResponse {
+  stats: DashboardStats
+  upcomingClasses: UpcomingClass[]
+  recentContent: RecentContentItem[]
+  pendingAssignments: PendingAssignment[]
+}
 
-// Upcoming Classes
-const upcomingClasses = [
-  { id: 1, title: "مراجعة الرياضيات", class: "3/1", time: "14:00", duration: "60 دقيقة", students: 35, status: "upcoming" },
-  { id: 2, title: "شرح الفيزياء", class: "3/2", time: "15:30", duration: "45 دقيقة", students: 32, status: "upcoming" },
-  { id: 3, title: "حصة اللغة الإنجليزية", class: "2/1", time: "16:30", duration: "45 دقيقة", students: 30, status: "live" },
-]
-
-// Recent Content
-const recentContent = [
-  { id: 1, title: "شرح التفاضل - الباب الثالث", type: "video", views: 156, date: "2024-12-24" },
-  { id: 2, title: "ملخص قوانين نيوتن", type: "pdf", views: 89, date: "2024-12-23" },
-  { id: 3, title: "تمارين محلولة", type: "pdf", views: 124, date: "2024-12-22" },
-]
-
-// Pending Assignments
-const pendingAssignments = [
-  { id: 1, title: "واجب الباب الثالث", class: "3/1", submissions: 28, total: 35, deadline: "2024-12-26" },
-  { id: 2, title: "تمارين التفاضل", class: "3/2", submissions: 20, total: 32, deadline: "2024-12-27" },
-]
-
-// Recent Activity
-const recentActivity = [
-  { id: 1, type: "submission", message: "أحمد محمد سلم واجب الرياضيات", time: "منذ 5 دقائق" },
-  { id: 2, type: "view", message: "45 طالب شاهدوا فيديو التفاضل", time: "منذ ساعة" },
-  { id: 3, type: "exam", message: "تم إنشاء اختبار جديد للفصل 3/1", time: "منذ 3 ساعات" },
-]
+interface StatCard {
+  title: string
+  value: number
+  icon: LucideIcon
+  color: string
+  href: string
+}
 
 export default function LMSDashboard() {
+  const [data, setData] = useState<DashboardResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/lms/dashboard`)
+        if (!res.ok) {
+          throw new Error("فشل في جلب لوحة التعلم")
+        }
+        const json = (await res.json()) as DashboardResponse
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const stats: StatCard[] = data
+    ? [
+        { title: "الفصول الافتراضية", value: data.stats.classes, icon: Video, color: "from-red-500 to-red-600", href: "/lms/virtual-classes" },
+        { title: "المحتوى", value: data.stats.content, icon: BookOpen, color: "from-blue-500 to-blue-600", href: "/lms/content" },
+        { title: "الواجبات", value: data.stats.assignments, icon: FileText, color: "from-orange-500 to-orange-600", href: "/lms/assignments" },
+        { title: "مواضيع النقاش", value: data.stats.topics, icon: ClipboardList, color: "from-green-500 to-green-600", href: "/lms/discussions" },
+      ]
+    : []
+  const upcomingClasses = data?.upcomingClasses ?? []
+  const recentContent = data?.recentContent ?? []
+  const pendingAssignments = data?.pendingAssignments ?? []
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -81,6 +127,19 @@ export default function LMSDashboard() {
         </div>
       </div>
 
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل لوحة التعلم...</CardContent>
+        </Card>
+      )}
+
+      {!loading && !error && data && (
+      <>
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {stats.map((stat, index) => (
@@ -153,15 +212,11 @@ export default function LMSDashboard() {
                     <div>
                       <p className="font-medium">{cls.title}</p>
                       <p className="text-sm text-muted-foreground">
-                        الفصل {cls.class} • {cls.time} • {cls.duration}
+                        {new Date(cls.date).toLocaleDateString("ar-EG")} • {cls.time} • {cls.platform}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
-                    <div className="text-center">
-                      <p className="font-bold">{cls.students}</p>
-                      <p className="text-xs text-muted-foreground">طالب</p>
-                    </div>
                     {cls.status === "live" ? (
                       <Button className="bg-red-500 hover:bg-red-600">
                         <Play className="w-4 h-4 ml-2" />
@@ -186,26 +241,7 @@ export default function LMSDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {recentActivity.map((activity) => (
-                <div key={activity.id} className="flex items-start gap-3">
-                  <div className={cn(
-                    "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
-                    activity.type === "submission" && "bg-green-100 text-green-600",
-                    activity.type === "view" && "bg-blue-100 text-blue-600",
-                    activity.type === "exam" && "bg-orange-100 text-orange-600"
-                  )}>
-                    {activity.type === "submission" && <FileText className="w-4 h-4" />}
-                    {activity.type === "view" && <BookOpen className="w-4 h-4" />}
-                    {activity.type === "exam" && <ClipboardList className="w-4 h-4" />}
-                  </div>
-                  <div>
-                    <p className="text-sm">{activity.message}</p>
-                    <p className="text-xs text-muted-foreground">{activity.time}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p className="text-sm text-muted-foreground text-center py-8">لا يوجد نشاط حديث</p>
           </CardContent>
         </Card>
       </div>
@@ -272,28 +308,24 @@ export default function LMSDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {pendingAssignments.map((assignment) => {
-                const progress = (assignment.submissions / assignment.total) * 100
-
-                return (
-                  <div key={assignment.id} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{assignment.title}</p>
-                        <p className="text-sm text-muted-foreground">
-                          الفصل {assignment.class} • موعد التسليم: {new Date(assignment.deadline).toLocaleDateString("ar-EG")}
-                        </p>
-                      </div>
-                      <Badge>{assignment.submissions}/{assignment.total}</Badge>
+              {pendingAssignments.map((assignment) => (
+                <div key={assignment.id} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">{assignment.title}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {assignment.course} • موعد التسليم: {new Date(assignment.dueDate).toLocaleDateString("ar-EG")}
+                      </p>
                     </div>
-                    <Progress value={progress} className="h-2" />
                   </div>
-                )
-              })}
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
       </div>
+      </>
+      )}
     </div>
   )
 }

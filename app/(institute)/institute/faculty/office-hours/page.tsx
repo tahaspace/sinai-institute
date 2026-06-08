@@ -1,20 +1,48 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Clock, Calendar, MapPin, Plus } from "lucide-react"
 
+interface OfficeHour {
+  id: string
+  name: string
+  department: string
+  days: string
+  time: string
+  office: string
+  type: "in-person" | "online"
+  available: boolean
+}
+
 export default function OfficeHoursPage() {
-  const officeHours = [
-    { name: "أ.د. أحمد محمد", department: "الهندسة", days: "الأحد - الثلاثاء", time: "10:00 - 12:00", office: "مكتب 301", available: true },
-    { name: "أ.د. سارة علي", department: "الحاسبات", days: "الإثنين - الأربعاء", time: "11:00 - 1:00", office: "مكتب 205", available: true },
-    { name: "د. محمد حسن", department: "إدارة الأعمال", days: "الثلاثاء - الخميس", time: "9:00 - 11:00", office: "مكتب 402", available: false },
-    { name: "د. نورا سعيد", department: "المحاسبة", days: "الأحد - الإثنين", time: "12:00 - 2:00", office: "مكتب 103", available: true },
-    { name: "م. يوسف أحمد", department: "الهندسة", days: "الثلاثاء", time: "10:00 - 12:00", office: "مكتب 310", available: true },
-  ]
+  const [officeHours, setOfficeHours] = useState<OfficeHour[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/faculty/office-hours`)
+        if (!res.ok) throw new Error("فشل في جلب الساعات المكتبية")
+        const json = await res.json()
+        if (!cancelled) setOfficeHours(json.officeHours ?? [])
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -32,10 +60,16 @@ export default function OfficeHoursPage() {
         </Button>
       </div>
 
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الساعات المكتبية...</CardContent></Card>}
+      {!loading && !error && officeHours.length === 0 && (
+        <Card><CardContent className="p-12 text-center text-muted-foreground">لا توجد ساعات مكتبية</CardContent></Card>
+      )}
+
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
         {officeHours.map((faculty, index) => (
           <motion.div
-            key={index}
+            key={faculty.id}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}

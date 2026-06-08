@@ -1,34 +1,24 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { Calendar, Clock, Download, MapPin, Users, BookOpen, Printer, Plus } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Calendar, Clock, Download, MapPin, Users, BookOpen, Printer } from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-const scheduleData = {
-  "الأحد": [
-    { time: "09:00 - 10:30", course: "CS101 - مقدمة في البرمجة", type: "محاضرة", hall: "A101", students: 45 },
-    { time: "14:00 - 15:30", course: "CS301 - قواعد البيانات", type: "محاضرة", hall: "B201", students: 25 },
-  ],
-  "الإثنين": [
-    { time: "11:00 - 12:30", course: "CS201 - هياكل البيانات", type: "معمل", hall: "Lab 3", students: 35 },
-    { time: "15:00 - 16:30", course: "CS401 - الذكاء الاصطناعي", type: "محاضرة", hall: "C101", students: 15 },
-  ],
-  "الثلاثاء": [
-    { time: "09:00 - 10:30", course: "CS101 - مقدمة في البرمجة", type: "معمل", hall: "Lab 1", students: 45 },
-    { time: "14:00 - 15:30", course: "CS301 - قواعد البيانات", type: "معمل", hall: "Lab 2", students: 25 },
-  ],
-  "الأربعاء": [
-    { time: "11:00 - 12:30", course: "CS201 - هياكل البيانات", type: "محاضرة", hall: "A102", students: 35 },
-    { time: "15:00 - 16:30", course: "CS401 - الذكاء الاصطناعي", type: "معمل", hall: "Lab 4", students: 15 },
-    { time: "17:00 - 18:00", course: "ساعات مكتبية", type: "إرشاد", hall: "مكتب 205", students: null },
-  ],
-  "الخميس": [
-    { time: "10:00 - 11:00", course: "ساعات مكتبية", type: "إرشاد", hall: "مكتب 205", students: null },
-  ],
+// --- API response shapes (served by /api/faculty/schedule) ---
+interface Lesson {
+  period: number
+  subject: string
+  room: string
+  time: string
+}
+type WeekSchedule = Record<string, Lesson[]>
+interface ScheduleResponse {
+  instructor: { id: string; name: string }
+  days: string[]
+  weekSchedule: WeekSchedule
 }
 
 const days = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"]
@@ -39,7 +29,35 @@ const typeColors: { [key: string]: string } = {
 }
 
 export default function FacultySchedulePage() {
-  const [selectedWeek, setSelectedWeek] = useState("current")
+  const [data, setData] = useState<ScheduleResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/faculty/schedule`)
+        if (!res.ok) {
+          throw new Error("فشل في جلب الجدول")
+        }
+        const json = (await res.json()) as ScheduleResponse
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const weekSchedule: WeekSchedule = data?.weekSchedule ?? {}
 
   return (
     <div className="space-y-6">
@@ -81,7 +99,19 @@ export default function FacultySchedulePage() {
         ))}
       </div>
 
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الجدول...</CardContent>
+        </Card>
+      )}
+
       {/* Schedule Grid */}
+      {!loading && !error && (
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -108,32 +138,28 @@ export default function FacultySchedulePage() {
               <div key={day} className="space-y-3">
                 <div className="text-center font-bold text-gray-700 pb-2 border-b">{day}</div>
                 <div className="space-y-2">
-                  {(scheduleData as any)[day]?.map((item: any, i: number) => (
+                  {(weekSchedule[day] ?? []).map((item, i) => (
                     <motion.div
                       key={i}
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: i * 0.1 }}
-                      className={`p-3 rounded-lg border-r-4 ${typeColors[item.type]}`}
+                      className={`p-3 rounded-lg border-r-4 ${typeColors["محاضرة"]}`}
                     >
                       <p className="text-xs font-bold text-gray-600">{item.time}</p>
-                      <p className="text-sm font-medium mt-1">{item.course}</p>
+                      <p className="text-sm font-medium mt-1">{item.subject}</p>
                       <div className="flex items-center gap-2 mt-2">
-                        <Badge variant="outline" className="text-xs">{item.type}</Badge>
+                        <Badge variant="outline" className="text-xs">الحصة {item.period}</Badge>
                       </div>
-                      <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
-                        <MapPin className="w-3 h-3" />
-                        {item.hall}
-                        {item.students && (
-                          <>
-                            <span className="mx-1">•</span>
-                            <Users className="w-3 h-3" />
-                            {item.students}
-                          </>
-                        )}
-                      </div>
+                      {item.room && (
+                        <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
+                          <MapPin className="w-3 h-3" />
+                          {item.room}
+                        </div>
+                      )}
                     </motion.div>
-                  )) || (
+                  ))}
+                  {(weekSchedule[day] ?? []).length === 0 && (
                     <div className="text-center text-gray-300 py-8">لا توجد حصص</div>
                   )}
                 </div>
@@ -142,6 +168,7 @@ export default function FacultySchedulePage() {
           </div>
         </CardContent>
       </Card>
+      )}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select,
@@ -45,6 +44,8 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+const SETTINGS_KEY = "lms.protection"
+
 export default function ContentProtectionPage() {
   const [settings, setSettings] = useState({
     // General
@@ -68,6 +69,36 @@ export default function ContentProtectionPage() {
     protectDocuments: true,
     protectImages: true,
   })
+  const [saving, setSaving] = useState(false)
+
+  // Hydrate settings from the namespaced store on mount; merge so any fields the
+  // saved blob lacks keep their defaults.
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/settings?key=${encodeURIComponent(SETTINGS_KEY)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        const value = data?.value
+        if (
+          !cancelled &&
+          value &&
+          typeof value === "object" &&
+          !Array.isArray(value) &&
+          Object.keys(value).length > 0
+        ) {
+          setSettings((prev) => ({ ...prev, ...value }))
+        }
+      } catch {
+        // network/parse failures fall back to the in-memory defaults
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const accessLogs = [
     { id: "1", user: "أحمد محمد", action: "محاولة نسخ", content: "درس الرياضيات", time: "منذ 5 دقائق", blocked: true },
@@ -83,8 +114,21 @@ export default function ContentProtectionPage() {
     violationRate: "2.3%",
   }
 
-  const handleSave = () => {
-    toast.success("تم حفظ إعدادات الحماية")
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: SETTINGS_KEY, value: settings }),
+      })
+      if (!res.ok) throw new Error("save failed")
+      toast.success("تم الحفظ")
+    } catch {
+      toast.error("فشل في حفظ إعدادات الحماية")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleReset = () => {
@@ -109,9 +153,9 @@ export default function ContentProtectionPage() {
             <RotateCcw className="w-4 h-4 ml-2" />
             إعادة تعيين
           </Button>
-          <Button onClick={handleSave} className="bg-red-600 hover:bg-red-700">
+          <Button onClick={handleSave} disabled={saving} className="bg-red-600 hover:bg-red-700">
             <Save className="w-4 h-4 ml-2" />
-            حفظ الإعدادات
+            {saving ? "جاري الحفظ..." : "حفظ الإعدادات"}
           </Button>
         </div>
       </div>

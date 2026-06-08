@@ -1,26 +1,62 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { BarChart3, Download, Eye, CheckCircle, AlertTriangle, Users, Award } from "lucide-react"
+import { BarChart3, Download, Eye, CheckCircle, Award } from "lucide-react"
+
+interface CourseResult {
+  course: string
+  code: string
+  enrolled: number
+  graded: number
+  passed: number
+  passRate: number
+  avgGrade: number
+}
+
+interface ResultsStats {
+  totalCourses: number
+  avgPassRate: number
+  publishedCourses: number
+}
 
 export default function ResultsPage() {
-  const stats = [
-    { label: "نسبة النجاح", value: "89%", icon: Award, color: "text-institute-blue" },
-    { label: "ناجح", value: "1,940", icon: CheckCircle, color: "text-institute-blue" },
-    { label: "راسب", value: "240", icon: AlertTriangle, color: "text-red-600" },
-    { label: "إجمالي الطلاب", value: "2,180", icon: Users, color: "text-institute-gold" },
-  ]
+  const [courseResults, setCourseResults] = useState<CourseResult[]>([])
+  const [apiStats, setApiStats] = useState<ResultsStats>({ totalCourses: 0, avgPassRate: 0, publishedCourses: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const courseResults = [
-    { code: "CS301", name: "الذكاء الاصطناعي", students: 85, passed: 78, failed: 7, avg: 72.5, passRate: 91.8 },
-    { code: "MATH301", name: "رياضيات متقدمة", students: 120, passed: 95, failed: 25, avg: 65.2, passRate: 79.2 },
-    { code: "BUS101", name: "مبادئ الإدارة", students: 95, passed: 88, failed: 7, avg: 75.8, passRate: 92.6 },
-    { code: "ACC201", name: "المحاسبة المتوسطة", students: 80, passed: 72, failed: 8, avg: 68.4, passRate: 90.0 },
-    { code: "ENG301", name: "اللغة الإنجليزية المتقدمة", students: 60, passed: 52, failed: 8, avg: 70.2, passRate: 86.7 },
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/exams/results`)
+        if (!res.ok) throw new Error("فشل في جلب النتائج")
+        const json = await res.json()
+        if (!cancelled) {
+          setCourseResults(json.courseResults ?? [])
+          setApiStats(json.stats ?? { totalCourses: 0, avgPassRate: 0, publishedCourses: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const stats = [
+    { label: "إجمالي المقررات", value: String(apiStats.totalCourses), icon: BarChart3, color: "text-institute-blue" },
+    { label: "متوسط نسبة النجاح", value: `${apiStats.avgPassRate}%`, icon: Award, color: "text-institute-blue" },
+    { label: "المقررات المعلنة", value: String(apiStats.publishedCourses), icon: CheckCircle, color: "text-institute-gold" },
   ]
 
   return (
@@ -44,8 +80,11 @@ export default function ResultsPage() {
         </div>
       </div>
 
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل النتائج...</CardContent></Card>}
+
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {stats.map((stat, index) => (
           <motion.div
             key={index}
@@ -86,7 +125,7 @@ export default function ResultsPage() {
               >
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <h4 className="font-medium">{course.name}</h4>
+                    <h4 className="font-medium">{course.course}</h4>
                     <Badge variant="outline">{course.code}</Badge>
                   </div>
                   <div className="flex items-center gap-4">
@@ -95,11 +134,11 @@ export default function ResultsPage() {
                       <p className="text-xs text-muted-foreground">ناجح</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-lg font-bold text-red-600">{course.failed}</p>
+                      <p className="text-lg font-bold text-red-600">{course.enrolled - course.passed}</p>
                       <p className="text-xs text-muted-foreground">راسب</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-lg font-bold text-institute-blue">{course.avg}</p>
+                      <p className="text-lg font-bold text-institute-blue">{course.avgGrade}%</p>
                       <p className="text-xs text-muted-foreground">المتوسط</p>
                     </div>
                   </div>

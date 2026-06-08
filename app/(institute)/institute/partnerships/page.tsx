@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Handshake,
   Search,
@@ -8,21 +8,15 @@ import {
   Building2,
   Users,
   Briefcase,
-  Calendar,
-  Phone,
   Mail,
-  Globe,
   MoreVertical,
   Eye,
   Edit,
-  CheckCircle2,
-  Clock,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,50 +31,27 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { cn } from "@/lib/utils"
 
-// Partners Data
-const partners = [
-  {
-    id: "PTR001",
-    name: "شركة تقنية المستقبل",
-    type: "شركة تقنية",
-    contact: "أحمد محمد",
-    phone: "01012345678",
-    email: "ahmed@futuretech.com",
-    website: "www.futuretech.com",
-    trainees: 45,
-    programs: 3,
-    status: "active",
-    since: "2023-01-15",
-  },
-  {
-    id: "PTR002",
-    name: "بنك مصر",
-    type: "قطاع مصرفي",
-    contact: "سارة خالد",
-    phone: "01123456789",
-    email: "sara@banquemisr.com",
-    website: "www.banquemisr.com",
-    trainees: 120,
-    programs: 5,
-    status: "active",
-    since: "2022-06-01",
-  },
-  {
-    id: "PTR003",
-    name: "مجموعة العربي",
-    type: "صناعة",
-    contact: "محمد سعيد",
-    phone: "01234567890",
-    email: "mohamed@elaraby.com",
-    website: "www.elaraby.com",
-    trainees: 80,
-    programs: 2,
-    status: "active",
-    since: "2023-09-01",
-  },
-]
+type Partner = {
+  id: string
+  name: string
+  type: string
+  contact: string
+  phone: string
+  email: string
+  website: string
+  trainees: number
+  programs: number
+  status: string
+  since: string
+}
+
+type PartnershipStats = {
+  total: number
+  active: number
+  totalTrainees: number
+  totalPrograms: number
+}
 
 // Job Opportunities
 const jobOpportunities = [
@@ -119,17 +90,45 @@ const customPrograms = [
   { id: 2, partner: "شركة تقنية المستقبل", program: "تطوير تطبيقات React", trainees: 20, status: "active" },
 ]
 
-// Stats
-const stats = {
-  totalPartners: partners.length,
-  activePartners: partners.filter(p => p.status === "active").length,
-  jobOpportunities: jobOpportunities.length,
-  placedTrainees: 245,
-}
-
 export default function PartnershipsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState("all")
+  const [partners, setPartners] = useState<Partner[]>([])
+  const [stats, setStats] = useState<PartnershipStats>({
+    total: 0,
+    active: 0,
+    totalTrainees: 0,
+    totalPrograms: 0,
+  })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/partnerships")
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}))
+          throw new Error(b.error || "فشل في جلب البيانات")
+        }
+        const json = await res.json()
+        if (!cancelled) {
+          setPartners(json.partners ?? [])
+          setStats(json.stats ?? { total: 0, active: 0, totalTrainees: 0, totalPrograms: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filteredPartners = partners.filter((partner) => {
     const matchesSearch = partner.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -151,34 +150,46 @@ export default function PartnershipsPage() {
         </Button>
       </div>
 
+      {/* Loading / Error */}
+      {loading && (
+        <Card>
+          <CardContent className="p-4 text-center text-muted-foreground">جارٍ التحميل...</CardContent>
+        </Card>
+      )}
+      {error && (
+        <Card>
+          <CardContent className="p-4 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4 text-center">
             <Handshake className="w-8 h-8 mx-auto text-institute-blue mb-2" />
-            <p className="text-2xl font-bold">{stats.totalPartners}</p>
+            <p className="text-2xl font-bold">{stats.total}</p>
             <p className="text-sm text-muted-foreground">شريك</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
             <Building2 className="w-8 h-8 mx-auto text-green-500 mb-2" />
-            <p className="text-2xl font-bold text-institute-blue">{stats.activePartners}</p>
+            <p className="text-2xl font-bold text-institute-blue">{stats.active}</p>
             <p className="text-sm text-muted-foreground">نشط</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
             <Briefcase className="w-8 h-8 mx-auto text-blue-500 mb-2" />
-            <p className="text-2xl font-bold text-institute-blue">{stats.jobOpportunities}</p>
-            <p className="text-sm text-muted-foreground">فرصة عمل</p>
+            <p className="text-2xl font-bold text-institute-blue">{stats.totalPrograms}</p>
+            <p className="text-sm text-muted-foreground">برنامج</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
             <Users className="w-8 h-8 mx-auto text-orange-500 mb-2" />
-            <p className="text-2xl font-bold text-institute-gold">{stats.placedTrainees}</p>
-            <p className="text-sm text-muted-foreground">تم توظيفهم</p>
+            <p className="text-2xl font-bold text-institute-gold">{stats.totalTrainees}</p>
+            <p className="text-sm text-muted-foreground">متدرب</p>
           </CardContent>
         </Card>
       </div>

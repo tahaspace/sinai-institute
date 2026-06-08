@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { useCallback, useEffect, useState } from "react"
+import { motion } from "framer-motion"
 import {
   Database,
   Plus,
@@ -21,7 +21,6 @@ import {
   CheckSquare,
   MessageSquare,
   MoreVertical,
-  Tag,
   Layers,
   ListChecks,
   X,
@@ -31,7 +30,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Table,
   TableBody,
@@ -54,7 +53,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import {
   DropdownMenu,
@@ -63,22 +61,49 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Checkbox } from "@/components/ui/checkbox"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Separator } from "@/components/ui/separator"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { cn } from "@/lib/utils"
 
-// Mock Data
-const courses = [
-  { id: "CS101", code: "CS101", name: "مقدمة في البرمجة", department: "علوم الحاسب" },
-  { id: "CS201", code: "CS201", name: "هياكل البيانات", department: "علوم الحاسب" },
-  { id: "CS301", code: "CS301", name: "قواعد البيانات", department: "علوم الحاسب" },
-  { id: "NET101", code: "NET101", name: "شبكات الحاسب", department: "علوم الحاسب" },
-  { id: "ACC101", code: "ACC101", name: "مبادئ المحاسبة", department: "المحاسبة" },
-  { id: "MGT101", code: "MGT101", name: "إدارة الأعمال", department: "إدارة الأعمال" },
-]
+// API types
+interface ApiCourse {
+  id: string
+  code: string
+  nameAr: string
+}
+
+interface ApiQuestion {
+  id: string
+  text: string
+  type: string
+  difficulty: string
+  course: string
+  courseCode: string
+  courseId: string
+}
+
+interface QuestionsResponse {
+  questions: ApiQuestion[]
+  courses: ApiCourse[]
+  stats: { total: number; mcq: number; essay: number; truefalse: number }
+}
+
+// View model for the table — derived from ApiQuestion. Fields not provided by the
+// API (options/points/usage/tags) are kept neutral so the existing UI stays intact.
+interface QuestionView {
+  id: string
+  courseId: string
+  courseCode: string
+  courseName: string
+  type: string
+  question: string
+  difficulty: string
+  points: number
+  tags: string[]
+  usageCount: number
+}
 
 const questionTypes = [
   { id: "mcq", name: "اختيار من متعدد", icon: ListChecks },
@@ -93,64 +118,14 @@ const difficultyLevels = [
   { id: "hard", name: "صعب", color: "bg-red-100 text-red-700" },
 ]
 
-const mockQuestions = [
-  {
-    id: "Q001",
-    courseCode: "CS101",
-    courseName: "مقدمة في البرمجة",
-    type: "mcq",
-    question: "ما هي لغة البرمجة المستخدمة في تطوير Android؟",
-    options: ["Java", "Python", "C++", "Ruby"],
-    correctAnswer: 0,
-    difficulty: "easy",
-    points: 2,
-    tags: ["أندرويد", "لغات البرمجة"],
-    usageCount: 5,
-    createdAt: "2025-01-01",
-  },
-  {
-    id: "Q002",
-    courseCode: "CS101",
-    courseName: "مقدمة في البرمجة",
-    type: "true_false",
-    question: "يمكن استخدام Python لتطوير تطبيقات الويب",
-    correctAnswer: true,
-    difficulty: "easy",
-    points: 1,
-    tags: ["Python", "ويب"],
-    usageCount: 8,
-    createdAt: "2025-01-01",
-  },
-  {
-    id: "Q003",
-    courseCode: "CS201",
-    courseName: "هياكل البيانات",
-    type: "mcq",
-    question: "ما هو التعقيد الزمني لعملية البحث في Binary Search Tree متوازنة؟",
-    options: ["O(n)", "O(log n)", "O(n²)", "O(1)"],
-    correctAnswer: 1,
-    difficulty: "medium",
-    points: 3,
-    tags: ["خوارزميات", "أشجار"],
-    usageCount: 3,
-    createdAt: "2025-01-02",
-  },
-  {
-    id: "Q004",
-    courseCode: "CS301",
-    courseName: "قواعد البيانات",
-    type: "essay",
-    question: "اشرح الفرق بين SQL و NoSQL مع ذكر أمثلة لكل نوع",
-    difficulty: "hard",
-    points: 10,
-    tags: ["SQL", "قواعد بيانات"],
-    usageCount: 2,
-    createdAt: "2025-01-02",
-  },
-]
-
 export default function OnlineQuestionBankPage() {
-  const [questions, setQuestions] = useState(mockQuestions)
+  const [questions, setQuestions] = useState<QuestionView[]>([])
+  const [courses, setCourses] = useState<ApiCourse[]>([])
+  const [stats, setStats] = useState({ total: 0, mcq: 0, trueFalse: 0, essay: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [courseFilter, setCourseFilter] = useState("all")
   const [typeFilter, setTypeFilter] = useState("all")
@@ -172,8 +147,65 @@ export default function OnlineQuestionBankPage() {
     tags: "",
   })
 
+  const reload = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/institute/exams/questions")
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}))
+        throw new Error(b.error || "فشل في جلب الأسئلة")
+      }
+      const json = (await res.json()) as QuestionsResponse
+      setQuestions(
+        (json.questions ?? []).map((q) => ({
+          id: q.id,
+          courseId: q.courseId,
+          courseCode: q.courseCode,
+          courseName: q.course,
+          type: q.type,
+          question: q.text,
+          difficulty: q.difficulty,
+          points: 0,
+          tags: [],
+          usageCount: 0,
+        }))
+      )
+      setCourses(json.courses ?? [])
+      setStats({
+        total: json.stats?.total ?? 0,
+        mcq: json.stats?.mcq ?? 0,
+        trueFalse: json.stats?.truefalse ?? 0,
+        essay: json.stats?.essay ?? 0,
+      })
+      return true
+    } catch (e) {
+      setError((e as Error).message)
+      return false
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async function load() {
+      if (cancelled) return
+      await reload()
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [reload])
+
+  useEffect(() => {
+    if (!success) return
+    const t = setTimeout(() => setSuccess(null), 3000)
+    return () => clearTimeout(t)
+  }, [success])
+
   const filteredQuestions = questions.filter(q => {
-    const matchesSearch = 
+    const matchesSearch =
       q.question.includes(searchQuery) ||
       q.courseName.includes(searchQuery) ||
       q.courseCode.includes(searchQuery)
@@ -183,46 +215,66 @@ export default function OnlineQuestionBankPage() {
     return matchesSearch && matchesCourse && matchesType && matchesDifficulty
   })
 
-  const stats = {
-    total: questions.length,
-    mcq: questions.filter(q => q.type === "mcq").length,
-    trueFalse: questions.filter(q => q.type === "true_false").length,
-    essay: questions.filter(q => q.type === "essay").length,
+  const handleAddQuestion = async () => {
+    const courseId =
+      courses.find(c => c.code === newQuestion.courseCode)?.id || newQuestion.courseCode
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/institute/exams/questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseId,
+          text: newQuestion.question,
+          type: newQuestion.type,
+          difficulty: newQuestion.difficulty,
+        }),
+      })
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}))
+        throw new Error(b.error || "فشل في إضافة السؤال")
+      }
+      setShowAddDialog(false)
+      setNewQuestion({
+        courseCode: "",
+        type: "mcq",
+        question: "",
+        options: ["", "", "", ""],
+        correctAnswer: 0,
+        correctAnswerBool: true,
+        difficulty: "medium",
+        points: 2,
+        tags: "",
+      })
+      await reload()
+      setSuccess("تم إضافة السؤال بنجاح")
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const handleAddQuestion = () => {
-    const question = {
-      id: `Q${String(questions.length + 1).padStart(3, "0")}`,
-      courseCode: newQuestion.courseCode,
-      courseName: courses.find(c => c.code === newQuestion.courseCode)?.name || "",
-      type: newQuestion.type,
-      question: newQuestion.question,
-      ...(newQuestion.type === "mcq" && {
-        options: newQuestion.options,
-        correctAnswer: newQuestion.correctAnswer,
-      }),
-      ...(newQuestion.type === "true_false" && {
-        correctAnswer: newQuestion.correctAnswerBool,
-      }),
-      difficulty: newQuestion.difficulty,
-      points: newQuestion.points,
-      tags: newQuestion.tags.split(",").map(t => t.trim()),
-      usageCount: 0,
-      createdAt: new Date().toISOString().split("T")[0],
+  const handleDeleteQuestion = async (id: string) => {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/institute/exams/questions?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      })
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}))
+        throw new Error(b.error || "فشل في حذف السؤال")
+      }
+      setSelectedQuestions(prev => prev.filter(q => q !== id))
+      await reload()
+      setSuccess("تم حذف السؤال بنجاح")
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
     }
-    setQuestions([...questions, question])
-    setShowAddDialog(false)
-    setNewQuestion({
-      courseCode: "",
-      type: "mcq",
-      question: "",
-      options: ["", "", "", ""],
-      correctAnswer: 0,
-      correctAnswerBool: true,
-      difficulty: "medium",
-      points: 2,
-      tags: "",
-    })
   }
 
   const toggleQuestionSelection = (id: string) => {
@@ -281,6 +333,23 @@ export default function OnlineQuestionBankPage() {
           </Button>
         </div>
       </div>
+
+      {/* Status indicators */}
+      {error && (
+        <Alert className="bg-red-50 dark:bg-red-950/20 border-red-200">
+          <AlertCircle className="h-4 w-4 text-red-600" />
+          <AlertDescription className="text-red-700">{error}</AlertDescription>
+        </Alert>
+      )}
+      {success && (
+        <Alert className="bg-institute-blue/10 dark:bg-institute-blue/20 border-institute-blue">
+          <CheckCircle2 className="h-4 w-4 text-institute-blue" />
+          <AlertDescription className="text-institute-blue">{success}</AlertDescription>
+        </Alert>
+      )}
+      {loading && (
+        <p className="text-sm text-muted-foreground">جاري تحميل الأسئلة...</p>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -360,7 +429,7 @@ export default function OnlineQuestionBankPage() {
                 <SelectItem value="all">جميع المقررات</SelectItem>
                 {courses.map(course => (
                   <SelectItem key={course.id} value={course.code}>
-                    {course.code} - {course.name}
+                    {course.code} - {course.nameAr}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -408,7 +477,17 @@ export default function OnlineQuestionBankPage() {
                   <Copy className="w-4 h-4 ml-2" />
                   نسخ
                 </Button>
-                <Button variant="outline" size="sm" className="text-red-600">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-red-600"
+                  disabled={saving}
+                  onClick={async () => {
+                    for (const id of selectedQuestions) {
+                      await handleDeleteQuestion(id)
+                    }
+                  }}
+                >
                   <Trash2 className="w-4 h-4 ml-2" />
                   حذف
                 </Button>
@@ -515,7 +594,11 @@ export default function OnlineQuestionBankPage() {
                             نسخ
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-red-600">
+                          <DropdownMenuItem
+                            className="text-red-600"
+                            disabled={saving}
+                            onSelect={() => handleDeleteQuestion(question.id)}
+                          >
                             <Trash2 className="w-4 h-4 ml-2" />
                             حذف
                           </DropdownMenuItem>
@@ -565,7 +648,7 @@ export default function OnlineQuestionBankPage() {
                   <SelectContent>
                     {courses.map(course => (
                       <SelectItem key={course.id} value={course.code}>
-                        {course.code} - {course.name}
+                        {course.code} - {course.nameAr}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -729,13 +812,13 @@ export default function OnlineQuestionBankPage() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddDialog(false)}>إلغاء</Button>
-            <Button 
+            <Button
               onClick={handleAddQuestion}
-              disabled={!newQuestion.courseCode || !newQuestion.question}
+              disabled={!newQuestion.courseCode || !newQuestion.question || saving}
               className="bg-institute-blue hover:bg-institute-blue"
             >
               <Plus className="w-4 h-4 ml-2" />
-              إضافة السؤال
+              {saving ? "جاري الإضافة..." : "إضافة السؤال"}
             </Button>
           </DialogFooter>
         </DialogContent>

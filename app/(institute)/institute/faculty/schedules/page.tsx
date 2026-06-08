@@ -1,34 +1,57 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Calendar, Download, Plus } from "lucide-react"
 
-export default function SchedulesPage() {
-  const weekDays = ["السبت", "الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"]
-  const timeSlots = ["8:00-9:30", "9:30-11:00", "11:00-12:30", "12:30-2:00", "2:00-3:30", "3:30-5:00"]
+// --- API response shapes (served by /api/institute/faculty/schedules) ---
+interface Lecture {
+  course: string
+  room: string
+  instructor: string
+}
+type Schedule = Record<string, Record<string, Lecture>>
+interface SchedulesResponse {
+  days: string[]
+  timeSlots: string[]
+  schedule: Schedule
+}
 
-  const schedule = {
-    "الأحد": {
-      "8:00-9:30": { course: "CS301", room: "A101", instructor: "د. أحمد" },
-      "11:00-12:30": { course: "MATH201", room: "B202", instructor: "د. سارة" },
-    },
-    "الإثنين": {
-      "9:30-11:00": { course: "BUS101", room: "C303", instructor: "د. محمد" },
-      "2:00-3:30": { course: "ACC201", room: "D404", instructor: "د. نورا" },
-    },
-    "الثلاثاء": {
-      "8:00-9:30": { course: "CS301", room: "A101", instructor: "د. أحمد" },
-      "11:00-12:30": { course: "ENG301", room: "E505", instructor: "د. هدى" },
-    },
-    "الأربعاء": {
-      "9:30-11:00": { course: "BUS101", room: "C303", instructor: "د. محمد" },
-    },
-    "الخميس": {
-      "8:00-9:30": { course: "MATH201", room: "B202", instructor: "د. سارة" },
-    },
-  }
+export default function SchedulesPage() {
+  const [days, setDays] = useState<string[]>([])
+  const [timeSlots, setTimeSlots] = useState<string[]>([])
+  const [schedule, setSchedule] = useState<Schedule>({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/faculty/schedules`)
+        if (!res.ok) {
+          throw new Error("فشل في جلب الجداول")
+        }
+        const json = (await res.json()) as SchedulesResponse
+        if (!cancelled) {
+          setDays(json.days ?? [])
+          setTimeSlots(json.timeSlots ?? [])
+          setSchedule(json.schedule ?? {})
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -52,6 +75,18 @@ export default function SchedulesPage() {
         </div>
       </div>
 
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الجداول...</CardContent>
+        </Card>
+      )}
+
+      {!loading && !error && (
       <Card>
         <CardHeader>
           <CardTitle>جدول المحاضرات الأسبوعي</CardTitle>
@@ -63,7 +98,7 @@ export default function SchedulesPage() {
               <thead>
                 <tr>
                   <th className="border p-2 bg-muted text-sm">الوقت</th>
-                  {weekDays.map((day) => (
+                  {days.map((day) => (
                     <th key={day} className="border p-2 bg-muted text-sm min-w-[120px]">
                       {day}
                     </th>
@@ -76,8 +111,8 @@ export default function SchedulesPage() {
                     <td className="border p-2 text-center text-sm font-medium bg-muted/50">
                       {slot}
                     </td>
-                    {weekDays.map((day) => {
-                      const lecture = (schedule as any)[day]?.[slot]
+                    {days.map((day) => {
+                      const lecture = schedule[day]?.[slot]
                       return (
                         <td key={`${day}-${slot}`} className="border p-2">
                           {lecture ? (
@@ -97,6 +132,7 @@ export default function SchedulesPage() {
           </div>
         </CardContent>
       </Card>
+      )}
     </div>
   )
 }

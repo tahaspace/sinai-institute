@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -12,7 +12,6 @@ import {
   GraduationCap,
   Search,
   Plus,
-  Filter,
   Building2,
   BookOpen,
   Clock,
@@ -30,84 +29,57 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
+interface FacultyRow {
+  id: string
+  name: string
+  email: string
+  phone: string
+  title: string
+  department: string
+  departmentId: string | null
+  specialization: string
+  courses: number
+}
+
 export default function FacultyPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [rankFilter, setRankFilter] = useState("all")
+  const [allFaculty, setAllFaculty] = useState<FacultyRow[]>([])
+  const [apiStats, setApiStats] = useState<{ total: number }>({ total: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const faculty = [
-    {
-      id: 1,
-      name: "أ.د. أحمد محمد عبدالله",
-      title: "أستاذ",
-      department: "الهندسة",
-      specialization: "هندسة الحاسبات",
-      email: "ahmed.m@institute.edu.eg",
-      phone: "01012345678",
-      officeHours: "الأحد والثلاثاء 10-12",
-      courses: 3,
-      creditHours: 12,
-      avatar: "",
-    },
-    {
-      id: 2,
-      name: "أ.د. سارة علي حسن",
-      title: "أستاذ",
-      department: "الحاسبات",
-      specialization: "الذكاء الاصطناعي",
-      email: "sara.a@institute.edu.eg",
-      phone: "01023456789",
-      officeHours: "الإثنين والأربعاء 11-1",
-      courses: 2,
-      creditHours: 9,
-      avatar: "",
-    },
-    {
-      id: 3,
-      name: "د. محمد علي إبراهيم",
-      title: "أستاذ مساعد",
-      department: "إدارة الأعمال",
-      specialization: "التسويق الرقمي",
-      email: "mohamed.a@institute.edu.eg",
-      phone: "01034567890",
-      officeHours: "الثلاثاء والخميس 9-11",
-      courses: 4,
-      creditHours: 15,
-      avatar: "",
-    },
-    {
-      id: 4,
-      name: "د. نورا محمود سعيد",
-      title: "مدرس",
-      department: "المحاسبة",
-      specialization: "المحاسبة المالية",
-      email: "nora.m@institute.edu.eg",
-      phone: "01045678901",
-      officeHours: "الأحد والإثنين 12-2",
-      courses: 3,
-      creditHours: 12,
-      avatar: "",
-    },
-    {
-      id: 5,
-      name: "م. يوسف أحمد حسين",
-      title: "معيد",
-      department: "الهندسة",
-      specialization: "هندسة الاتصالات",
-      email: "youssef.a@institute.edu.eg",
-      phone: "01056789012",
-      officeHours: "الثلاثاء 10-12",
-      courses: 2,
-      creditHours: 6,
-      avatar: "",
-    },
-  ]
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/faculty`)
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "فشل في جلب أعضاء هيئة التدريس")
+        const json = await res.json()
+        if (!cancelled) { setAllFaculty(json.faculty ?? []); setApiStats(json.stats ?? { total: 0 }) }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const faculty = allFaculty.filter((m) => {
+    const q = searchQuery.trim()
+    return !q || m.name.includes(q) || m.email.includes(q) || m.specialization.includes(q)
+  })
 
   const stats = [
-    { label: "إجمالي أعضاء هيئة التدريس", value: "124", icon: GraduationCap, color: "text-institute-gold" },
-    { label: "أستاذ", value: "28", icon: Award, color: "text-institute-blue" },
-    { label: "أستاذ مساعد", value: "42", icon: Award, color: "text-institute-blue" },
-    { label: "مدرس ومعيد", value: "54", icon: BookOpen, color: "text-institute-gold" },
+    { label: "إجمالي أعضاء هيئة التدريس", value: String(apiStats.total), icon: GraduationCap, color: "text-institute-gold" },
+    { label: "عدد الأقسام", value: String(new Set(allFaculty.map((m) => m.department)).size), icon: Building2, color: "text-institute-blue" },
+    { label: "إجمالي المقررات", value: String(allFaculty.reduce((sum, m) => sum + m.courses, 0)), icon: BookOpen, color: "text-institute-blue" },
+    { label: "متوسط المقررات لكل عضو", value: allFaculty.length ? (allFaculty.reduce((sum, m) => sum + m.courses, 0) / allFaculty.length).toFixed(1) : "0", icon: Award, color: "text-institute-gold" },
   ]
 
   const getTitleBadge = (title: string) => {
@@ -143,6 +115,9 @@ export default function FacultyPage() {
           إضافة عضو جديد
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل أعضاء هيئة التدريس...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -224,7 +199,7 @@ export default function FacultyPage() {
               <CardContent className="p-6">
                 <div className="flex items-start gap-4">
                   <Avatar className="w-16 h-16">
-                    <AvatarImage src={member.avatar} />
+                    <AvatarImage src="" />
                     <AvatarFallback className="bg-institute-blue text-institute-blue text-xl">
                       {member.name.charAt(0)}
                     </AvatarFallback>
@@ -250,8 +225,8 @@ export default function FacultyPage() {
                     <span className="text-muted-foreground">{member.email}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
-                    <Clock className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">{member.officeHours}</span>
+                    <Phone className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">{member.phone || "—"}</span>
                   </div>
                 </div>
 
@@ -261,7 +236,7 @@ export default function FacultyPage() {
                     <p className="text-xs text-muted-foreground">مقررات</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-institute-blue">{member.creditHours}</p>
+                    <p className="text-2xl font-bold text-institute-blue">—</p>
                     <p className="text-xs text-muted-foreground">ساعة</p>
                   </div>
                 </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, use } from "react"
 import { motion } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -17,7 +17,6 @@ import {
   ExamSubmitDialog,
   ExamResult,
   type QuestionStatus,
-  type Question,
 } from "@/components/exam"
 import {
   ChevronRight,
@@ -27,120 +26,98 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
-// Mock exam data
-const mockExam = {
-  id: "exam-001",
-  title: "امتحان منتصف الفصل - الرياضيات",
-  subject: "الرياضيات",
-  duration: 60, // minutes
-  passingScore: 60,
-  totalPoints: 100,
-  questions: [
-    {
-      id: 1,
-      type: "multiple-choice" as const,
-      text: "ما هو ناتج 15 × 8؟",
-      options: [
-        { id: "a", text: "100" },
-        { id: "b", text: "120" },
-        { id: "c", text: "110" },
-        { id: "d", text: "130" },
-      ],
-      points: 10,
-    },
-    {
-      id: 2,
-      type: "true-false" as const,
-      text: "مجموع زوايا المثلث يساوي 180 درجة.",
-      points: 10,
-    },
-    {
-      id: 3,
-      type: "short-answer" as const,
-      text: "ما هو اسم الشكل الهندسي الذي له 6 أضلاع متساوية؟",
-      points: 10,
-    },
-    {
-      id: 4,
-      type: "multiple-choice" as const,
-      text: "أي من الأعداد التالية عدد أولي؟",
-      options: [
-        { id: "a", text: "15" },
-        { id: "b", text: "21" },
-        { id: "c", text: "17" },
-        { id: "d", text: "27" },
-      ],
-      points: 10,
-    },
-    {
-      id: 5,
-      type: "essay" as const,
-      text: "اشرح بالتفصيل كيفية حل معادلة من الدرجة الثانية باستخدام القانون العام. قدم مثالاً عملياً.",
-      points: 20,
-    },
-    {
-      id: 6,
-      type: "true-false" as const,
-      text: "الجذر التربيعي للعدد 144 يساوي 14.",
-      points: 10,
-    },
-    {
-      id: 7,
-      type: "multiple-choice" as const,
-      text: "ما هي مساحة مستطيل طوله 12 سم وعرضه 5 سم؟",
-      options: [
-        { id: "a", text: "17 سم²" },
-        { id: "b", text: "60 سم²" },
-        { id: "c", text: "34 سم²" },
-        { id: "d", text: "50 سم²" },
-      ],
-      points: 10,
-    },
-    {
-      id: 8,
-      type: "short-answer" as const,
-      text: "ما هي قيمة π (باي) مقربة لأقرب رقمين عشريين؟",
-      points: 10,
-    },
-    {
-      id: 9,
-      type: "multiple-choice" as const,
-      text: "إذا كان x + 5 = 12، فما قيمة x؟",
-      options: [
-        { id: "a", text: "5" },
-        { id: "b", text: "7" },
-        { id: "c", text: "17" },
-        { id: "d", text: "12" },
-      ],
-      points: 5,
-    },
-    {
-      id: 10,
-      type: "true-false" as const,
-      text: "كل مربع هو مستطيل.",
-      points: 5,
-    },
-  ] as Question[],
+// Shape returned by GET /api/lms/exams/[id]/take. Question ids are real cuid
+// strings (answers/flags are keyed by these); the exam components only accept
+// numeric ids, so the UI keys those by 1-based position instead.
+interface ApiOption {
+  id: string
+  text: string
+}
+interface ApiQuestion {
+  id: string
+  type: "multiple-choice" | "true-false" | "short-answer" | "essay"
+  text: string
+  points: number
+  options?: ApiOption[]
+}
+interface ApiExam {
+  id: string
+  title: string
+  subject: string
+  duration: number
+  passingScore: number
+  totalPoints: number
+  questions: ApiQuestion[]
+}
+interface SubmitResult {
+  correctAnswers: number
+  wrongAnswers: number
+  unansweredQuestions: number
+  earnedPoints: number
+  timeTakenSecs: number | null
 }
 
 type Answer = string | boolean | null
 
-export default function TakeExamPage({ params }: { params: { id: string } }) {
+function formatDuration(secs: number | null): string {
+  if (secs == null || secs < 0) return "--:--"
+  const m = Math.floor(secs / 60)
+  const s = secs % 60
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+}
+
+export default function TakeExamPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter()
+  const { id: examId } = use(params)
+
+  // Fetched exam state
+  const [exam, setExam] = useState<ApiExam | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Sitting state. currentQuestion is a 1-based index (matches the navigator/
+  // display components which require numeric ids). answers/flagged are keyed by
+  // the real cuid question id.
   const [currentQuestion, setCurrentQuestion] = useState(1)
-  const [answers, setAnswers] = useState<Record<number, Answer>>({})
-  const [flaggedQuestions, setFlaggedQuestions] = useState<Set<number>>(new Set())
+  const [answers, setAnswers] = useState<Record<string, Answer>>({})
+  const [flaggedQuestions, setFlaggedQuestions] = useState<Set<string>>(new Set())
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [showResult, setShowResult] = useState(false)
+  const [result, setResult] = useState<SubmitResult | null>(null)
   const [examStarted, setExamStarted] = useState(false)
-  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
+  const [startedAt, setStartedAt] = useState<string | null>(null)
 
-  const exam = mockExam
-  const question = exam.questions.find((q) => q.id === currentQuestion)!
+  // Load the exam (meta + questions + options, no answer key) on mount.
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/lms/exams/${examId}/take`)
+        if (!res.ok) throw new Error("فشل تحميل الامتحان")
+        const json = await res.json()
+        if (!cancelled) setExam((json.exam as ApiExam) ?? null)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [examId])
 
-  // Calculate question statuses
-  const questionStatuses: QuestionStatus[] = exam.questions.map((q) => {
-    const hasAnswer = answers[q.id] !== undefined && answers[q.id] !== null && answers[q.id] !== ""
+  const questions = exam?.questions ?? []
+  const totalQuestions = questions.length
+  const question = questions[currentQuestion - 1]
+
+  // Per-question status keyed by 1-based position so the navigator (numeric ids)
+  // works while answers/flags stay keyed by the real cuid.
+  const questionStatuses: QuestionStatus[] = questions.map((q, idx) => {
+    const a = answers[q.id]
+    const hasAnswer = a !== undefined && a !== null && a !== ""
     const isFlagged = flaggedQuestions.has(q.id)
 
     let status: QuestionStatus["status"] = "unanswered"
@@ -148,29 +125,14 @@ export default function TakeExamPage({ params }: { params: { id: string } }) {
     else if (hasAnswer) status = "answered"
     else if (isFlagged) status = "flagged"
 
-    return { id: q.id, status }
+    return { id: idx + 1, status }
   })
 
   const answeredCount = questionStatuses.filter(
     (q) => q.status === "answered" || q.status === "answered-flagged"
   ).length
 
-  // Auto-save effect
-  useEffect(() => {
-    if (!examStarted || Object.keys(answers).length === 0) return
-
-    setAutoSaveStatus("saving")
-    const timeout = setTimeout(() => {
-      // Simulate auto-save
-      localStorage.setItem(`exam-${exam.id}-answers`, JSON.stringify(answers))
-      setAutoSaveStatus("saved")
-      setTimeout(() => setAutoSaveStatus("idle"), 2000)
-    }, 1000)
-
-    return () => clearTimeout(timeout)
-  }, [answers, examStarted, exam.id])
-
-  // Prevent leaving page
+  // Prevent leaving page mid-exam
   useEffect(() => {
     if (!examStarted) return
 
@@ -183,11 +145,11 @@ export default function TakeExamPage({ params }: { params: { id: string } }) {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload)
   }, [examStarted])
 
-  const handleAnswerChange = useCallback((questionId: number, answer: Answer) => {
+  const handleAnswerChange = useCallback((questionId: string, answer: Answer) => {
     setAnswers((prev) => ({ ...prev, [questionId]: answer }))
   }, [])
 
-  const toggleFlag = useCallback((questionId: number) => {
+  const toggleFlag = useCallback((questionId: string) => {
     setFlaggedQuestions((prev) => {
       const next = new Set(prev)
       if (next.has(questionId)) {
@@ -199,49 +161,89 @@ export default function TakeExamPage({ params }: { params: { id: string } }) {
     })
   }, [])
 
+  const handleSubmit = useCallback(async () => {
+    if (!exam) return
+    setIsSubmitting(true)
+    try {
+      const payload = {
+        startedAt,
+        answers: exam.questions.map((q) => {
+          const a = answers[q.id]
+          if (q.type === "multiple-choice") {
+            return { questionId: q.id, selectedOptionId: typeof a === "string" ? a : null }
+          }
+          if (q.type === "true-false") {
+            return { questionId: q.id, boolAnswer: typeof a === "boolean" ? a : null }
+          }
+          return { questionId: q.id, answerText: typeof a === "string" ? a : null }
+        }),
+      }
+      const res = await fetch(`/api/lms/exams/${exam.id}/take`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) throw new Error("فشل تسليم الامتحان")
+      const json = await res.json()
+      setResult(json.result as SubmitResult)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }, [exam, answers, startedAt])
+
   const handleTimeUp = useCallback(() => {
     toast.error("انتهى الوقت! جاري تسليم الامتحان تلقائياً...")
     handleSubmit()
-  }, [])
+  }, [handleSubmit])
 
   const handleTimeWarning = useCallback((minutesLeft: number) => {
     toast.warning(`تنبيه: متبقي ${minutesLeft} دقائق فقط!`)
   }, [])
 
-  const handleSubmit = useCallback(() => {
-    setIsSubmitting(true)
-    // Simulate submission
-    setTimeout(() => {
-      setIsSubmitting(false)
-      setShowResult(true)
-    }, 2000)
-  }, [])
-
-  // Result calculation (mock)
-  const calculateResults = () => {
-    // This would normally come from the backend
-    return {
-      correctAnswers: 7,
-      wrongAnswers: 2,
-      unansweredQuestions: 1,
-      earnedPoints: 75,
-      timeTaken: "45:23",
-    }
+  // Loading / error gates
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
+        <p className="text-muted-foreground">جارٍ التحميل...</p>
+      </div>
+    )
   }
 
-  if (showResult) {
-    const results = calculateResults()
+  if (error || !exam) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
+        <Card className="max-w-lg w-full border-red-200 dark:border-red-800">
+          <CardHeader className="text-center">
+            <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-8 h-8 text-red-600" />
+            </div>
+            <CardTitle className="text-xl">تعذر تحميل الامتحان</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-center">
+            <p className="text-muted-foreground">{error ?? "الامتحان غير موجود"}</p>
+            <Button onClick={() => router.push("/lms/dashboard")} className="w-full">
+              العودة للوحة التحكم
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (result) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
         <ExamResult
           examTitle={exam.title}
-          totalQuestions={exam.questions.length}
-          correctAnswers={results.correctAnswers}
-          wrongAnswers={results.wrongAnswers}
-          unansweredQuestions={results.unansweredQuestions}
+          totalQuestions={totalQuestions}
+          correctAnswers={result.correctAnswers}
+          wrongAnswers={result.wrongAnswers}
+          unansweredQuestions={result.unansweredQuestions}
           totalPoints={exam.totalPoints}
-          earnedPoints={results.earnedPoints}
-          timeTaken={results.timeTaken}
+          earnedPoints={result.earnedPoints}
+          timeTaken={formatDuration(result.timeTakenSecs)}
           passingScore={exam.passingScore}
           onBackToDashboard={() => router.push("/lms/dashboard")}
         />
@@ -271,7 +273,7 @@ export default function TakeExamPage({ params }: { params: { id: string } }) {
               </div>
               <div className="p-3 bg-muted rounded-lg">
                 <span className="text-muted-foreground">عدد الأسئلة:</span>
-                <p className="font-medium">{exam.questions.length} سؤال</p>
+                <p className="font-medium">{totalQuestions} سؤال</p>
               </div>
               <div className="p-3 bg-muted rounded-lg">
                 <span className="text-muted-foreground">درجة النجاح:</span>
@@ -297,9 +299,13 @@ export default function TakeExamPage({ params }: { params: { id: string } }) {
             <Button
               size="lg"
               className="w-full"
-              onClick={() => setExamStarted(true)}
+              disabled={totalQuestions === 0}
+              onClick={() => {
+                setStartedAt(new Date().toISOString())
+                setExamStarted(true)
+              }}
             >
-              بدء الامتحان
+              {totalQuestions === 0 ? "لا توجد أسئلة" : "بدء الامتحان"}
             </Button>
           </CardContent>
         </Card>
@@ -315,10 +321,7 @@ export default function TakeExamPage({ params }: { params: { id: string } }) {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="font-bold text-lg">{exam.title}</h1>
-              <p className="text-sm text-muted-foreground">
-                {autoSaveStatus === "saving" && "جاري الحفظ..."}
-                {autoSaveStatus === "saved" && "✓ تم الحفظ"}
-              </p>
+              <p className="text-sm text-muted-foreground">{exam.subject}</p>
             </div>
             <div className="flex items-center gap-4">
               <ExamTimer
@@ -328,7 +331,7 @@ export default function TakeExamPage({ params }: { params: { id: string } }) {
                 warningThreshold={5}
               />
               <ExamSubmitDialog
-                totalQuestions={exam.questions.length}
+                totalQuestions={totalQuestions}
                 answeredQuestions={answeredCount}
                 flaggedQuestions={flaggedQuestions.size}
                 onSubmit={handleSubmit}
@@ -345,7 +348,7 @@ export default function TakeExamPage({ params }: { params: { id: string } }) {
           {/* Question Navigator - Sidebar */}
           <div className="lg:col-span-1 space-y-4">
             <ExamProgress
-              totalQuestions={exam.questions.length}
+              totalQuestions={totalQuestions}
               answeredQuestions={answeredCount}
               flaggedQuestions={flaggedQuestions.size}
             />
@@ -358,47 +361,55 @@ export default function TakeExamPage({ params }: { params: { id: string } }) {
 
           {/* Question Display */}
           <div className="lg:col-span-3">
-            <motion.div
-              key={currentQuestion}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.3 }}
-            >
-              <QuestionDisplay
-                question={question}
-                questionNumber={currentQuestion}
-                totalQuestions={exam.questions.length}
-                isFlagged={flaggedQuestions.has(question.id)}
-                onToggleFlag={() => toggleFlag(question.id)}
+            {question && (
+              <motion.div
+                key={question.id}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3 }}
               >
-                {/* Render appropriate input based on question type */}
-                {question.type === "multiple-choice" && question.options && (
-                  <MultipleChoiceInput
-                    options={question.options}
-                    value={answers[question.id] as string | null}
-                    onChange={(value) => handleAnswerChange(question.id, value)}
-                  />
-                )}
-                {question.type === "true-false" && (
-                  <TrueFalseInput
-                    value={answers[question.id] as boolean | null}
-                    onChange={(value) => handleAnswerChange(question.id, value)}
-                  />
-                )}
-                {question.type === "short-answer" && (
-                  <ShortAnswerInput
-                    value={(answers[question.id] as string) || ""}
-                    onChange={(value) => handleAnswerChange(question.id, value)}
-                  />
-                )}
-                {question.type === "essay" && (
-                  <EssayInput
-                    value={(answers[question.id] as string) || ""}
-                    onChange={(value) => handleAnswerChange(question.id, value)}
-                  />
-                )}
-              </QuestionDisplay>
-            </motion.div>
+                <QuestionDisplay
+                  question={{
+                    id: currentQuestion,
+                    type: question.type,
+                    text: question.text,
+                    options: question.options,
+                    points: question.points,
+                  }}
+                  questionNumber={currentQuestion}
+                  totalQuestions={totalQuestions}
+                  isFlagged={flaggedQuestions.has(question.id)}
+                  onToggleFlag={() => toggleFlag(question.id)}
+                >
+                  {/* Render appropriate input based on question type */}
+                  {question.type === "multiple-choice" && question.options && (
+                    <MultipleChoiceInput
+                      options={question.options}
+                      value={answers[question.id] as string | null}
+                      onChange={(value) => handleAnswerChange(question.id, value)}
+                    />
+                  )}
+                  {question.type === "true-false" && (
+                    <TrueFalseInput
+                      value={answers[question.id] as boolean | null}
+                      onChange={(value) => handleAnswerChange(question.id, value)}
+                    />
+                  )}
+                  {question.type === "short-answer" && (
+                    <ShortAnswerInput
+                      value={(answers[question.id] as string) || ""}
+                      onChange={(value) => handleAnswerChange(question.id, value)}
+                    />
+                  )}
+                  {question.type === "essay" && (
+                    <EssayInput
+                      value={(answers[question.id] as string) || ""}
+                      onChange={(value) => handleAnswerChange(question.id, value)}
+                    />
+                  )}
+                </QuestionDisplay>
+              </motion.div>
+            )}
 
             {/* Navigation Buttons */}
             <div className="flex items-center justify-between mt-6">
@@ -412,15 +423,15 @@ export default function TakeExamPage({ params }: { params: { id: string } }) {
               </Button>
 
               <span className="text-sm text-muted-foreground">
-                {currentQuestion} / {exam.questions.length}
+                {currentQuestion} / {totalQuestions}
               </span>
 
               <Button
                 variant="outline"
                 onClick={() =>
-                  setCurrentQuestion((prev) => Math.min(exam.questions.length, prev + 1))
+                  setCurrentQuestion((prev) => Math.min(totalQuestions, prev + 1))
                 }
-                disabled={currentQuestion === exam.questions.length}
+                disabled={currentQuestion === totalQuestions}
               >
                 السؤال التالي
                 <ChevronLeft className="w-4 h-4 mr-2" />

@@ -10,29 +10,30 @@ export async function GET(request: NextRequest) {
     const year = searchParams.get('year');
     const semester = searchParams.get('semester');
 
-    const where: any = {};
+    const where: Record<string, unknown> = {};
 
     if (year) {
-      where.year = parseInt(year);
+      where.year = parseInt(year, 10);
     }
 
     if (semester) {
-      where.semester = parseInt(semester);
+      // `semester` is a String column in the Result model — match it as-is.
+      where.semester = semester;
     }
 
     const results = await prisma.result.findMany({
       where,
       include: {
         department: true,
-        studentResults: true,
+        students: true,
       },
       orderBy: {
-        publishedAt: 'desc',
+        createdAt: 'desc',
       },
     });
 
     return NextResponse.json(results);
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'فشل في جلب النتائج' },
       { status: 500 }
@@ -57,15 +58,16 @@ export async function POST(request: NextRequest) {
       departmentId,
       year,
       semester,
-      title,
+      academicYear,
       pdfUrl,
-      published,
+      isVisible,
+      allowView,
       allowDownload,
     } = body;
 
-    if (!departmentId || !year || !semester || !title) {
+    if (!departmentId || !year || !semester || !academicYear) {
       return NextResponse.json(
-        { error: 'جميع الحقول المطلوبة يجب ملؤها' },
+        { error: 'القسم والسنة والفصل والعام الدراسي مطلوبة' },
         { status: 400 }
       );
     }
@@ -73,18 +75,19 @@ export async function POST(request: NextRequest) {
     const result = await prisma.result.create({
       data: {
         departmentId,
-        year: parseInt(year),
-        semester: parseInt(semester),
-        title,
-        pdfUrl,
-        published: published !== undefined ? published : true,
+        year: parseInt(String(year), 10),
+        semester: String(semester),
+        academicYear: String(academicYear),
+        pdfUrl: pdfUrl || null,
+        isVisible: isVisible !== undefined ? isVisible : false,
+        allowView: allowView !== undefined ? allowView : true,
         allowDownload: allowDownload !== undefined ? allowDownload : true,
-        publishedAt: published ? new Date() : null,
+        publishDate: isVisible ? new Date() : null,
       },
     });
 
     return NextResponse.json(result, { status: 201 });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'فشل في إضافة النتيجة' },
       { status: 500 }
@@ -120,7 +123,7 @@ export async function PUT(request: NextRequest) {
     });
 
     return NextResponse.json(result);
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'فشل في تحديث النتيجة' },
       { status: 500 }
@@ -155,7 +158,7 @@ export async function DELETE(request: NextRequest) {
     });
 
     return NextResponse.json({ message: 'تم حذف النتيجة بنجاح' });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'فشل في حذف النتيجة' },
       { status: 500 }

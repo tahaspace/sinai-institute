@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -77,16 +77,57 @@ const mockLeaderboard: LeaderboardEntry[] = [
   { rank: 5, previousRank: 4, userId: "5", name: "فاطمة حسن", points: 2350, level: 6, badges: 11 },
 ]
 
-const pointsHistory = [
-  { action: "إكمال واجب الرياضيات", points: 50, date: "اليوم" },
-  { action: "حضور حصة البرمجة", points: 10, date: "اليوم" },
-  { action: "اختبار اللغة العربية", points: 100, date: "أمس" },
-  { action: "مساعدة زميل", points: 30, date: "أمس" },
-  { action: "قراءة درس إضافي", points: 20, date: "منذ يومين" },
-]
+// --- API response shape (served by /api/student/gamification) ---
+interface PointsHistoryEntry {
+  id: string
+  points: number
+  reason: string
+  category: string
+  date: string
+}
+interface GamificationResponse {
+  totalPoints: number
+  weeklyPoints: number
+  monthlyPoints: number
+  level: number
+  currentXP: number
+  requiredXP: number
+  rank: number
+  badgesCount: number
+  pointsHistory: PointsHistoryEntry[]
+}
 
 export default function GamificationPage() {
   const [showAchievement, setShowAchievement] = useState(false)
+  const [data, setData] = useState<GamificationResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/student/gamification`)
+        if (!res.ok) {
+          throw new Error("فشل في جلب بيانات التحفيز")
+        }
+        const json = (await res.json()) as GamificationResponse
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const pointsHistory = data?.pointsHistory ?? []
 
   return (
     <div className="p-6 space-y-6">
@@ -102,19 +143,32 @@ export default function GamificationPage() {
         </Button>
       </div>
 
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل بيانات التحفيز...</CardContent>
+        </Card>
+      )}
+
+      {!loading && !error && data && (
+      <>
       {/* Stats Overview */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <PointsDisplay
-          totalPoints={2400}
-          weeklyPoints={340}
-          monthlyPoints={1200}
-          streak={7}
+          totalPoints={data.totalPoints}
+          weeklyPoints={data.weeklyPoints}
+          monthlyPoints={data.monthlyPoints}
+          streak={0}
           className="lg:col-span-2"
         />
         <LevelProgress
-          currentLevel={6}
-          currentXP={2400}
-          requiredXP={3000}
+          currentLevel={data.level}
+          currentXP={data.currentXP}
+          requiredXP={data.requiredXP}
         />
       </div>
 
@@ -127,7 +181,7 @@ export default function GamificationPage() {
                 <Trophy className="w-5 h-5 text-yellow-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold">#4</p>
+                <p className="text-2xl font-bold">#{data.rank}</p>
                 <p className="text-xs text-muted-foreground">الترتيب</p>
               </div>
             </CardContent>
@@ -141,7 +195,7 @@ export default function GamificationPage() {
                 <Medal className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold">10</p>
+                <p className="text-2xl font-bold">{data.badgesCount}</p>
                 <p className="text-xs text-muted-foreground">شارة</p>
               </div>
             </CardContent>
@@ -169,7 +223,7 @@ export default function GamificationPage() {
                 <Zap className="w-5 h-5 text-orange-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold">7</p>
+                <p className="text-2xl font-bold">0</p>
                 <p className="text-xs text-muted-foreground">يوم متواصل</p>
               </div>
             </CardContent>
@@ -265,7 +319,7 @@ export default function GamificationPage() {
               <div className="space-y-4">
                 {pointsHistory.map((item, index) => (
                   <motion.div
-                    key={index}
+                    key={item.id}
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: index * 0.05 }}
@@ -276,8 +330,10 @@ export default function GamificationPage() {
                         <Coins className="w-5 h-5 text-green-600" />
                       </div>
                       <div>
-                        <p className="font-medium">{item.action}</p>
-                        <p className="text-xs text-muted-foreground">{item.date}</p>
+                        <p className="font-medium">{item.reason}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.category} • {item.date}
+                        </p>
                       </div>
                     </div>
                     <span className="font-bold text-green-600">+{item.points}</span>
@@ -288,6 +344,8 @@ export default function GamificationPage() {
           </Card>
         </TabsContent>
       </Tabs>
+      </>
+      )}
 
       {/* Achievement Notification */}
       <AchievementNotification

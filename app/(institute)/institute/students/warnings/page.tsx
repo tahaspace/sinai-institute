@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -13,34 +14,93 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { AlertTriangle, Eye, Mail, FileText, Users, TrendingDown, Clock } from "lucide-react"
+import { AlertTriangle, Eye, Mail, FileText, TrendingDown, CheckCircle } from "lucide-react"
+
+interface WarningRow {
+  id: string
+  student: string
+  studentCode: string
+  department: string
+  type: string
+  typeLabel: string
+  reason: string
+  gpa: number | null
+  status: "ACTIVE" | "RESOLVED"
+  date: string
+}
+
+interface WarningApiStats {
+  total: number
+  active: number
+  resolved: number
+}
 
 export default function WarningsPage() {
+  const [warnings, setWarnings] = useState<WarningRow[]>([])
+  const [apiStats, setApiStats] = useState<WarningApiStats>({ total: 0, active: 0, resolved: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [actioning, setActioning] = useState<string | null>(null)
+
+  async function load(signal?: { cancelled: boolean }) {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/institute/students/warnings`)
+      if (!res.ok) throw new Error("فشل في جلب الإنذارات")
+      const json = await res.json()
+      if (!signal?.cancelled) {
+        setWarnings(json.warnings ?? [])
+        setApiStats(json.stats ?? { total: 0, active: 0, resolved: 0 })
+      }
+    } catch (e) {
+      if (!signal?.cancelled) setError((e as Error).message)
+    } finally {
+      if (!signal?.cancelled) setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const signal = { cancelled: false }
+    load(signal)
+    return () => { signal.cancelled = true }
+  }, [])
+
+  const reload = () => load()
+
+  async function resolveWarning(id: string) {
+    setActioning(id)
+    try {
+      const res = await fetch(`/api/institute/students/warnings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status: "RESOLVED" }),
+      })
+      if (!res.ok) throw new Error("فشل في تحديث الإنذار")
+      await reload()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setActioning(null)
+    }
+  }
+
   const warningStats = [
-    { label: "إنذار أول", value: "45", icon: AlertTriangle, color: "text-yellow-600", bg: "bg-yellow-100" },
-    { label: "إنذار ثاني", value: "18", icon: AlertTriangle, color: "text-institute-gold", bg: "bg-institute-gold" },
-    { label: "إنذار نهائي", value: "7", icon: AlertTriangle, color: "text-red-600", bg: "bg-red-100" },
-    { label: "فصل مؤقت", value: "3", icon: TrendingDown, color: "text-red-700", bg: "bg-red-200" },
+    { label: "إجمالي الإنذارات", value: String(apiStats.total), icon: AlertTriangle, color: "text-yellow-600", bg: "bg-yellow-100" },
+    { label: "إنذارات نشطة", value: String(apiStats.active), icon: TrendingDown, color: "text-red-700", bg: "bg-red-200" },
+    { label: "تمت المعالجة", value: String(apiStats.resolved), icon: CheckCircle, color: "text-green-700", bg: "bg-green-100" },
   ]
 
-  const warnings = [
-    { id: 1, name: "أحمد محمد علي", studentId: "STU2024001", department: "الهندسة", gpa: 1.85, type: "إنذار أول", date: "2024-12-15", reason: "انخفاض المعدل التراكمي" },
-    { id: 2, name: "سارة أحمد حسن", studentId: "STU2024002", department: "الحاسبات", gpa: 1.52, type: "إنذار ثاني", date: "2024-12-10", reason: "استمرار انخفاض المعدل" },
-    { id: 3, name: "محمد علي إبراهيم", studentId: "STU2024003", department: "إدارة الأعمال", gpa: 1.78, type: "إنذار أول", date: "2024-12-12", reason: "انخفاض المعدل التراكمي" },
-    { id: 4, name: "نور محمود سعيد", studentId: "STU2024004", department: "المحاسبة", gpa: 1.35, type: "إنذار نهائي", date: "2024-12-08", reason: "عدم تحسن المعدل" },
-    { id: 5, name: "يوسف أحمد محمد", studentId: "STU2024005", department: "السياحة", gpa: 1.92, type: "إنذار أول", date: "2024-12-18", reason: "انخفاض المعدل التراكمي" },
-  ]
-
-  const getWarningBadge = (type: string) => {
-    switch (type) {
+  const getWarningBadge = (warning: WarningRow) => {
+    switch (warning.type) {
       case "إنذار أول":
-        return <Badge className="bg-yellow-100 text-yellow-700">إنذار أول</Badge>
+        return <Badge className="bg-yellow-100 text-yellow-700">{warning.typeLabel}</Badge>
       case "إنذار ثاني":
-        return <Badge className="bg-institute-gold text-orange-700">إنذار ثاني</Badge>
+        return <Badge className="bg-institute-gold text-orange-700">{warning.typeLabel}</Badge>
       case "إنذار نهائي":
-        return <Badge className="bg-red-100 text-red-700">إنذار نهائي</Badge>
+        return <Badge className="bg-red-100 text-red-700">{warning.typeLabel}</Badge>
       default:
-        return <Badge variant="secondary">{type}</Badge>
+        return <Badge variant="secondary">{warning.typeLabel}</Badge>
     }
   }
 
@@ -59,6 +119,9 @@ export default function WarningsPage() {
           تقرير الإنذارات
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الإنذارات...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -110,26 +173,41 @@ export default function WarningsPage() {
                     <div className="flex items-center gap-3">
                       <Avatar className="w-8 h-8">
                         <AvatarFallback className="bg-red-100 text-red-700 text-xs">
-                          {warning.name.charAt(0)}
+                          {warning.student.charAt(0)}
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <p className="font-medium">{warning.name}</p>
-                        <p className="text-xs text-muted-foreground">{warning.studentId}</p>
+                        <p className="font-medium">{warning.student}</p>
+                        <p className="text-xs text-muted-foreground">{warning.studentCode}</p>
                       </div>
                     </div>
                   </TableCell>
                   <TableCell>{warning.department}</TableCell>
                   <TableCell>
-                    <span className={`font-bold ${warning.gpa < 1.5 ? "text-red-600" : "text-yellow-600"}`}>
-                      {warning.gpa.toFixed(2)}
-                    </span>
+                    {warning.gpa !== null ? (
+                      <span className={`font-bold ${warning.gpa < 1.5 ? "text-red-600" : "text-yellow-600"}`}>
+                        {warning.gpa.toFixed(2)}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
-                  <TableCell>{getWarningBadge(warning.type)}</TableCell>
+                  <TableCell>{getWarningBadge(warning)}</TableCell>
                   <TableCell>{warning.date}</TableCell>
                   <TableCell className="max-w-32 truncate">{warning.reason}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
+                      {warning.status === "ACTIVE" && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={actioning === warning.id}
+                          onClick={() => resolveWarning(warning.id)}
+                          title="تم المعالجة"
+                        >
+                          <CheckCircle className="w-4 h-4 text-green-600" />
+                        </Button>
+                      )}
                       <Button variant="ghost" size="icon">
                         <Eye className="w-4 h-4" />
                       </Button>

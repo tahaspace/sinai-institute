@@ -1,19 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   User,
-  Mail,
   Phone,
-  MapPin,
-  Calendar,
   Edit,
   Camera,
   Save,
   Shield,
   Key,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -21,35 +18,107 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-// Student Data
-const studentData = {
-  id: "STU-2024-001",
-  name: "أحمد محمد علي",
-  nameEn: "Ahmed Mohamed Ali",
-  email: "ahmed.student@school.edu",
-  phone: "01012345678",
-  nationalId: "30012345678901",
-  birthDate: "2007-05-15",
-  address: "القاهرة، مصر الجديدة، شارع الثورة",
-  grade: "الصف الثالث الثانوي",
-  section: "علمي رياضة",
-  class: "3/1",
-  enrollmentDate: "2022-09-01",
-  status: "active",
+// --- API response shapes (served by /api/student/profile) ---
+interface StudentData {
+  id: string
+  name: string
+  nameEn: string
+  email: string
+  phone: string
+  nationalId: string
+  birthDate: string
+  address: string
+  grade: string
+  section: string
+  enrollmentDate: string
+  status: string
+}
+interface ParentInfo {
+  fatherName: string
+  fatherPhone: string
+  fatherJob: string
+  motherName: string
+  motherPhone: string
+  motherJob: string
+}
+interface ProfileResponse {
+  studentData: StudentData
+  parentInfo: ParentInfo
 }
 
-// Parent Info
-const parentInfo = {
-  fatherName: "محمد علي أحمد",
-  fatherPhone: "01098765432",
-  fatherJob: "مهندس",
-  motherName: "فاطمة أحمد محمود",
-  motherPhone: "01123456789",
-  motherJob: "طبيبة",
-}
+const formatDate = (d: string) => (d ? new Date(d).toLocaleDateString("ar-EG") : "-")
 
 export default function StudentProfilePage() {
   const [isEditing, setIsEditing] = useState(false)
+  const [data, setData] = useState<ProfileResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [form, setForm] = useState({ name: "", nameEn: "", email: "", phone: "", address: "" })
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/student/profile`)
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error || "فشل في جلب الملف الشخصي")
+        }
+        const json = (await res.json()) as ProfileResponse
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const studentData = data?.studentData
+  const parentInfo = data?.parentInfo
+
+  const startEdit = () => {
+    if (!studentData) return
+    setForm({
+      name: studentData.name,
+      nameEn: studentData.nameEn,
+      email: studentData.email,
+      phone: studentData.phone,
+      address: studentData.address,
+    })
+    setIsEditing(true)
+  }
+
+  const saveProfile = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/student/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}))
+        throw new Error(b.error || "فشل في حفظ الملف الشخصي")
+      }
+      // refresh from the server so the view reflects the saved values
+      const fresh = (await (await fetch(`/api/student/profile`)).json()) as ProfileResponse
+      setData(fresh)
+      setIsEditing(false)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -61,7 +130,19 @@ export default function StudentProfilePage() {
         </div>
       </div>
 
-      {/* Tabs */}
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الملف الشخصي...</CardContent>
+        </Card>
+      )}
+
+      {!loading && !error && studentData && parentInfo && (
+      /* Tabs */
       <Tabs defaultValue="personal">
         <TabsList className="grid w-full grid-cols-3 max-w-md">
           <TabsTrigger value="personal">البيانات الشخصية</TabsTrigger>
@@ -106,12 +187,13 @@ export default function StudentProfilePage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setIsEditing(!isEditing)}
+                    disabled={saving}
+                    onClick={() => (isEditing ? saveProfile() : startEdit())}
                   >
                     {isEditing ? (
                       <>
                         <Save className="w-4 h-4 ml-2" />
-                        حفظ
+                        {saving ? "جارٍ الحفظ..." : "حفظ"}
                       </>
                     ) : (
                       <>
@@ -127,30 +209,34 @@ export default function StudentProfilePage() {
                   <div className="space-y-2">
                     <Label>الاسم بالعربية</Label>
                     <Input
-                      value={studentData.name}
+                      value={isEditing ? form.name : studentData.name}
                       disabled={!isEditing}
+                      onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>الاسم بالإنجليزية</Label>
                     <Input
-                      value={studentData.nameEn}
+                      value={isEditing ? form.nameEn : studentData.nameEn}
                       disabled={!isEditing}
+                      onChange={(e) => setForm((f) => ({ ...f, nameEn: e.target.value }))}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>البريد الإلكتروني</Label>
                     <Input
-                      value={studentData.email}
+                      value={isEditing ? form.email : studentData.email}
                       disabled={!isEditing}
                       type="email"
+                      onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>رقم الهاتف</Label>
                     <Input
-                      value={studentData.phone}
+                      value={isEditing ? form.phone : studentData.phone}
                       disabled={!isEditing}
+                      onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                     />
                   </div>
                   <div className="space-y-2">
@@ -163,15 +249,16 @@ export default function StudentProfilePage() {
                   <div className="space-y-2">
                     <Label>تاريخ الميلاد</Label>
                     <Input
-                      value={new Date(studentData.birthDate).toLocaleDateString("ar-EG")}
+                      value={formatDate(studentData.birthDate)}
                       disabled
                     />
                   </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label>العنوان</Label>
                     <Input
-                      value={studentData.address}
+                      value={isEditing ? form.address : studentData.address}
                       disabled={!isEditing}
+                      onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
                     />
                   </div>
                 </div>
@@ -246,13 +333,9 @@ export default function StudentProfilePage() {
                   <p className="font-medium">{studentData.section}</p>
                 </div>
                 <div className="p-4 rounded-lg bg-muted/50">
-                  <p className="text-sm text-muted-foreground">الفصل</p>
-                  <p className="font-medium">{studentData.class}</p>
-                </div>
-                <div className="p-4 rounded-lg bg-muted/50">
                   <p className="text-sm text-muted-foreground">تاريخ الالتحاق</p>
                   <p className="font-medium">
-                    {new Date(studentData.enrollmentDate).toLocaleDateString("ar-EG")}
+                    {formatDate(studentData.enrollmentDate)}
                   </p>
                 </div>
                 <div className="p-4 rounded-lg bg-muted/50">
@@ -304,6 +387,7 @@ export default function StudentProfilePage() {
           </Card>
         </TabsContent>
       </Tabs>
+      )}
     </div>
   )
 }

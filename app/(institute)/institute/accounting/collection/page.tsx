@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import {
   Receipt,
@@ -56,96 +56,83 @@ import {
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-// بيانات التحصيل حسب القسم
-const departmentStats = [
-  {
-    id: 1,
-    name: "قسم الهندسة",
-    students: 850,
-    totalFees: 6800000,
-    collected: 5780000,
-    pending: 1020000,
-    rate: 85,
-  },
-  {
-    id: 2,
-    name: "قسم إدارة الأعمال",
-    students: 720,
-    totalFees: 4320000,
-    collected: 3542400,
-    pending: 777600,
-    rate: 82,
-  },
-  {
-    id: 3,
-    name: "قسم الحاسبات",
-    students: 680,
-    totalFees: 5440000,
-    collected: 4787200,
-    pending: 652800,
-    rate: 88,
-  },
-  {
-    id: 4,
-    name: "قسم المحاسبة",
-    students: 550,
-    totalFees: 1940000,
-    collected: 1513200,
-    pending: 426800,
-    rate: 78,
-  },
-]
+interface DepartmentStat {
+  name: string
+  students: number
+  totalFees: number
+  collected: number
+  pending: number
+  rate: number
+}
 
-// أحدث المدفوعات
-const recentPayments = [
-  {
-    id: 1,
-    studentName: "محمد أحمد علي",
-    studentId: "STU-2024-001",
-    department: "قسم الهندسة",
-    amount: 5800,
-    type: "رسوم فصلية",
-    method: "بطاقة ائتمان",
-    receiptNo: "REC-2024-0301",
-    date: "2024-11-20",
-    status: "completed",
-  },
-  {
-    id: 2,
-    studentName: "سارة محمود حسن",
-    studentId: "STU-2024-002",
-    department: "قسم الحاسبات",
-    amount: 5500,
-    type: "قسط شهري",
-    method: "فوري",
-    receiptNo: "REC-2024-0302",
-    date: "2024-11-20",
-    status: "completed",
-  },
-  {
-    id: 3,
-    studentName: "أحمد خالد سعيد",
-    studentId: "STU-2024-003",
-    department: "قسم إدارة الأعمال",
-    amount: 4150,
-    type: "رسوم فصلية",
-    method: "تحويل بنكي",
-    receiptNo: "REC-2024-0303",
-    date: "2024-11-19",
-    status: "completed",
-  },
-]
+interface PaymentRow {
+  id: string
+  student: string
+  studentCode: string
+  department: string
+  amount: number
+  method: string
+  receipt: string
+  status: string
+  date: string
+}
 
-// طرق الدفع
-const paymentMethods = [
-  { id: "cash", name: "نقدي", icon: DollarSign, color: "bg-institute-blue", count: 450, amount: 2250000 },
-  { id: "card", name: "بطاقة ائتمان", icon: CreditCard, color: "bg-institute-blue", count: 1200, amount: 8400000 },
-  { id: "transfer", name: "تحويل بنكي", icon: Receipt, color: "bg-institute-gold", count: 350, amount: 3500000 },
-  { id: "fawry", name: "فوري", icon: Wallet, color: "bg-amber-500", count: 800, amount: 3200000 },
-]
+interface PaymentMethodStat {
+  name: string
+  count: number
+  amount: number
+}
+
+// طرق الدفع — أيقونة/لون عرضي فقط حسب اسم الطريقة (ليست بيانات)
+const methodVisual = (name: string): { icon: typeof DollarSign; color: string } => {
+  switch (name) {
+    case "نقدي":
+      return { icon: DollarSign, color: "bg-institute-blue" }
+    case "بطاقة ائتمان":
+      return { icon: CreditCard, color: "bg-institute-blue" }
+    case "تحويل بنكي":
+      return { icon: Receipt, color: "bg-institute-gold" }
+    case "فوري":
+    case "محفظة إلكترونية":
+      return { icon: Wallet, color: "bg-amber-500" }
+    default:
+      return { icon: DollarSign, color: "bg-institute-blue" }
+  }
+}
 
 export default function InstituteCollectionPage() {
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
+  const [departmentStats, setDepartmentStats] = useState<DepartmentStat[]>([])
+  const [recentPayments, setRecentPayments] = useState<PaymentRow[]>([])
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodStat[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/finance/collection")
+        if (!res.ok) throw new Error("فشل تحميل البيانات")
+        const json = await res.json()
+        if (!cancelled) {
+          setDepartmentStats(json.departmentStats ?? [])
+          setRecentPayments(json.recentPayments ?? [])
+          setPaymentMethods(json.paymentMethods ?? [])
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("ar-EG", {
@@ -162,7 +149,7 @@ export default function InstituteCollectionPage() {
   const totalCollected = departmentStats.reduce((sum, d) => sum + d.collected, 0)
   const totalPending = departmentStats.reduce((sum, d) => sum + d.pending, 0)
   const totalFees = departmentStats.reduce((sum, d) => sum + d.totalFees, 0)
-  const overallRate = ((totalCollected / totalFees) * 100).toFixed(1)
+  const overallRate = totalFees > 0 ? ((totalCollected / totalFees) * 100).toFixed(1) : "0"
 
   return (
     <motion.div
@@ -209,7 +196,7 @@ export default function InstituteCollectionPage() {
                     </SelectTrigger>
                     <SelectContent>
                       {departmentStats.map((dept) => (
-                        <SelectItem key={dept.id} value={dept.id.toString()}>
+                        <SelectItem key={dept.name} value={dept.name}>
                           {dept.name}
                         </SelectItem>
                       ))}
@@ -266,6 +253,17 @@ export default function InstituteCollectionPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {loading && (
+        <p className="text-sm text-muted-foreground">جارٍ التحميل...</p>
+      )}
+      {error && (
+        <Card className="border-red-200 bg-red-50 dark:bg-red-900/20">
+          <CardContent className="p-4">
+            <p className="text-sm text-red-700">{error}</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -327,13 +325,14 @@ export default function InstituteCollectionPage() {
       {/* طرق الدفع */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {paymentMethods.map((method) => {
-          const Icon = method.icon
+          const visual = methodVisual(method.name)
+          const Icon = visual.icon
           return (
-            <Card key={method.id} className="hover:shadow-md transition-shadow">
+            <Card key={method.name} className="hover:shadow-md transition-shadow">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <div
-                    className={`h-10 w-10 ${method.color} rounded-lg flex items-center justify-center text-white`}
+                    className={`h-10 w-10 ${visual.color} rounded-lg flex items-center justify-center text-white`}
                   >
                     <Icon className="h-5 w-5" />
                   </div>
@@ -383,7 +382,7 @@ export default function InstituteCollectionPage() {
                 </TableHeader>
                 <TableBody>
                   {departmentStats.map((dept) => (
-                    <TableRow key={dept.id}>
+                    <TableRow key={dept.name}>
                       <TableCell className="font-medium">{dept.name}</TableCell>
                       <TableCell className="text-center">{dept.students}</TableCell>
                       <TableCell className="text-left font-mono">
@@ -443,7 +442,6 @@ export default function InstituteCollectionPage() {
                     <TableHead>رقم الإيصال</TableHead>
                     <TableHead>الطالب</TableHead>
                     <TableHead>القسم</TableHead>
-                    <TableHead>نوع الرسوم</TableHead>
                     <TableHead className="text-left">المبلغ</TableHead>
                     <TableHead>طريقة الدفع</TableHead>
                     <TableHead>التاريخ</TableHead>
@@ -454,20 +452,17 @@ export default function InstituteCollectionPage() {
                   {recentPayments.map((payment) => (
                     <TableRow key={payment.id}>
                       <TableCell className="font-mono text-sm">
-                        {payment.receiptNo}
+                        {payment.receipt}
                       </TableCell>
                       <TableCell>
                         <div>
-                          <p className="font-medium">{payment.studentName}</p>
+                          <p className="font-medium">{payment.student}</p>
                           <p className="text-xs text-muted-foreground">
-                            {payment.studentId}
+                            {payment.studentCode}
                           </p>
                         </div>
                       </TableCell>
                       <TableCell>{payment.department}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{payment.type}</Badge>
-                      </TableCell>
                       <TableCell className="text-left font-mono font-bold text-institute-blue">
                         {formatCurrency(payment.amount)}
                       </TableCell>

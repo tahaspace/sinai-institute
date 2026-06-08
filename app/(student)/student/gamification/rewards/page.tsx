@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -9,40 +9,66 @@ import { Button } from "@/components/ui/button"
 import { RewardsShop, type Reward } from "@/components/gamification"
 import { Gift, History, Coins, Package, CheckCircle } from "lucide-react"
 
-// Mock data
-const availableRewards: Reward[] = [
-  { id: "1", name: "يوم إجازة إضافي", description: "احصل على يوم إجازة مدرسية إضافي", icon: "🏖️", cost: 5000, category: "privilege", stock: 5 },
-  { id: "2", name: "جلوس في الصف الأول", description: "اختر مقعدك في الصف الأول لمدة أسبوع", icon: "💺", cost: 1000, category: "privilege" },
-  { id: "3", name: "شهادة تقدير", description: "شهادة تقدير موقعة من المدير", icon: "📜", cost: 2000, category: "digital" },
-  { id: "4", name: "خصم 10% على الكتب", description: "كوبون خصم على الكتب من المكتبة", icon: "📚", cost: 1500, category: "discount" },
-  { id: "5", name: "وجبة مجانية", description: "وجبة غداء مجانية من الكافتيريا", icon: "🍔", cost: 500, category: "physical", stock: 20 },
-  { id: "6", name: "دفتر ملاحظات", description: "دفتر ملاحظات فاخر", icon: "📓", cost: 800, category: "physical", stock: 15 },
-  { id: "7", name: "قلم فاخر", description: "طقم أقلام فاخرة", icon: "🖊️", cost: 600, category: "physical", stock: 10 },
-  { id: "8", name: "حصة خاصة", description: "حصة خصوصية مجانية مع معلم", icon: "👨‍🏫", cost: 3000, category: "privilege", stock: 3 },
-  { id: "9", name: "شعار مميز", description: "شعار مميز بجانب اسمك", icon: "✨", cost: 2500, category: "digital" },
-  { id: "10", name: "إطار صورة شخصية", description: "إطار ذهبي لصورتك الشخصية", icon: "🖼️", cost: 1000, category: "digital" },
-]
-
-const redeemedRewards: (Reward & { redeemedAt: string })[] = [
-  { id: "r1", name: "وجبة مجانية", description: "وجبة غداء مجانية من الكافتيريا", icon: "🍔", cost: 500, category: "physical", isRedeemed: true, redeemedAt: "2024-12-25" },
-  { id: "r2", name: "قلم فاخر", description: "طقم أقلام فاخرة", icon: "🖊️", cost: 600, category: "physical", isRedeemed: true, redeemedAt: "2024-12-20" },
-  { id: "r3", name: "خصم 10% على الكتب", description: "كوبون خصم على الكتب من المكتبة", icon: "📚", cost: 1500, category: "discount", isRedeemed: true, redeemedAt: "2024-12-15" },
-]
+interface ApiReward {
+  id: string
+  name: string
+  description: string
+  icon: string
+  cost: number
+  stock: number
+  canAfford: boolean
+}
 
 export default function RewardsPage() {
-  const [userPoints, setUserPoints] = useState(2400)
+  const [userPoints, setUserPoints] = useState(0)
+  const [rewards, setRewards] = useState<Reward[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/student/gamification/rewards`)
+        if (!res.ok) throw new Error("فشل في جلب المكافآت")
+        const json: { points: number; rewards: ApiReward[] } = await res.json()
+        if (!cancelled) {
+          setUserPoints(json.points ?? 0)
+          // category has no API backing → fixed neutral value so RewardsShop can render
+          setRewards(
+            (json.rewards ?? []).map((r) => ({
+              id: r.id,
+              name: r.name,
+              description: r.description,
+              icon: r.icon,
+              cost: r.cost,
+              stock: r.stock,
+              category: "physical",
+            }))
+          )
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  // No API backing for redeemed history → keep empty until an endpoint exists
+  const redeemedRewards: (Reward & { redeemedAt: string })[] = []
+  const totalRedeemed = redeemedRewards.reduce((sum, r) => sum + r.cost, 0)
 
   const handleRedeem = async (rewardId: string): Promise<boolean> => {
-    const reward = availableRewards.find((r) => r.id === rewardId)
+    const reward = rewards.find((r) => r.id === rewardId)
     if (!reward || userPoints < reward.cost) return false
-
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500))
     setUserPoints((prev) => prev - reward.cost)
     return true
   }
-
-  const totalRedeemed = redeemedRewards.reduce((sum, r) => sum + r.cost, 0)
 
   return (
     <div className="p-6 space-y-6">
@@ -60,6 +86,9 @@ export default function RewardsPage() {
           <span className="text-sm text-yellow-600">نقطة</span>
         </div>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل المكافآت...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -93,7 +122,7 @@ export default function RewardsPage() {
               <Package className="w-5 h-5 text-blue-600" />
             </div>
             <div>
-              <p className="text-2xl font-bold">{availableRewards.length}</p>
+              <p className="text-2xl font-bold">{rewards.length}</p>
               <p className="text-xs text-muted-foreground">مكافأة متاحة</p>
             </div>
           </CardContent>
@@ -115,7 +144,7 @@ export default function RewardsPage() {
 
         <TabsContent value="shop">
           <RewardsShop
-            rewards={availableRewards}
+            rewards={rewards}
             userPoints={userPoints}
             onRedeem={handleRedeem}
           />

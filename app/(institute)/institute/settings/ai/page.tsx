@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
@@ -10,17 +10,8 @@ import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   Brain,
-  MessageCircle,
   TrendingUp,
-  Lightbulb,
   Save,
   RotateCcw,
   AlertTriangle,
@@ -53,8 +44,56 @@ export default function InstituteAISettingsPage() {
     alertThreshold: 65,
   })
 
-  const handleSave = () => {
-    toast.success("تم حفظ إعدادات الذكاء الاصطناعي")
+  const [saving, setSaving] = useState(false)
+
+  // Hydrate from the persisted "institute.ai" namespace on mount.
+  // Merge over defaults so locally-known fields the API hasn't stored survive.
+  useEffect(() => {
+    let cancelled = false
+
+    const loadSettings = async () => {
+      try {
+        const res = await fetch("/api/settings?key=institute.ai")
+        if (!res.ok) return
+        const data = await res.json()
+        const value = data?.value
+        if (
+          !cancelled &&
+          value &&
+          typeof value === "object" &&
+          !Array.isArray(value) &&
+          Object.keys(value).length > 0
+        ) {
+          setSettings((prev) => ({ ...prev, ...value }))
+        }
+      } catch (error) {
+        console.error("فشل في جلب إعدادات الذكاء الاصطناعي:", error)
+      }
+    }
+
+    loadSettings()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "institute.ai", value: settings }),
+      })
+      if (!res.ok) throw new Error("save failed")
+      toast.success("تم الحفظ")
+    } catch (error) {
+      console.error("فشل في حفظ إعدادات الذكاء الاصطناعي:", error)
+      toast.error("فشل في حفظ الإعدادات")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleReset = () => {
@@ -86,9 +125,9 @@ export default function InstituteAISettingsPage() {
             <RotateCcw className="w-4 h-4 ml-2" />
             إعادة تعيين
           </Button>
-          <Button onClick={handleSave} className="bg-institute-blue hover:bg-institute-blue">
+          <Button onClick={handleSave} disabled={saving} className="bg-institute-blue hover:bg-institute-blue">
             <Save className="w-4 h-4 ml-2" />
-            حفظ الإعدادات
+            {saving ? "جاري الحفظ..." : "حفظ الإعدادات"}
           </Button>
         </div>
       </div>

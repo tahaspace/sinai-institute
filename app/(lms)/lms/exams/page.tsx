@@ -1,12 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   ClipboardList,
   Plus,
   Clock,
   CheckCircle2,
-  AlertCircle,
   Users,
   Calendar,
   Eye,
@@ -17,13 +16,11 @@ import {
   Pause,
   BarChart3,
   Lock,
-  Unlock,
   Copy,
   Shuffle,
-  Timer,
   Shield,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -47,57 +44,39 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-// Exams
-const exams = [
-  {
-    id: 1,
-    title: "اختبار التفاضل والتكامل",
-    class: "3/1",
-    subject: "الرياضيات",
-    date: "2024-12-28",
-    time: "10:00",
-    duration: 60,
-    questions: 25,
-    maxGrade: 50,
-    participants: 32,
-    total: 35,
-    status: "scheduled",
-    settings: { shuffle: true, preventCopy: true, showResults: true },
-  },
-  {
-    id: 2,
-    title: "اختبار الفيزياء - الميكانيكا",
-    class: "3/2",
-    subject: "الفيزياء",
-    date: "2024-12-25",
-    time: "14:00",
-    duration: 45,
-    questions: 20,
-    maxGrade: 40,
-    participants: 28,
-    total: 32,
-    status: "live",
-    settings: { shuffle: true, preventCopy: true, showResults: false },
-  },
-  {
-    id: 3,
-    title: "اختبار الكيمياء العضوية",
-    class: "3/3",
-    subject: "الكيمياء",
-    date: "2024-12-20",
-    time: "09:00",
-    duration: 60,
-    questions: 30,
-    maxGrade: 60,
-    participants: 28,
-    total: 28,
-    status: "completed",
-    avgGrade: 42,
-    settings: { shuffle: false, preventCopy: true, showResults: true },
-  },
-]
+type ExamStatus = "scheduled" | "live" | "completed"
 
-// Question Types
+interface ExamRow {
+  id: string
+  title: string
+  subject: string
+  date: string
+  time: string
+  duration: number
+  questions: number
+  participants: number
+  status: ExamStatus
+}
+
+interface ExamResultRow {
+  id: string
+  student: string
+  grade: number
+  maxGrade: number
+  status: string
+}
+
+interface ApiStats {
+  total: number
+  scheduled: number
+  live: number
+  completed: number
+}
+
+// Default anti-cheating preset for the create form (static; no API field)
+const defaultExamSettings = { shuffle: true, preventCopy: true, showResults: true }
+
+// Question Types (static — used by the create form)
 const questionTypes = [
   { id: "mcq", label: "اختيار من متعدد", icon: "📝" },
   { id: "tf", label: "صح أو خطأ", icon: "✅" },
@@ -106,23 +85,6 @@ const questionTypes = [
   { id: "match", label: "توصيل", icon: "🔗" },
   { id: "fill", label: "ملء الفراغات", icon: "___" },
 ]
-
-// Results
-const examResults = [
-  { id: 1, student: "أحمد محمد علي", grade: 45, maxGrade: 50, time: "48:30", status: "completed" },
-  { id: 2, student: "سارة خالد أحمد", grade: 48, maxGrade: 50, time: "52:15", status: "completed" },
-  { id: 3, student: "محمد سعيد حسن", grade: 38, maxGrade: 50, time: "55:00", status: "completed" },
-  { id: 4, student: "فاطمة علي محمود", grade: 42, maxGrade: 50, time: "45:20", status: "completed" },
-]
-
-// Stats
-const stats = {
-  total: 15,
-  scheduled: 3,
-  live: 1,
-  completed: 11,
-  avgGrade: 78,
-}
 
 const statusConfig = {
   scheduled: { label: "مجدول", color: "bg-blue-100 text-blue-700", icon: Calendar },
@@ -133,6 +95,51 @@ const statusConfig = {
 export default function ExamsPage() {
   const [showNewForm, setShowNewForm] = useState(false)
   const [activeTab, setActiveTab] = useState("exams")
+  const [exams, setExams] = useState<ExamRow[]>([])
+  const [examResults, setExamResults] = useState<ExamResultRow[]>([])
+  const [apiStats, setApiStats] = useState<ApiStats>({ total: 0, scheduled: 0, live: 0, completed: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/lms/exams`)
+        if (!res.ok) throw new Error("فشل في جلب الاختبارات")
+        const json = await res.json()
+        if (!cancelled) {
+          setExams(json.exams ?? [])
+          setExamResults(json.examResults ?? [])
+          setApiStats(json.stats ?? { total: 0, scheduled: 0, live: 0, completed: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  // avgGrade has no direct API field — compute from examResults average %
+  const avgGrade =
+    examResults.length > 0
+      ? Math.round(
+          examResults.reduce((sum, r) => sum + (r.maxGrade > 0 ? (r.grade / r.maxGrade) * 100 : 0), 0) /
+            examResults.length,
+        )
+      : null
+
+  const stats = {
+    total: apiStats.total,
+    scheduled: apiStats.scheduled,
+    live: apiStats.live,
+    completed: apiStats.completed,
+  }
 
   return (
     <div className="space-y-6">
@@ -147,6 +154,9 @@ export default function ExamsPage() {
           إنشاء اختبار جديد
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الاختبارات...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -184,7 +194,7 @@ export default function ExamsPage() {
         <Card>
           <CardContent className="p-4 text-center">
             <BarChart3 className="w-8 h-8 mx-auto text-orange-500 mb-2" />
-            <p className="text-2xl font-bold text-orange-600">{stats.avgGrade}%</p>
+            <p className="text-2xl font-bold text-orange-600">{avgGrade === null ? "—" : `${avgGrade}%`}</p>
             <p className="text-sm text-muted-foreground">متوسط النجاح</p>
           </CardContent>
         </Card>
@@ -336,7 +346,7 @@ export default function ExamsPage() {
             {exams.map((exam) => {
               const status = statusConfig[exam.status as keyof typeof statusConfig]
               const StatusIcon = status.icon
-              const participation = (exam.participants / exam.total) * 100
+              const settings = defaultExamSettings
 
               return (
                 <Card key={exam.id} className={cn(
@@ -367,7 +377,7 @@ export default function ExamsPage() {
                             <Badge className={status.color}>{status.label}</Badge>
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            {exam.subject} • الفصل {exam.class} • {new Date(exam.date).toLocaleDateString("ar-EG")} {exam.time}
+                            {exam.subject} • الفصل — • {new Date(exam.date).toLocaleDateString("ar-EG")} {exam.time}
                           </p>
                           <div className="flex items-center gap-4 mt-2 text-sm">
                             <span className="flex items-center gap-1">
@@ -380,23 +390,17 @@ export default function ExamsPage() {
                             </span>
                             <span className="flex items-center gap-1">
                               <Users className="w-4 h-4" />
-                              {exam.participants}/{exam.total}
+                              {exam.participants}/—
                             </span>
-                            {exam.avgGrade && (
-                              <span className="flex items-center gap-1">
-                                <BarChart3 className="w-4 h-4" />
-                                متوسط: {exam.avgGrade}/{exam.maxGrade}
-                              </span>
-                            )}
                           </div>
                           <div className="flex items-center gap-2 mt-2">
-                            {exam.settings.shuffle && (
+                            {settings.shuffle && (
                               <Badge variant="outline" className="text-xs">
                                 <Shuffle className="w-3 h-3 ml-1" />
                                 خلط الأسئلة
                               </Badge>
                             )}
-                            {exam.settings.preventCopy && (
+                            {settings.preventCopy && (
                               <Badge variant="outline" className="text-xs">
                                 <Lock className="w-3 h-3 ml-1" />
                                 منع النسخ
@@ -457,9 +461,9 @@ export default function ExamsPage() {
                       <div className="mt-4">
                         <div className="flex items-center justify-between text-sm mb-1">
                           <span className="text-muted-foreground">نسبة المشاركة</span>
-                          <span className="font-medium">{participation.toFixed(0)}%</span>
+                          <span className="font-medium">—</span>
                         </div>
-                        <Progress value={participation} className="h-2" />
+                        <Progress value={0} className="h-2" />
                       </div>
                     )}
                   </CardContent>
@@ -514,7 +518,7 @@ export default function ExamsPage() {
                       <div>
                         <p className="font-medium">{result.student}</p>
                         <p className="text-sm text-muted-foreground">
-                          الوقت: {result.time}
+                          الوقت: —
                         </p>
                       </div>
                     </div>

@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   User,
   Calendar,
+  CalendarPlus,
   GraduationCap,
   ClipboardCheck,
   FileText,
@@ -60,6 +61,11 @@ const navItems = [
     title: "الجدول الدراسي",
     href: "/student/schedule",
     icon: Calendar,
+  },
+  {
+    title: "تسجيل المقررات",
+    href: "/student/registration",
+    icon: CalendarPlus,
   },
   {
     title: "الدرجات والنتائج",

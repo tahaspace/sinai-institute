@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   CreditCard,
   Download,
@@ -18,30 +18,34 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-// Fees Data
-const feesData = {
-  totalFees: 25000,
-  paid: 20000,
-  remaining: 5000,
-  nextDueDate: "2025-01-15",
-  installments: 3,
-  paidInstallments: 2,
+// --- API response shapes (served by /api/student/fees) ---
+interface FeesData {
+  academicYear: string
+  totalFees: number
+  paid: number
+  remaining: number
+  nextDueDate: string | null
+  installments: number
+  paidInstallments: number
 }
-
-// Payment History
-const paymentHistory = [
-  { id: 1, date: "2024-12-01", amount: 10000, method: "بطاقة ائتمان", receipt: "RCP-001", status: "paid" },
-  { id: 2, date: "2024-11-01", amount: 10000, method: "فوري", receipt: "RCP-002", status: "paid" },
-  { id: 3, date: "2025-01-15", amount: 5000, method: "-", receipt: "-", status: "pending" },
-]
-
-// Fee Breakdown
-const feeBreakdown = [
-  { item: "الرسوم الدراسية", amount: 20000 },
-  { item: "رسوم الكتب", amount: 2000 },
-  { item: "رسوم الأنشطة", amount: 1500 },
-  { item: "رسوم النقل", amount: 1500 },
-]
+interface PaymentRecord {
+  id: string
+  date: string | null
+  amount: number
+  method: string
+  receipt: string
+  status: string
+}
+interface FeeBreakdownItem {
+  item: string
+  amount: number
+}
+interface FeesResponse {
+  student: { id: string; studentCode: string; name: string }
+  feesData: FeesData
+  feeBreakdown: FeeBreakdownItem[]
+  paymentHistory: PaymentRecord[]
+}
 
 // Payment Methods
 const paymentMethods = [
@@ -56,9 +60,44 @@ const statusConfig = {
   overdue: { label: "متأخر", color: "bg-red-100 text-red-700", icon: AlertCircle },
 }
 
+const formatDate = (d: string | null) =>
+  d ? new Date(d).toLocaleDateString("ar-EG") : "-"
+
 export default function StudentFeesPage() {
   const [selectedMethod, setSelectedMethod] = useState("card")
-  const paidPercentage = (feesData.paid / feesData.totalFees) * 100
+  const [data, setData] = useState<FeesResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/student/fees`)
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error || "فشل في جلب بيانات المصروفات")
+        }
+        const json = (await res.json()) as FeesResponse
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const feesData = data?.feesData
+  const paymentHistory = data?.paymentHistory ?? []
+  const feeBreakdown = data?.feeBreakdown ?? []
+  const paidPercentage = feesData && feesData.totalFees > 0 ? (feesData.paid / feesData.totalFees) * 100 : 0
 
   return (
     <div className="space-y-6">
@@ -70,6 +109,19 @@ export default function StudentFeesPage() {
         </div>
       </div>
 
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل بيانات المصروفات...</CardContent>
+        </Card>
+      )}
+
+      {!loading && !error && feesData && (
+      <>
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
@@ -104,7 +156,7 @@ export default function StudentFeesPage() {
               </div>
               <Badge className="bg-orange-100 text-orange-700">
                 <Calendar className="w-3 h-3 ml-1" />
-                {new Date(feesData.nextDueDate).toLocaleDateString("ar-EG")}
+                {formatDate(feesData.nextDueDate)}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">المتبقي</p>
@@ -167,7 +219,7 @@ export default function StudentFeesPage() {
                         <div>
                           <p className="font-medium">{payment.amount.toLocaleString()} ج.م</p>
                           <p className="text-sm text-muted-foreground">
-                            {new Date(payment.date).toLocaleDateString("ar-EG")} • {payment.method}
+                            {formatDate(payment.date)} • {payment.method}
                           </p>
                         </div>
                       </div>
@@ -266,6 +318,8 @@ export default function StudentFeesPage() {
           </Card>
         </TabsContent>
       </Tabs>
+      </>
+      )}
     </div>
   )
 }

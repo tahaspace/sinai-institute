@@ -1,30 +1,35 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { motion } from "framer-motion"
-import { Clock, Search, Plus, Calendar, Users, CheckCircle, XCircle, Edit, Trash2, MapPin, Video, User } from "lucide-react"
+import { Clock, Search, Plus, Calendar, Users, CheckCircle, XCircle, Edit, Trash2, MapPin, Video } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-const officeHoursSchedule = [
-  { day: "الأحد", time: "10:00 - 11:00", location: "مكتب 205", type: "in_person", active: true },
-  { day: "الثلاثاء", time: "14:00 - 15:00", location: "مكتب 205", type: "in_person", active: true },
-  { day: "الأربعاء", time: "11:00 - 12:00", location: "Zoom", type: "online", active: true },
-  { day: "الخميس", time: "10:00 - 11:00", location: "مكتب 205", type: "in_person", active: false },
-]
-
-const upcomingAppointments = [
-  { id: 1, student: "أحمد محمد علي", studentId: "20240001", date: "2025-01-16", time: "10:00", topic: "استفسار عن المشروع", status: "confirmed" },
-  { id: 2, student: "سارة أحمد حسن", studentId: "20240002", date: "2025-01-16", time: "10:30", topic: "مناقشة البحث", status: "pending" },
-  { id: 3, student: "محمود عبدالله", studentId: "20240003", date: "2025-01-18", time: "14:00", topic: "طلب توصية", status: "confirmed" },
-  { id: 4, student: "فاطمة السيد", studentId: "20240004", date: "2025-01-19", time: "11:00", topic: "مراجعة الدرجات", status: "pending" },
-]
+// --- API shapes ---
+interface OfficeHourSlot {
+  id: string
+  day: string
+  startTime: string
+  endTime: string
+  location: string
+  type: "in-person" | "online"
+  active: boolean
+  booked: number
+}
+interface Appointment {
+  id: string
+  student: string
+  studentCode: string
+  topic: string
+  date: string
+  status: "pending" | "confirmed" | "cancelled"
+}
 
 const statusConfig = {
   confirmed: { label: "مؤكد", color: "bg-green-100 text-green-700" },
@@ -34,6 +39,66 @@ const statusConfig = {
 
 export default function OfficeHoursPage() {
   const [searchTerm, setSearchTerm] = useState("")
+  const [officeHoursSchedule, setOfficeHoursSchedule] = useState<OfficeHourSlot[]>([])
+  const [upcomingAppointments, setUpcomingAppointments] = useState<Appointment[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [actioning, setActioning] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/faculty/office-hours`)
+      if (!res.ok) throw new Error("فشل في جلب الساعات المكتبية")
+      const json = await res.json()
+      setOfficeHoursSchedule(json.officeHoursSchedule ?? [])
+      setUpcomingAppointments(json.upcomingAppointments ?? [])
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function init() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/faculty/office-hours`)
+        if (!res.ok) throw new Error("فشل في جلب الساعات المكتبية")
+        const json = await res.json()
+        if (cancelled) return
+        setOfficeHoursSchedule(json.officeHoursSchedule ?? [])
+        setUpcomingAppointments(json.upcomingAppointments ?? [])
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    init()
+    return () => { cancelled = true }
+  }, [])
+
+  // Confirm / cancel a pending appointment, then refresh from the server.
+  const updateAppointment = async (appointmentId: string, status: "confirmed" | "cancelled") => {
+    setActioning(appointmentId)
+    try {
+      await fetch(`/api/faculty/office-hours`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appointmentId, status }),
+      })
+      await load()
+    } catch {
+      setError("فشل في تحديث الموعد")
+    } finally {
+      setActioning(null)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -51,10 +116,13 @@ export default function OfficeHoursPage() {
         </Button>
       </div>
 
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-gray-500">جارٍ تحميل الساعات المكتبية...</CardContent></Card>}
+
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
-          { label: "ساعات مكتبية أسبوعية", value: "4 ساعات", icon: Clock, color: "indigo" },
+          { label: "ساعات مكتبية أسبوعية", value: `${officeHoursSchedule.filter(s => s.active).length} ساعات`, icon: Clock, color: "indigo" },
           { label: "المواعيد القادمة", value: upcomingAppointments.length, icon: Calendar, color: "blue" },
           { label: "مواعيد مؤكدة", value: upcomingAppointments.filter(a => a.status === "confirmed").length, icon: CheckCircle, color: "green" },
           { label: "بانتظار التأكيد", value: upcomingAppointments.filter(a => a.status === "pending").length, icon: Users, color: "yellow" },
@@ -92,7 +160,7 @@ export default function OfficeHoursPage() {
               <div className="space-y-4">
                 {officeHoursSchedule.map((slot, i) => (
                   <motion.div
-                    key={i}
+                    key={slot.id}
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.1 }}
@@ -109,7 +177,7 @@ export default function OfficeHoursPage() {
                         </div>
                         <div>
                           <p className="font-bold text-lg">{slot.day}</p>
-                          <p className="text-gray-500">{slot.time}</p>
+                          <p className="text-gray-500">{slot.startTime} - {slot.endTime}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
@@ -120,6 +188,9 @@ export default function OfficeHoursPage() {
                         <Badge className={slot.type === "online" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}>
                           {slot.type === "online" ? "أونلاين" : "حضوري"}
                         </Badge>
+                        <span className="text-sm text-gray-500 flex items-center gap-1">
+                          <Users className="w-4 h-4" />{slot.booked} محجوز
+                        </span>
                         <div className="flex items-center gap-2">
                           <span className="text-sm text-gray-500">مفعّل</span>
                           <Switch checked={slot.active} />
@@ -165,25 +236,35 @@ export default function OfficeHoursPage() {
                         </Avatar>
                         <div>
                           <p className="font-medium">{apt.student}</p>
-                          <p className="text-sm text-gray-500">{apt.studentId}</p>
+                          <p className="text-sm text-gray-500">{apt.studentCode}</p>
                           <p className="text-sm text-indigo-600 mt-1">{apt.topic}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-left">
                           <p className="font-medium">{apt.date}</p>
-                          <p className="text-sm text-gray-500">{apt.time}</p>
                         </div>
-                        <Badge className={statusConfig[apt.status as keyof typeof statusConfig].color}>
-                          {statusConfig[apt.status as keyof typeof statusConfig].label}
+                        <Badge className={statusConfig[apt.status].color}>
+                          {statusConfig[apt.status].label}
                         </Badge>
                         {apt.status === "pending" && (
                           <div className="flex gap-1">
-                            <Button size="sm" className="bg-green-600 hover:bg-green-700">
+                            <Button
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700"
+                              disabled={actioning === apt.id}
+                              onClick={() => updateAppointment(apt.id, "confirmed")}
+                            >
                               <CheckCircle className="w-4 h-4 ml-1" />
                               تأكيد
                             </Button>
-                            <Button size="sm" variant="outline" className="text-red-600">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-red-600"
+                              disabled={actioning === apt.id}
+                              onClick={() => updateAppointment(apt.id, "cancelled")}
+                            >
                               <XCircle className="w-4 h-4 ml-1" />
                               رفض
                             </Button>

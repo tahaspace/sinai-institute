@@ -1,8 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
-  ClipboardCheck,
   Calendar,
   CheckCircle2,
   XCircle,
@@ -10,8 +9,7 @@ import {
   AlertCircle,
   TrendingUp,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -23,33 +21,32 @@ import {
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
-// Attendance Data
-const attendanceRecords = [
-  { date: "2024-12-25", day: "الأربعاء", status: "present", note: "" },
-  { date: "2024-12-24", day: "الثلاثاء", status: "present", note: "" },
-  { date: "2024-12-23", day: "الاثنين", status: "present", note: "" },
-  { date: "2024-12-22", day: "الأحد", status: "present", note: "" },
-  { date: "2024-12-19", day: "الخميس", status: "late", note: "تأخر 15 دقيقة" },
-  { date: "2024-12-18", day: "الأربعاء", status: "present", note: "" },
-  { date: "2024-12-17", day: "الثلاثاء", status: "absent", note: "عذر مرضي" },
-  { date: "2024-12-16", day: "الاثنين", status: "present", note: "" },
-]
-
-// Monthly Stats
-const monthlyStats = [
-  { month: "ديسمبر", present: 18, absent: 1, late: 1, percentage: 95 },
-  { month: "نوفمبر", present: 20, absent: 2, late: 0, percentage: 91 },
-  { month: "أكتوبر", present: 22, absent: 0, late: 1, percentage: 96 },
-  { month: "سبتمبر", present: 19, absent: 1, late: 2, percentage: 86 },
-]
-
-// Stats
-const stats = {
-  totalDays: 85,
-  presentDays: 80,
-  absentDays: 3,
-  lateDays: 2,
-  percentage: 95,
+// --- API response shapes (served by /api/student/attendance) ---
+interface AttendanceRecord {
+  date: string
+  day: string
+  status: string
+  note: string
+}
+interface MonthlyStat {
+  month: string
+  present: number
+  absent: number
+  late: number
+  percentage: number
+}
+interface AttendanceStats {
+  totalDays: number
+  presentDays: number
+  absentDays: number
+  lateDays: number
+  percentage: number
+}
+interface AttendanceResponse {
+  student: { id: string; studentCode: string; name: string }
+  stats: AttendanceStats
+  records: AttendanceRecord[]
+  monthlyStats: MonthlyStat[]
 }
 
 const statusConfig = {
@@ -60,6 +57,38 @@ const statusConfig = {
 
 export default function StudentAttendancePage() {
   const [month, setMonth] = useState("december")
+  const [data, setData] = useState<AttendanceResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/student/attendance`)
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error || "فشل في جلب سجل الحضور")
+        }
+        const json = (await res.json()) as AttendanceResponse
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const attendanceRecords = data?.records ?? []
+  const monthlyStats = data?.monthlyStats ?? []
+  const stats = data?.stats
 
   return (
     <div className="space-y-6">
@@ -81,6 +110,19 @@ export default function StudentAttendancePage() {
         </Select>
       </div>
 
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل سجل الحضور...</CardContent>
+        </Card>
+      )}
+
+      {!loading && !error && stats && (
+      <>
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
@@ -227,6 +269,8 @@ export default function StudentAttendancePage() {
           </CardContent>
         </Card>
       </div>
+      </>
+      )}
     </div>
   )
 }

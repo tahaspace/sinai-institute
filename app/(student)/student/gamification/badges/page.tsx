@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
 import { BadgeCard, type BadgeData } from "@/components/gamification"
@@ -15,27 +15,58 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-// Mock badges data
-const allBadges: BadgeData[] = [
-  // Earned badges
-  { id: "1", name: "بداية موفقة", description: "أكمل أول واجب", icon: "🎯", category: "academic", rarity: "common", earnedAt: "2024-12-01" },
-  { id: "2", name: "طالب ملتزم", description: "حضور 30 يوم متواصل", icon: "📚", category: "attendance", rarity: "rare", earnedAt: "2024-12-15" },
-  { id: "3", name: "قارئ نهم", description: "أكمل 20 درس", icon: "📖", category: "academic", rarity: "common", earnedAt: "2024-12-10" },
-  { id: "4", name: "متعاون", description: "ساعد 10 زملاء", icon: "🤝", category: "social", rarity: "rare", earnedAt: "2024-12-08" },
-  { id: "5", name: "نجم الأسبوع", description: "أفضل طالب هذا الأسبوع", icon: "⭐", category: "special", rarity: "epic", earnedAt: "2024-12-20" },
-  { id: "6", name: "مثابر", description: "7 أيام حضور متواصل", icon: "🔥", category: "attendance", rarity: "common", earnedAt: "2024-12-05" },
-  // Locked badges
-  { id: "7", name: "متفوق", description: "احصل على درجة كاملة في 5 اختبارات", icon: "🏆", category: "academic", rarity: "epic", progress: 60, requirement: "3/5 اختبارات" },
-  { id: "8", name: "أسطورة المدرسة", description: "كن الأول على مستوى المدرسة", icon: "👑", category: "special", rarity: "legendary", progress: 20, requirement: "الترتيب الحالي: #5" },
-  { id: "9", name: "مبدع", description: "قدم 5 مشاريع إبداعية", icon: "💡", category: "activity", rarity: "rare", progress: 40, requirement: "2/5 مشاريع" },
-  { id: "10", name: "قائد", description: "قُد فريق في 3 أنشطة", icon: "🎖️", category: "social", rarity: "epic", progress: 33, requirement: "1/3 أنشطة" },
-  { id: "11", name: "محلل", description: "حل 100 مسألة رياضية", icon: "🧮", category: "academic", rarity: "rare", progress: 75, requirement: "75/100 مسألة" },
-  { id: "12", name: "متحدث", description: "شارك في 5 مناقشات", icon: "💬", category: "social", rarity: "common", progress: 80, requirement: "4/5 مناقشات" },
-]
+interface ApiBadge {
+  id: string
+  name: string
+  description: string
+  icon: string
+  category: string
+  threshold: number
+  earned: boolean
+  earnedAt: string | null
+}
 
 export default function BadgesPage() {
   const [filter, setFilter] = useState<"all" | "earned" | "locked">("all")
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
+  const [allBadges, setAllBadges] = useState<BadgeData[]>([])
+  const [apiStats, setApiStats] = useState<{ total: number; earned: number }>({ total: 0, earned: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/student/gamification/badges`)
+        if (!res.ok) throw new Error("فشل في جلب الشارات")
+        const json = await res.json()
+        if (!cancelled) {
+          const mapped: BadgeData[] = ((json.badges ?? []) as ApiBadge[]).map((b) => ({
+            id: b.id,
+            name: b.name,
+            description: b.description,
+            icon: b.icon,
+            category: b.category as BadgeData["category"],
+            // API has no rarity; default to neutral "common" (drives only label/color, not earned state)
+            rarity: "common",
+            // BadgeCard derives earned/locked from earnedAt; honor the API "earned" flag
+            earnedAt: b.earned ? b.earnedAt ?? undefined : undefined,
+          }))
+          setAllBadges(mapped)
+          setApiStats(json.stats ?? { total: 0, earned: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
 
   const earnedBadges = allBadges.filter((b) => b.earnedAt)
   const lockedBadges = allBadges.filter((b) => !b.earnedAt)
@@ -49,9 +80,10 @@ export default function BadgesPage() {
   })
 
   const stats = {
-    total: allBadges.length,
-    earned: earnedBadges.length,
-    percentage: Math.round((earnedBadges.length / allBadges.length) * 100),
+    total: apiStats.total,
+    earned: apiStats.earned,
+    percentage: apiStats.total > 0 ? Math.round((apiStats.earned / apiStats.total) * 100) : 0,
+    // API carries no rarity; these breakdowns are neutralized to 0 (no invented data)
     byRarity: {
       common: allBadges.filter((b) => b.rarity === "common" && b.earnedAt).length,
       rare: allBadges.filter((b) => b.rarity === "rare" && b.earnedAt).length,
@@ -97,6 +129,17 @@ export default function BadgesPage() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الشارات...</CardContent>
+        </Card>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

@@ -1,25 +1,62 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Award, Users, Calendar, Trophy, Plus, ChevronLeft } from "lucide-react"
 
-export default function ActivitiesPage() {
-  const stats = [
-    { label: "الأنشطة النشطة", value: "24", icon: Award, color: "text-institute-blue" },
-    { label: "المشاركين", value: "850", icon: Users, color: "text-institute-blue" },
-    { label: "فعاليات هذا الشهر", value: "8", icon: Calendar, color: "text-institute-gold" },
-    { label: "الإنجازات", value: "45", icon: Trophy, color: "text-institute-gold" },
-  ]
+type Activity = {
+  id: string
+  name: string
+  members: number
+  type: string
+  nextEvent: string
+  date: string
+}
 
-  const activities = [
-    { name: "نادي البرمجة", members: 120, type: "أكاديمي", nextEvent: "مسابقة البرمجة", date: "2025-01-15" },
-    { name: "فريق كرة القدم", members: 25, type: "رياضي", nextEvent: "مباراة ودية", date: "2025-01-10" },
-    { name: "جماعة الإعلام", members: 45, type: "ثقافي", nextEvent: "ورشة تصوير", date: "2025-01-12" },
-    { name: "نادي ريادة الأعمال", members: 80, type: "أكاديمي", nextEvent: "محاضرة ريادية", date: "2025-01-18" },
-    { name: "فريق الكورال", members: 30, type: "فني", nextEvent: "حفل موسيقي", date: "2025-01-20" },
+type ActivitiesResponse = {
+  activities: Activity[]
+  stats: { active: number; totalMembers: number; total: number }
+}
+
+export default function ActivitiesPage() {
+  const [data, setData] = useState<ActivitiesResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/activities")
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}))
+          throw new Error(b.error || "فشل في جلب البيانات")
+        }
+        const json = (await res.json()) as ActivitiesResponse
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const activities = data?.activities ?? []
+
+  const stats = [
+    { label: "الأنشطة النشطة", value: data ? String(data.stats.active) : "—", icon: Award, color: "text-institute-blue" },
+    { label: "المشاركين", value: data ? String(data.stats.totalMembers) : "—", icon: Users, color: "text-institute-blue" },
+    { label: "فعاليات هذا الشهر", value: "—", icon: Calendar, color: "text-institute-gold" },
+    { label: "الإنجازات", value: "—", icon: Trophy, color: "text-institute-gold" },
   ]
 
   const getTypeBadge = (type: string) => {
@@ -47,6 +84,17 @@ export default function ActivitiesPage() {
           نشاط جديد
         </Button>
       </div>
+
+      {loading && (
+        <Card>
+          <CardContent className="p-4 text-sm text-muted-foreground">جارٍ التحميل...</CardContent>
+        </Card>
+      )}
+      {error && (
+        <Card>
+          <CardContent className="p-4 text-sm text-red-600">{error}</CardContent>
+        </Card>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -82,7 +130,7 @@ export default function ActivitiesPage() {
           <div className="space-y-4">
             {activities.map((activity, index) => (
               <motion.div
-                key={index}
+                key={activity.id}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: index * 0.1 }}

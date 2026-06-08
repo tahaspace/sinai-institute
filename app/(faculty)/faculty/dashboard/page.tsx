@@ -1,19 +1,15 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { 
-  BookOpen, 
-  Users, 
-  ClipboardCheck, 
+import {
+  BookOpen,
+  Users,
+  ClipboardCheck,
   Calendar,
-  Clock,
-  FileText,
   TrendingUp,
-  Award,
   MessageSquare,
-  Bell,
-  FlaskConical,
-  GraduationCap
+  FlaskConical
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -21,48 +17,99 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
 
-const todaySchedule = [
-  { time: "09:00 - 10:30", course: "مقدمة في البرمجة", type: "محاضرة", hall: "A101", students: 45 },
-  { time: "11:00 - 12:30", course: "هياكل البيانات", type: "معمل", hall: "Lab 3", students: 30 },
-  { time: "14:00 - 15:00", course: "ساعات مكتبية", type: "إرشاد", hall: "مكتب 205", students: null },
-]
-
-const pendingTasks = [
-  { task: "تصحيح واجبات CS101", count: 15, deadline: "غداً" },
-  { task: "رصد درجات المنتصف", count: 45, deadline: "بعد 3 أيام" },
-  { task: "مراجعة طلب تحويل", count: 2, deadline: "اليوم" },
-]
-
-const recentStudents = [
-  { name: "أحمد محمد", course: "CS101", query: "استفسار عن المشروع", time: "منذ ساعة" },
-  { name: "سارة علي", course: "CS201", query: "طلب موعد", time: "منذ 3 ساعات" },
-  { name: "محمود حسن", course: "CS101", query: "تظلم في الدرجات", time: "أمس" },
-]
+// --- API response shapes (served by /api/faculty/dashboard) ---
+interface ScheduleItem {
+  id: number
+  subject: string
+  time: string
+  room: string
+}
+interface RecentStudent {
+  name: string
+  studentCode: string
+}
+interface DashboardResponse {
+  instructor: { id: string; name: string; title: string }
+  stats: { courses: number; students: number; ungraded: number; publications: number }
+  todaySchedule: ScheduleItem[]
+  recentStudents: RecentStudent[]
+}
 
 export default function FacultyDashboard() {
+  const [data, setData] = useState<DashboardResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/faculty/dashboard`)
+        if (!res.ok) {
+          throw new Error("فشل في جلب لوحة التحكم")
+        }
+        const json = (await res.json()) as DashboardResponse
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const stats = data?.stats
+  const todaySchedule = data?.todaySchedule ?? []
+  const recentStudents = data?.recentStudents ?? []
+  // No pending-tasks list in the API — derive a single task from ungraded count.
+  const pendingTasks =
+    stats && stats.ungraded > 0
+      ? [{ task: `رصد درجات (${stats.ungraded})`, count: stats.ungraded, deadline: "قريباً" }]
+      : []
+  const instructorName = data?.instructor?.name ?? ""
+
   return (
     <div className="space-y-6">
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل لوحة التحكم...</CardContent>
+        </Card>
+      )}
+
+      {!loading && !error && stats && (
+      <>
       {/* Welcome Header */}
       <div className="bg-gradient-to-l from-indigo-600 to-purple-600 rounded-2xl p-6 text-white">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">مرحباً د. محمد 👋</h1>
-            <p className="text-indigo-100 mt-1">لديك 3 محاضرات اليوم و 15 واجب للتصحيح</p>
+            <h1 className="text-2xl font-bold">مرحباً {instructorName} 👋</h1>
+            <p className="text-indigo-100 mt-1">لديك {todaySchedule.length} محاضرات اليوم و {stats.ungraded} درجة للرصد</p>
           </div>
           <div className="hidden md:flex items-center gap-4">
             <div className="text-center">
-              <p className="text-3xl font-bold">4</p>
+              <p className="text-3xl font-bold">{stats.courses}</p>
               <p className="text-xs text-indigo-200">مقررات</p>
             </div>
             <div className="w-px h-12 bg-white/20" />
             <div className="text-center">
-              <p className="text-3xl font-bold">120</p>
+              <p className="text-3xl font-bold">{stats.students}</p>
               <p className="text-xs text-indigo-200">طالب</p>
             </div>
             <div className="w-px h-12 bg-white/20" />
             <div className="text-center">
-              <p className="text-3xl font-bold">12</p>
-              <p className="text-xs text-indigo-200">ساعة تدريسية</p>
+              <p className="text-3xl font-bold">{stats.ungraded}</p>
+              <p className="text-xs text-indigo-200">درجات للرصد</p>
             </div>
           </div>
         </div>
@@ -71,10 +118,10 @@ export default function FacultyDashboard() {
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
-          { label: "المقررات الدراسية", value: 4, icon: BookOpen, color: "indigo", change: "+1 هذا الفصل" },
-          { label: "إجمالي الطلاب", value: 120, icon: Users, color: "purple", change: "+15 طالب" },
-          { label: "الأبحاث المنشورة", value: 8, icon: FlaskConical, color: "blue", change: "+2 هذا العام" },
-          { label: "طلاب الدراسات العليا", value: 5, icon: GraduationCap, color: "green", change: "تحت الإشراف" },
+          { label: "المقررات الدراسية", value: stats.courses, icon: BookOpen, color: "indigo", change: "هذا الفصل" },
+          { label: "إجمالي الطلاب", value: stats.students, icon: Users, color: "purple", change: "مسجلون" },
+          { label: "درجات للرصد", value: stats.ungraded, icon: ClipboardCheck, color: "orange", change: "مهام معلقة" },
+          { label: "الأبحاث المنشورة", value: stats.publications, icon: FlaskConical, color: "blue", change: "منشورة" },
         ].map((stat, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
             <Card className={`border-r-4 border-r-${stat.color}-500 hover:shadow-lg transition-shadow`}>
@@ -108,10 +155,10 @@ export default function FacultyDashboard() {
           <CardContent>
             <div className="space-y-4">
               {todaySchedule.map((item, i) => (
-                <motion.div 
-                  key={i} 
-                  initial={{ opacity: 0, x: -20 }} 
-                  animate={{ opacity: 1, x: 0 }} 
+                <motion.div
+                  key={item.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.1 }}
                   className={`flex items-center gap-4 p-4 rounded-xl border ${i === 0 ? 'bg-indigo-50 border-indigo-200' : ''}`}
                 >
@@ -121,11 +168,9 @@ export default function FacultyDashboard() {
                   </div>
                   <div className="w-1 h-12 rounded-full bg-gradient-to-b from-indigo-500 to-purple-500" />
                   <div className="flex-1">
-                    <p className="font-medium">{item.course}</p>
+                    <p className="font-medium">{item.subject}</p>
                     <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline" className="text-xs">{item.type}</Badge>
-                      <span className="text-xs text-gray-500">القاعة: {item.hall}</span>
-                      {item.students && <span className="text-xs text-gray-500">• {item.students} طالب</span>}
+                      <span className="text-xs text-gray-500">القاعة: {item.room}</span>
                     </div>
                   </div>
                   {i === 0 && (
@@ -220,10 +265,8 @@ export default function FacultyDashboard() {
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
                       <p className="font-medium text-sm">{student.name}</p>
-                      <span className="text-xs text-gray-400">{student.time}</span>
                     </div>
-                    <p className="text-xs text-gray-500">{student.course}</p>
-                    <p className="text-sm text-gray-600 mt-1">{student.query}</p>
+                    <p className="text-xs text-gray-500">{student.studentCode}</p>
                   </div>
                   <Button size="sm" variant="outline" className="text-xs">رد</Button>
                 </div>
@@ -232,6 +275,8 @@ export default function FacultyDashboard() {
           </CardContent>
         </Card>
       </div>
+      </>
+      )}
     </div>
   )
 }

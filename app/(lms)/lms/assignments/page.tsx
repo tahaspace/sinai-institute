@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   FileText,
   Plus,
@@ -8,16 +8,14 @@ import {
   CheckCircle2,
   AlertCircle,
   Users,
-  Calendar,
   Eye,
   Edit,
   Trash2,
   MoreVertical,
   Download,
   Upload,
-  Filter,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -41,65 +39,33 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 
-// Assignments
-const assignments = [
-  {
-    id: 1,
-    title: "حل تمارين الباب الثالث",
-    class: "3/1",
-    subject: "الرياضيات",
-    dueDate: "2024-12-26",
-    maxGrade: 20,
-    submissions: 28,
-    total: 35,
-    graded: 20,
-    status: "active",
-    attachments: 2,
-  },
-  {
-    id: 2,
-    title: "تقرير عن قوانين نيوتن",
-    class: "3/2",
-    subject: "الفيزياء",
-    dueDate: "2024-12-27",
-    maxGrade: 20,
-    submissions: 18,
-    total: 32,
-    graded: 10,
-    status: "active",
-    attachments: 1,
-  },
-  {
-    id: 3,
-    title: "اختبار قصير - التفاضل",
-    class: "2/1",
-    subject: "الرياضيات",
-    dueDate: "2024-12-20",
-    maxGrade: 20,
-    submissions: 30,
-    total: 30,
-    graded: 30,
-    status: "completed",
-    attachments: 0,
-  },
-]
+interface AssignmentRow {
+  id: string
+  title: string
+  subject: string
+  dueDate: string
+  maxGrade: number
+  submissions: number
+  total: number
+  graded: number
+  status: "active" | "completed"
+}
 
-// Submissions for grading
-const submissions = [
-  { id: 1, student: "أحمد محمد علي", submittedAt: "2024-12-24 14:30", status: "pending", file: "homework.pdf" },
-  { id: 2, student: "سارة خالد أحمد", submittedAt: "2024-12-24 15:45", status: "graded", grade: 18, file: "assignment.pdf" },
-  { id: 3, student: "محمد سعيد حسن", submittedAt: "2024-12-25 09:20", status: "pending", file: "math_hw.pdf" },
-  { id: 4, student: "فاطمة علي محمود", submittedAt: "2024-12-25 10:15", status: "graded", grade: 17, file: "my_work.pdf" },
-  { id: 5, student: "علي أحمد محمد", submittedAt: "2024-12-25 11:00", status: "late", file: "late_submission.pdf" },
-]
+interface SubmissionRow {
+  id: string
+  student: string
+  assignment: string
+  submittedAt: string
+  status: "pending" | "graded" | "late"
+  grade: number | null
+}
 
-// Stats
-const stats = {
-  total: 24,
-  active: 5,
-  completed: 19,
-  pendingGrading: 45,
-  avgGrade: 85,
+interface ApiStats {
+  total: number
+  active: number
+  completed: number
+  pendingGrading: number
+  avgGrade: number
 }
 
 const statusConfig = {
@@ -110,7 +76,50 @@ const statusConfig = {
 
 export default function AssignmentsPage() {
   const [showNewForm, setShowNewForm] = useState(false)
-  const [selectedAssignment, setSelectedAssignment] = useState<number | null>(null)
+  const [, setSelectedAssignment] = useState<string | null>(null)
+  const [assignments, setAssignments] = useState<AssignmentRow[]>([])
+  const [submissions, setSubmissions] = useState<SubmissionRow[]>([])
+  const [apiStats, setApiStats] = useState<ApiStats>({
+    total: 0,
+    active: 0,
+    completed: 0,
+    pendingGrading: 0,
+    avgGrade: 0,
+  })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/lms/assignments`)
+        if (!res.ok) throw new Error("فشل في جلب الواجبات")
+        const json = await res.json()
+        if (!cancelled) {
+          setAssignments(json.assignments ?? [])
+          setSubmissions(json.submissions ?? [])
+          setApiStats(json.stats ?? { total: 0, active: 0, completed: 0, pendingGrading: 0, avgGrade: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const stats = {
+    total: apiStats.total,
+    active: apiStats.active,
+    completed: apiStats.completed,
+    pendingGrading: apiStats.pendingGrading,
+    avgGrade: apiStats.avgGrade,
+  }
 
   return (
     <div className="space-y-6">
@@ -125,6 +134,9 @@ export default function AssignmentsPage() {
           إنشاء واجب جديد
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الواجبات...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -281,7 +293,7 @@ export default function AssignmentsPage() {
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            {assignment.subject} • الفصل {assignment.class} • موعد التسليم: {new Date(assignment.dueDate).toLocaleDateString("ar-EG")}
+                            {assignment.subject} • الفصل — • موعد التسليم: {new Date(assignment.dueDate).toLocaleDateString("ar-EG")}
                           </p>
                           <div className="flex items-center gap-4 mt-2">
                             <span className="text-sm flex items-center gap-1">
@@ -382,13 +394,13 @@ export default function AssignmentsPage() {
                         <div>
                           <p className="font-medium">{submission.student}</p>
                           <p className="text-sm text-muted-foreground">
-                            {submission.submittedAt} • {submission.file}
+                            {submission.submittedAt} • —
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
                         {submission.status === "graded" ? (
-                          <span className="font-bold text-green-600">{submission.grade}/20</span>
+                          <span className="font-bold text-green-600">{submission.grade ?? "—"}/20</span>
                         ) : (
                           <div className="flex items-center gap-2">
                             <Input type="number" placeholder="الدرجة" className="w-20" max={20} />

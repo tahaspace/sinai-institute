@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,23 +12,74 @@ import {
   CreditCard,
   TrendingUp,
   TrendingDown,
-  Users,
-  FileText,
   Download,
   Plus,
   Calendar,
-  PiggyBank,
   Receipt,
   BarChart3,
   Gift,
 } from "lucide-react"
 
+interface FinanceStats {
+  totalDues: number
+  collected: number
+  remaining: number
+  collectionRate: number
+  scholarshipsCount: number
+  scholarshipsTotal: number
+}
+
+interface Transaction {
+  id: string
+  student: string
+  type: string
+  amount: number
+  date: string
+  method: string
+}
+
+interface DepartmentCollection {
+  name: string
+  collected: number
+  total: number
+}
+
 export default function FinancePage() {
+  const [apiStats, setApiStats] = useState<FinanceStats | null>(null)
+  const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([])
+  const [departmentCollection, setDepartmentCollection] = useState<DepartmentCollection[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/finance`)
+        if (!res.ok) throw new Error("فشل في جلب البيانات المالية")
+        const json = await res.json()
+        if (!cancelled) {
+          setApiStats(json.stats ?? null)
+          setRecentTransactions(json.recentTransactions ?? [])
+          setDepartmentCollection(json.departmentCollection ?? [])
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
   const stats = [
-    { label: "المستحقات الكلية", value: "12.5M", icon: Wallet, color: "text-institute-blue", suffix: "ج.م" },
-    { label: "المحصل", value: "11.2M", icon: CreditCard, color: "text-institute-blue", suffix: "ج.م" },
-    { label: "المتبقي", value: "1.3M", icon: TrendingDown, color: "text-red-600", suffix: "ج.م" },
-    { label: "نسبة التحصيل", value: "92", icon: TrendingUp, color: "text-institute-gold", suffix: "%" },
+    { label: "المستحقات الكلية", value: (apiStats?.totalDues ?? 0).toLocaleString(), icon: Wallet, color: "text-institute-blue", suffix: "ج.م" },
+    { label: "المحصل", value: (apiStats?.collected ?? 0).toLocaleString(), icon: CreditCard, color: "text-institute-blue", suffix: "ج.م" },
+    { label: "المتبقي", value: (apiStats?.remaining ?? 0).toLocaleString(), icon: TrendingDown, color: "text-red-600", suffix: "ج.م" },
+    { label: "نسبة التحصيل", value: String(apiStats?.collectionRate ?? 0), icon: TrendingUp, color: "text-institute-gold", suffix: "%" },
   ]
 
   const quickLinks = [
@@ -37,21 +88,6 @@ export default function FinancePage() {
     { title: "الأقساط", href: "/institute/finance/installments", icon: Calendar, color: "text-institute-gold", desc: "نظام التقسيط" },
     { title: "المنح والإعفاءات", href: "/institute/finance/scholarships", icon: Gift, color: "text-institute-gold", desc: "إدارة المنح" },
     { title: "التقارير المالية", href: "/institute/finance/reports", icon: BarChart3, color: "text-institute-blue", desc: "تقارير وإحصائيات" },
-  ]
-
-  const recentTransactions = [
-    { id: 1, student: "أحمد محمد علي", type: "دفع", amount: 15000, date: "2024-12-28", method: "بطاقة" },
-    { id: 2, student: "سارة أحمد حسن", type: "قسط", amount: 5000, date: "2024-12-27", method: "نقدي" },
-    { id: 3, student: "محمد علي إبراهيم", type: "منحة", amount: -10000, date: "2024-12-27", method: "إعفاء" },
-    { id: 4, student: "نور محمود سعيد", type: "دفع", amount: 20000, date: "2024-12-26", method: "تحويل" },
-  ]
-
-  const departmentCollection = [
-    { name: "الهندسة", collected: 3200000, total: 3500000 },
-    { name: "الحاسبات", collected: 2800000, total: 3000000 },
-    { name: "إدارة الأعمال", collected: 2100000, total: 2300000 },
-    { name: "المحاسبة", collected: 1900000, total: 2000000 },
-    { name: "السياحة", collected: 1200000, total: 1400000 },
   ]
 
   return (
@@ -80,6 +116,9 @@ export default function FinancePage() {
           </Button>
         </div>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل البيانات المالية...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

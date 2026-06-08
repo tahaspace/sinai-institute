@@ -1,23 +1,42 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { FileText, Search, Plus, Download, Upload, Video, File, Image, Folder, Eye, Edit, Trash2 } from "lucide-react"
+import { FileText, Search, Download, Upload, Video, File, Image, Folder, Eye, Edit, Trash2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-const contentData = [
-  { id: "CNT001", title: "مقدمة في البرمجة", type: "video", program: "تطوير البرمجيات", size: "250 MB", duration: "45 دقيقة", views: 450, date: "2025-01-10" },
-  { id: "CNT002", title: "ملخص الوحدة الأولى", type: "pdf", program: "تطوير البرمجيات", size: "5 MB", duration: null, views: 320, date: "2025-01-08" },
-  { id: "CNT003", title: "تمارين عملية", type: "file", program: "تصميم الجرافيك", size: "15 MB", duration: null, views: 180, date: "2025-01-05" },
-  { id: "CNT004", title: "شرح أدوات التصميم", type: "video", program: "تصميم الجرافيك", size: "320 MB", duration: "60 دقيقة", views: 280, date: "2025-01-12" },
-]
+interface ContentRow {
+  id: string
+  title: string
+  type: string
+  program: string
+  size: string
+  duration: string
+  views: number
+  date: string
+}
+
+interface ApiContentItem {
+  id: string
+  title: string
+  unit: string
+  type: "video" | "pdf" | "image" | "audio"
+  url: string
+  sizeMb: number
+  views: number
+}
+
+interface ApiStats {
+  total: number
+  videos: number
+  pdfs: number
+  totalViews: number
+}
 
 const typeIcons = {
   video: Video,
@@ -35,9 +54,50 @@ const typeColors = {
 
 export default function ContentPage() {
   const [searchTerm, setSearchTerm] = useState("")
+  const [contentData, setContentData] = useState<ContentRow[]>([])
+  const [apiStats, setApiStats] = useState<ApiStats>({ total: 0, videos: 0, pdfs: 0, totalViews: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const totalSize = "1.2 GB"
-  const totalViews = contentData.reduce((s, c) => s + c.views, 0)
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/lms/content`)
+        if (!res.ok) throw new Error("فشل في جلب المحتوى")
+        const json = await res.json()
+        if (!cancelled) {
+          const items: ApiContentItem[] = json.contentItems ?? []
+          setContentData(
+            items.map((c) => ({
+              id: c.id,
+              title: c.title,
+              // typeIcons/typeColors keys are video/pdf/file/image — API "audio" has no icon, fold to "file"
+              type: c.type === "audio" ? "file" : c.type,
+              program: c.unit,
+              size: `${c.sizeMb} MB`,
+              duration: "—",
+              views: c.views,
+              date: "—",
+            }))
+          )
+          setApiStats(json.stats ?? { total: 0, videos: 0, pdfs: 0, totalViews: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const filteredContent = contentData.filter((c) => !searchTerm || c.title.includes(searchTerm))
+
+  const totalViews = apiStats.totalViews
 
   return (
     <div className="p-6 space-y-6">
@@ -55,11 +115,14 @@ export default function ContentPage() {
         </div>
       </div>
 
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-gray-500">جارٍ تحميل المحتوى...</CardContent></Card>}
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
-          { label: "إجمالي المحتوى", value: contentData.length, icon: Folder, color: "teal" },
-          { label: "الفيديوهات", value: contentData.filter(c => c.type === "video").length, icon: Video, color: "red" },
-          { label: "الملفات", value: contentData.filter(c => c.type !== "video").length, icon: FileText, color: "blue" },
+          { label: "إجمالي المحتوى", value: apiStats.total, icon: Folder, color: "teal" },
+          { label: "الفيديوهات", value: apiStats.videos, icon: Video, color: "red" },
+          { label: "الملفات", value: apiStats.total - apiStats.videos, icon: FileText, color: "blue" },
           { label: "المشاهدات", value: totalViews, icon: Eye, color: "purple" },
         ].map((stat, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
@@ -123,20 +186,21 @@ export default function ContentPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {contentData.map((content) => {
-                const TypeIcon = typeIcons[content.type as keyof typeof typeIcons]
+              {filteredContent.map((content) => {
+                const TypeIcon = content.type in typeIcons ? typeIcons[content.type as keyof typeof typeIcons] : File
+                const typeColor = content.type in typeColors ? typeColors[content.type as keyof typeof typeColors] : "bg-gray-100 text-gray-700"
                 return (
                   <TableRow key={content.id}>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${typeColors[content.type as keyof typeof typeColors]}`}>
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${typeColor}`}>
                           <TypeIcon className="w-5 h-5" />
                         </div>
                         <span className="font-medium">{content.title}</span>
                       </div>
                     </TableCell>
                     <TableCell className="text-center">
-                      <Badge className={typeColors[content.type as keyof typeof typeColors]}>
+                      <Badge className={typeColor}>
                         {content.type === "video" ? "فيديو" : content.type === "pdf" ? "PDF" : "ملف"}
                       </Badge>
                     </TableCell>

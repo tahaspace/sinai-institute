@@ -62,6 +62,11 @@ const navItems = [
     badge: 120,
   },
   {
+    title: "الإرشاد الأكاديمي",
+    href: "/faculty/advisees",
+    icon: GraduationCap,
+  },
+  {
     title: "البحث العلمي",
     href: "/faculty/research",
     icon: FlaskConical,

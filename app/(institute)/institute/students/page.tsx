@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   Table,
   TableBody,
@@ -33,7 +33,6 @@ import {
   Users,
   Search,
   Plus,
-  Filter,
   Download,
   MoreVertical,
   Eye,
@@ -45,79 +44,60 @@ import {
   Award,
 } from "lucide-react"
 
+interface StudentRow {
+  id: string
+  studentCode: string
+  name: string
+  email: string
+  department: string
+  program: string
+  level: string
+  levelNum: number
+  gpa: number
+  creditHours: number
+  status: string
+}
+
 export default function StudentsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [levelFilter, setLevelFilter] = useState("all")
+  const [allStudents, setAllStudents] = useState<StudentRow[]>([])
+  const [apiStats, setApiStats] = useState<{ total: number; avgGpa: number }>({ total: 0, avgGpa: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const students = [
-    {
-      id: "STU2024001",
-      name: "أحمد محمد علي",
-      email: "ahmed.m@institute.edu.eg",
-      department: "الهندسة",
-      program: "هندسة الحاسبات",
-      level: "الثالثة",
-      gpa: 3.45,
-      creditHours: 96,
-      status: "منتظم",
-      avatar: "",
-    },
-    {
-      id: "STU2024002",
-      name: "سارة أحمد حسن",
-      email: "sara.a@institute.edu.eg",
-      department: "الحاسبات",
-      program: "علوم الحاسب",
-      level: "الرابعة",
-      gpa: 3.82,
-      creditHours: 128,
-      status: "منتظم",
-      avatar: "",
-    },
-    {
-      id: "STU2024003",
-      name: "محمد علي إبراهيم",
-      email: "mohamed.a@institute.edu.eg",
-      department: "إدارة الأعمال",
-      program: "إدارة الأعمال",
-      level: "الثانية",
-      gpa: 2.15,
-      creditHours: 58,
-      status: "إنذار أول",
-      avatar: "",
-    },
-    {
-      id: "STU2024004",
-      name: "نور محمود سعيد",
-      email: "nour.m@institute.edu.eg",
-      department: "المحاسبة",
-      program: "المحاسبة",
-      level: "الأولى",
-      gpa: 3.12,
-      creditHours: 32,
-      status: "منتظم",
-      avatar: "",
-    },
-    {
-      id: "STU2024005",
-      name: "يوسف أحمد محمد",
-      email: "youssef.a@institute.edu.eg",
-      department: "السياحة",
-      program: "إدارة الفنادق",
-      level: "الثالثة",
-      gpa: 1.85,
-      creditHours: 89,
-      status: "إنذار ثاني",
-      avatar: "",
-    },
-  ]
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/students`)
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "فشل في جلب الطلاب")
+        const json = await res.json()
+        if (!cancelled) { setAllStudents(json.students ?? []); setApiStats(json.stats ?? { total: 0, avgGpa: 0 }) }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const students = allStudents.filter((s) => {
+    const matchesSearch = !searchQuery || s.name.includes(searchQuery) || s.studentCode.includes(searchQuery)
+    const matchesLevel = levelFilter === "all" || String(s.levelNum) === levelFilter
+    return matchesSearch && matchesLevel
+  })
 
   const stats = [
-    { label: "إجمالي الطلاب", value: "2,548", icon: Users, color: "text-institute-blue" },
-    { label: "طلاب جدد", value: "485", icon: Plus, color: "text-institute-blue" },
-    { label: "متوسط GPA", value: "2.85", icon: Award, color: "text-institute-gold" },
-    { label: "نسبة الحضور", value: "87%", icon: Clock, color: "text-institute-gold" },
+    { label: "إجمالي الطلاب", value: String(apiStats.total), icon: Users, color: "text-institute-blue" },
+    { label: "الأقسام", value: String(new Set(allStudents.map((s) => s.department)).size), icon: Building2, color: "text-institute-blue" },
+    { label: "متوسط GPA", value: apiStats.avgGpa.toFixed(2), icon: Award, color: "text-institute-gold" },
+    { label: "تحت الملاحظة", value: String(allStudents.filter((s) => s.gpa < 2).length), icon: Clock, color: "text-institute-gold" },
   ]
 
   const getStatusBadge = (status: string) => {
@@ -166,6 +146,9 @@ export default function StudentsPage() {
           </Button>
         </div>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل بيانات الطلاب...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -259,14 +242,13 @@ export default function StudentsPage() {
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <Avatar>
-                        <AvatarImage src={student.avatar} />
                         <AvatarFallback className="bg-institute-blue text-institute-blue">
                           {student.name.charAt(0)}
                         </AvatarFallback>
                       </Avatar>
                       <div>
                         <p className="font-medium">{student.name}</p>
-                        <p className="text-sm text-muted-foreground">{student.id}</p>
+                        <p className="text-sm text-muted-foreground">{student.studentCode}</p>
                       </div>
                     </div>
                   </TableCell>

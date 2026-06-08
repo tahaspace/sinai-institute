@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -8,23 +8,61 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { BookOpen, Search, Plus, Filter, FolderOpen, FileText, CheckSquare, ListOrdered } from "lucide-react"
 
+interface CourseRow {
+  id: string
+  code: string
+  nameAr: string
+  total: number
+  mcq: number
+  essay: number
+  truefalse: number
+}
+
+interface ApiStats {
+  totalQuestions: number
+  courses: number
+  mcq: number
+  essay: number
+}
+
 export default function QuestionBankPage() {
   const [searchQuery, setSearchQuery] = useState("")
+  const [allCourses, setAllCourses] = useState<CourseRow[]>([])
+  const [apiStats, setApiStats] = useState<ApiStats>({ totalQuestions: 0, courses: 0, mcq: 0, essay: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/exams/question-bank`)
+        if (!res.ok) throw new Error("فشل في جلب بنك الأسئلة")
+        const json = await res.json()
+        if (!cancelled) {
+          setAllCourses(json.courses ?? [])
+          setApiStats(json.stats ?? { totalQuestions: 0, courses: 0, mcq: 0, essay: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
 
   const stats = [
-    { label: "إجمالي الأسئلة", value: "2,450", icon: FileText, color: "text-institute-blue" },
-    { label: "اختيار من متعدد", value: "1,200", icon: CheckSquare, color: "text-institute-blue" },
-    { label: "مقالية", value: "850", icon: ListOrdered, color: "text-institute-gold" },
-    { label: "المقررات", value: "48", icon: FolderOpen, color: "text-institute-gold" },
+    { label: "إجمالي الأسئلة", value: String(apiStats.totalQuestions), icon: FileText, color: "text-institute-blue" },
+    { label: "اختيار من متعدد", value: String(apiStats.mcq), icon: CheckSquare, color: "text-institute-blue" },
+    { label: "مقالية", value: String(apiStats.essay), icon: ListOrdered, color: "text-institute-gold" },
+    { label: "المقررات", value: String(apiStats.courses), icon: FolderOpen, color: "text-institute-gold" },
   ]
 
-  const courses = [
-    { code: "CS301", name: "الذكاء الاصطناعي", questions: 85, mcq: 50, essay: 35 },
-    { code: "MATH301", name: "رياضيات متقدمة", questions: 120, mcq: 80, essay: 40 },
-    { code: "BUS101", name: "مبادئ الإدارة", questions: 95, mcq: 60, essay: 35 },
-    { code: "ACC201", name: "المحاسبة المتوسطة", questions: 110, mcq: 70, essay: 40 },
-    { code: "ENG301", name: "اللغة الإنجليزية المتقدمة", questions: 150, mcq: 100, essay: 50 },
-  ]
+  const courses = allCourses.filter((c) => !searchQuery || c.nameAr.includes(searchQuery))
 
   return (
     <div className="space-y-6">
@@ -41,6 +79,9 @@ export default function QuestionBankPage() {
           إضافة سؤال
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل بنك الأسئلة...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -97,7 +138,7 @@ export default function QuestionBankPage() {
           <div className="space-y-4">
             {courses.map((course, index) => (
               <motion.div
-                key={course.code}
+                key={course.id}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: index * 0.1 }}
@@ -108,18 +149,19 @@ export default function QuestionBankPage() {
                     <FolderOpen className="w-6 h-6 text-institute-blue" />
                   </div>
                   <div>
-                    <h4 className="font-medium">{course.name}</h4>
+                    <h4 className="font-medium">{course.nameAr}</h4>
                     <Badge variant="outline">{course.code}</Badge>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="text-center">
-                    <p className="text-xl font-bold text-institute-blue">{course.questions}</p>
+                    <p className="text-xl font-bold text-institute-blue">{course.total}</p>
                     <p className="text-xs text-muted-foreground">سؤال</p>
                   </div>
                   <div className="flex gap-2">
                     <Badge className="bg-institute-blue text-green-700">{course.mcq} MCQ</Badge>
                     <Badge className="bg-institute-gold text-purple-700">{course.essay} مقالي</Badge>
+                    <Badge variant="outline">{course.truefalse} ص/خ</Badge>
                   </div>
                 </div>
               </motion.div>

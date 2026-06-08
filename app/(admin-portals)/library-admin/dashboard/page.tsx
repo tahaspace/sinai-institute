@@ -1,11 +1,37 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Book, Users, TrendingUp, AlertCircle } from 'lucide-react';
 
+interface Summary {
+  titles: number;
+  totalCopies: number;
+  available: number;
+  borrowed: number;
+  overdue: number;
+}
+
 export default function LibraryAdminDashboardPage() {
+  const [data, setData] = useState<Summary | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/library');
+        if (res.ok && !cancelled) setData(await res.json());
+      } catch {
+        /* leave null → — */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const fmt = (n: number | undefined) => (n == null ? '—' : n.toLocaleString());
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8">
@@ -16,12 +42,12 @@ export default function LibraryAdminDashboardPage() {
       <div className="grid md:grid-cols-4 gap-6 mb-8">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">إجمالي الكتب</CardTitle>
+            <CardTitle className="text-sm font-medium">إجمالي النسخ</CardTitle>
             <Book className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">5,240</div>
-            <p className="text-xs text-muted-foreground">كتاب متاح</p>
+            <div className="text-2xl font-bold">{fmt(data?.totalCopies)}</div>
+            <p className="text-xs text-muted-foreground">{data ? `${data.titles} عنوان` : '—'}</p>
           </CardContent>
         </Card>
 
@@ -31,19 +57,19 @@ export default function LibraryAdminDashboardPage() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">324</div>
+            <div className="text-2xl font-bold">{fmt(data?.borrowed)}</div>
             <p className="text-xs text-muted-foreground">إعارة حالية</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">اليوم</CardTitle>
+            <CardTitle className="text-sm font-medium">المتاح</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">28</div>
-            <p className="text-xs text-muted-foreground">إعارة جديدة</p>
+            <div className="text-2xl font-bold">{fmt(data?.available)}</div>
+            <p className="text-xs text-muted-foreground">نسخة متاحة للإعارة</p>
           </CardContent>
         </Card>
 
@@ -53,7 +79,7 @@ export default function LibraryAdminDashboardPage() {
             <AlertCircle className="h-4 w-4 text-destructive" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-destructive">15</div>
+            <div className="text-2xl font-bold text-destructive">{fmt(data?.overdue)}</div>
             <p className="text-xs text-muted-foreground">تحتاج متابعة</p>
           </CardContent>
         </Card>

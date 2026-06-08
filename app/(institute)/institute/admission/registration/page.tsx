@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,28 +10,88 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Progress } from "@/components/ui/progress"
 import { GraduationCap, Search, Calendar, Clock, BookOpen, CheckCircle, AlertTriangle } from "lucide-react"
 
+interface CatalogCourse {
+  id: string
+  offeringId: string
+  sectionId: string
+  code: string
+  name: string
+  hours: number
+  instructor: string
+  seats: number
+  enrolled: number
+  schedule: string
+}
+
+interface RegistrationPeriod {
+  startDate: string
+  endDate: string
+  status: string
+  daysLeft: number
+}
+
+interface RegistrationTerm {
+  academicYear: string
+  semester: string
+}
+
+interface ApiStats {
+  registeredStudents: number
+  offeredCourses: number
+  averageHours: number
+}
+
+const SEMESTER_AR: Record<string, string> = {
+  first: "الأول",
+  second: "الثاني",
+  summer: "الصيفي",
+}
+
 export default function RegistrationPage() {
   const [searchQuery, setSearchQuery] = useState("")
 
-  const registrationPeriod = {
-    startDate: "2025-01-05",
-    endDate: "2025-01-20",
-    status: "open",
-    daysLeft: 12,
-  }
+  const [registrationPeriod, setRegistrationPeriod] = useState<RegistrationPeriod | null>(null)
+  const [term, setTerm] = useState<RegistrationTerm | null>(null)
+  const [availableCourses, setAvailableCourses] = useState<CatalogCourse[]>([])
+  const [apiStats, setApiStats] = useState<ApiStats>({ registeredStudents: 0, offeredCourses: 0, averageHours: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const availableCourses = [
-    { code: "CS301", name: "الذكاء الاصطناعي", hours: 3, instructor: "د. أحمد محمد", seats: 40, enrolled: 35, schedule: "أحد - ثلاثاء 9:00-10:30" },
-    { code: "CS302", name: "شبكات الحاسب", hours: 3, instructor: "د. سارة علي", seats: 35, enrolled: 30, schedule: "إثنين - أربعاء 11:00-12:30" },
-    { code: "CS303", name: "هندسة البرمجيات", hours: 3, instructor: "د. محمد حسن", seats: 40, enrolled: 25, schedule: "أحد - ثلاثاء 2:00-3:30" },
-    { code: "MATH301", name: "رياضيات متقدمة", hours: 3, instructor: "د. نورا سعيد", seats: 50, enrolled: 45, schedule: "إثنين - أربعاء 9:00-10:30" },
-    { code: "ELEC301", name: "نظم مدمجة", hours: 3, instructor: "د. علي محمود", seats: 30, enrolled: 28, schedule: "خميس 9:00-12:00" },
-  ]
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/registration`)
+        if (!res.ok) throw new Error("فشل تحميل البيانات")
+        const json = await res.json()
+        if (!cancelled) {
+          setRegistrationPeriod(json.period ?? null)
+          setTerm(json.term ?? null)
+          setAvailableCourses(json.catalog ?? [])
+          setApiStats(json.stats ?? { registeredStudents: 0, offeredCourses: 0, averageHours: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const isOpen = registrationPeriod?.status === "open"
+
+  const filteredCourses = availableCourses.filter((c) =>
+    !searchQuery || c.name.includes(searchQuery) || c.code.includes(searchQuery)
+  )
 
   const stats = [
-    { label: "طلاب مسجلين", value: "1,850", icon: GraduationCap, color: "text-institute-blue" },
-    { label: "مقررات مطروحة", value: "156", icon: BookOpen, color: "text-institute-blue" },
-    { label: "متوسط الساعات", value: "15", icon: Clock, color: "text-institute-gold" },
+    { label: "طلاب مسجلين", value: apiStats.registeredStudents.toLocaleString("en-US"), icon: GraduationCap, color: "text-institute-blue" },
+    { label: "مقررات مطروحة", value: apiStats.offeredCourses.toLocaleString("en-US"), icon: BookOpen, color: "text-institute-blue" },
+    { label: "متوسط الساعات", value: apiStats.averageHours.toLocaleString("en-US"), icon: Clock, color: "text-institute-gold" },
   ]
 
   return (
@@ -42,35 +102,46 @@ export default function RegistrationPage() {
             <GraduationCap className="w-7 h-7 text-institute-blue" />
             تسجيل المقررات
           </h1>
-          <p className="text-muted-foreground">الفصل الدراسي الثاني 2024/2025</p>
+          <p className="text-muted-foreground">
+            {term ? `الفصل الدراسي ${SEMESTER_AR[term.semester] ?? term.semester} ${term.academicYear}` : "الفصل الدراسي"}
+          </p>
         </div>
         <Badge className={`text-lg px-4 py-2 ${
-          registrationPeriod.status === "open" ? "bg-institute-blue text-green-700" : "bg-red-100 text-red-700"
+          isOpen ? "bg-institute-blue text-green-700" : "bg-red-100 text-red-700"
         }`}>
-          {registrationPeriod.status === "open" ? "التسجيل مفتوح" : "التسجيل مغلق"}
+          {isOpen ? "التسجيل مفتوح" : "التسجيل مغلق"}
         </Badge>
       </div>
 
+      {loading && <p className="text-sm text-muted-foreground">جارٍ التحميل...</p>}
+      {error && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-4 text-red-700 text-sm">{error}</CardContent>
+        </Card>
+      )}
+
       {/* Registration Period */}
-      <Card className="bg-gradient-to-br from-institute-blue to-blue-600 text-white">
-        <CardContent className="p-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-bold">فترة التسجيل</h3>
-              <p className="text-white/80">
-                من {registrationPeriod.startDate} إلى {registrationPeriod.endDate}
-              </p>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="text-center">
-                <p className="text-3xl font-bold">{registrationPeriod.daysLeft}</p>
-                <p className="text-white/80 text-sm">يوم متبقي</p>
+      {registrationPeriod && (
+        <Card className="bg-gradient-to-br from-institute-blue to-blue-600 text-white">
+          <CardContent className="p-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold">فترة التسجيل</h3>
+                <p className="text-white/80">
+                  من {registrationPeriod.startDate} إلى {registrationPeriod.endDate}
+                </p>
               </div>
-              <Calendar className="w-12 h-12 text-white/50" />
+              <div className="flex items-center gap-4">
+                <div className="text-center">
+                  <p className="text-3xl font-bold">{registrationPeriod.daysLeft}</p>
+                  <p className="text-white/80 text-sm">يوم متبقي</p>
+                </div>
+                <Calendar className="w-12 h-12 text-white/50" />
+              </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
@@ -115,19 +186,22 @@ export default function RegistrationPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {availableCourses.map((course, index) => {
-              const seatPercentage = (course.enrolled / course.seats) * 100
+            {!loading && filteredCourses.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-6">لا توجد مقررات متاحة</p>
+            )}
+            {filteredCourses.map((course, index) => {
+              const seatPercentage = course.seats > 0 ? (course.enrolled / course.seats) * 100 : 0
               const isAlmostFull = seatPercentage >= 90
-              
+
               return (
                 <motion.div
-                  key={course.code}
+                  key={course.id}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.1 }}
                   className="flex items-center gap-4 p-4 rounded-lg border hover:bg-muted/50 transition-colors"
                 >
-                  <Checkbox id={course.code} />
+                  <Checkbox id={course.id} />
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <h4 className="font-medium">{course.name}</h4>

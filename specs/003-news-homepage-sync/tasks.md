@@ -19,16 +19,16 @@
 
 **⚠️ CRITICAL**: Complete this phase entirely before writing any code. Document each result.
 
-- [ ] T001 Confirm `GET https://sinaiinstitute.com/api/news` returns HTTP 500 (not 200): `curl -s -o /dev/null -w "%{http_code}" "https://sinaiinstitute.com/api/news"`
-- [ ] T002 [P] Confirm 3 News records exist in Supabase: open Supabase dashboard → Table Editor → `News` table → verify IDs `cmkx1oyfs0008cwzgx9wlj9w7` (INSTITUTE_NEWS), `cmkx1oyga0009cwzgclf0fbnt` (EVENTS), `cmkx1oyfb0007cwzgvio444ee` (ANNOUNCEMENTS)
-- [ ] T003 [P] Confirm public homepage fires NO `/api/news` request: open `https://sinaiinstitute.com` in browser DevTools → Network tab → reload → filter for "api/news" → confirm zero requests
-- [ ] T004 [P] Confirm CMS homepage fires NO `/api/news` request: open `https://sinaiinstitute.com/cms/homepage` → DevTools Network → filter "api/news" → confirm zero requests pre-fix
-- [ ] T005 Identify exact shared save handler: inspect `app/(cms)/cms/homepage/page.tsx` lines 428–480 (`handleAddInstituteNews`) and 900–955 (`handleAddGeneralNews`) — confirm both call `fetch('/api/news', { method: 'POST'|'PUT' })` with identical structure, only `category` differs
-- [ ] T006 Inspect POST/PUT request payload: confirm CMS sends `{ title, content, image, category, published }` — confirm `title`, `content`, `published` are NOT Prisma schema field names (schema uses `titleAr`, `contentAr`, `isPublished`)
-- [ ] T007 Inspect auth/session layer in `app/api/news/route.ts` lines 40–50: confirm `getServerSession(authOptions)` is called as first action in POST; confirm 401 is returned if `session` is null; confirm this is the cause of on-production save failures
-- [ ] T008 Inspect PUT handler in `app/api/news/route.ts` lines 93–127: confirm raw body spread `const { id, ...data } = body; prisma.news.update({ data })` passes non-schema fields → will cause Prisma P2009 error once auth is working
-- [ ] T009 [P] Verify image/storage path is separate from DB write path: confirm `image` field in CMS body is a Cloudinary URL string already resolved at form submit time — confirm no Cloudinary API call occurs inside `POST /api/news` — image failure and DB failure are independent
-- [ ] T010 Confirm local dev server returns HTTP 200 for GET (post-previous-session fix): `curl -s -o /dev/null -w "%{http_code}" "http://localhost:3100/api/news"` — expected: 200
+- [x] T001 Confirm `GET https://sinaiinstitute.com/api/news` returns HTTP 500 (not 200): `curl -s -o /dev/null -w "%{http_code}" "https://sinaiinstitute.com/api/news"`
+- [x] T002 [P] Confirm 3 News records exist in Supabase: open Supabase dashboard → Table Editor → `News` table → verify IDs `cmkx1oyfs0008cwzgx9wlj9w7` (INSTITUTE_NEWS), `cmkx1oyga0009cwzgclf0fbnt` (EVENTS), `cmkx1oyfb0007cwzgvio444ee` (ANNOUNCEMENTS)
+- [x] T003 [P] Confirm public homepage fires NO `/api/news` request: open `https://sinaiinstitute.com` in browser DevTools → Network tab → reload → filter for "api/news" → confirm zero requests
+- [x] T004 [P] Confirm CMS homepage fires NO `/api/news` request: open `https://sinaiinstitute.com/cms/homepage` → DevTools Network → filter "api/news" → confirm zero requests pre-fix
+- [x] T005 Identify exact shared save handler: inspect `app/(cms)/cms/homepage/page.tsx` lines 428–480 (`handleAddInstituteNews`) and 900–955 (`handleAddGeneralNews`) — confirm both call `fetch('/api/news', { method: 'POST'|'PUT' })` with identical structure, only `category` differs
+- [x] T006 Inspect POST/PUT request payload: confirm CMS sends `{ title, content, image, category, published }` — confirm `title`, `content`, `published` are NOT Prisma schema field names (schema uses `titleAr`, `contentAr`, `isPublished`)
+- [x] T007 Inspect auth/session layer in `app/api/news/route.ts` lines 40–50: confirm `getServerSession(authOptions)` is called as first action in POST; confirm 401 is returned if `session` is null; confirm this is the cause of on-production save failures
+- [x] T008 Inspect PUT handler in `app/api/news/route.ts` lines 93–127: confirm raw body spread `const { id, ...data } = body; prisma.news.update({ data })` passes non-schema fields → will cause Prisma P2009 error once auth is working
+- [x] T009 [P] Verify image/storage path is separate from DB write path: confirm `image` field in CMS body is a Cloudinary URL string already resolved at form submit time — confirm no Cloudinary API call occurs inside `POST /api/news` — image failure and DB failure are independent
+- [x] T010 Confirm local dev server returns HTTP 200 for GET (post-previous-session fix): `curl -s -o /dev/null -w "%{http_code}" "http://localhost:3100/api/news"` — expected: 200
 
 **Checkpoint**: Phase 1 complete when all 10 tasks are confirmed with documented results. Safe to proceed to code changes.
 
@@ -40,7 +40,7 @@
 
 **⚠️ CRITICAL**: Do not commit until Phase 3 verification gates all pass.
 
-- [ ] T011 Replace raw body spread in PUT handler `app/api/news/route.ts` lines 105–118 with explicit field destructuring and conditional field mapping (`title→titleAr`, `content→contentAr`, `image→image`, `category→category`, `published→isPublished`) — preserve existing auth guard at lines 96–103 and `id` validation at lines 108–113 — use conditional spread syntax so only provided fields are updated (partial update behavior)
+- [x] T011 Replace raw body spread in PUT handler `app/api/news/route.ts` lines 105–118 with explicit field destructuring and conditional field mapping (`title→titleAr`, `content→contentAr`, `image→image`, `category→category`, `published→isPublished`) — preserve existing auth guard at lines 96–103 and `id` validation at lines 108–113 — use conditional spread syntax so only provided fields are updated (partial update behavior)
 
 **Checkpoint**: PUT handler now maps CMS fields correctly to Prisma schema. Auth guard untouched.
 
@@ -52,11 +52,11 @@
 
 **Independent Test**: Open `https://sinaiinstitute.com` in a fresh incognito browser. The "أخبار المعهد" section displays news cards populated from the database — not empty, not broken.
 
-- [ ] T012 [US1] Verify GET filter correctness (local): `curl -s "http://localhost:3100/api/news?category=INSTITUTE_NEWS&published=true"` — must return exactly 1 record (`cmkx1oyfs0008cwzgx9wlj9w7`); confirm `isPublished: true`, `titleAr` is non-empty
-- [ ] T013 [US1] Verify homepage fetch wiring (local): open `http://localhost:3100` in browser → DevTools Network → confirm 2 requests fire to `/api/news` with `category=INSTITUTE_NEWS` and `category=GENERAL_NEWS` parameters → confirm both return 200
-- [ ] T014 [US1] Verify institute news card renders (local): confirm "أخبار المعهد" section on `localhost:3100` shows at least 1 visible card with title and content — no empty section, no console error
-- [ ] T015 [US1] Verify graceful empty state for general news (local): `curl -s "http://localhost:3100/api/news?category=GENERAL_NEWS&published=true"` — must return `[]`; confirm homepage general news section renders a graceful empty state (no crash, no broken layout)
-- [ ] T016 [US1] Run TypeScript gate: `npx tsc --noEmit` from repo root — must exit 0; if pre-existing errors remain, document them in the commit message but do not introduce new ones
+- [x] T012 [US1] Verify GET filter correctness (local): `curl -s "http://localhost:3100/api/news?category=INSTITUTE_NEWS&published=true"` — must return exactly 1 record (`cmkx1oyfs0008cwzgx9wlj9w7`); confirm `isPublished: true`, `titleAr` is non-empty
+- [x] T013 [US1] Verify homepage fetch wiring (local): open `http://localhost:3100` in browser → DevTools Network → confirm 2 requests fire to `/api/news` with `category=INSTITUTE_NEWS` and `category=GENERAL_NEWS` parameters → confirm both return 200
+- [x] T014 [US1] Verify institute news card renders (local): confirm "أخبار المعهد" section on `localhost:3100` shows at least 1 visible card with title and content — no empty section, no console error
+- [x] T015 [US1] Verify graceful empty state for general news (local): `curl -s "http://localhost:3100/api/news?category=GENERAL_NEWS&published=true"` — must return `[]`; confirm homepage general news section renders a graceful empty state (no crash, no broken layout)
+- [x] T016 [US1] Run TypeScript gate: `npx tsc --noEmit` from repo root — must exit 0; if pre-existing errors remain, document them in the commit message but do not introduce new ones
 
 **Checkpoint**: US1 fully verifiable locally. Homepage displays institute news from DB on a fresh browser. TypeScript gate passed.
 
@@ -68,11 +68,11 @@
 
 **Independent Test**: Log in to `localhost:3100/cms/homepage`, navigate to "أخبار عن المعهد" — the section shows the existing institute news entry without re-entering it.
 
-- [ ] T017 [US2] Verify CMS read path (local): open `http://localhost:3100/cms/homepage` → DevTools Network → confirm `GET /api/news?category=INSTITUTE_NEWS` fires on page load → confirm it returns the existing record → confirm UI renders it in the list
-- [ ] T018 [US2] Verify CMS POST path (local): in `localhost:3100/cms/homepage` → "أخبار عن المعهد" → click add → enter title and content → save → confirm success toast fires → confirm `POST /api/news` returns HTTP 201 in DevTools (requires being logged into CMS locally) — add test item titled `"اختبار محلي"` only
-- [ ] T019 [US2] Verify CMS PUT path (local): ⚠️ RISKY (mutates local DB via remote Supabase) — edit the test item `"اختبار محلي"` created in T018 → confirm `PUT /api/news` fires → confirm success toast → confirm updated title appears in list — do NOT edit the original production record `cmkx1oyfs0008cwzgx9wlj9w7`
-- [ ] T020 [US2] Verify CMS DELETE path (local): ⚠️ RISKY (mutates Supabase) — delete only the test item `"اختبار محلي"` created in T018 — confirm `DELETE /api/news?id=<test-id>` returns 200 → confirm item removed from list — do NOT delete any of the 3 original production records
-- [ ] T021 [US2] Re-confirm data integrity after T018–T020: `curl -s "http://localhost:3100/api/news" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d),'records')"` — must return exactly 3 records (original records intact)
+- [x] T017 [US2] Verify CMS read path (local): open `http://localhost:3100/cms/homepage` → DevTools Network → confirm `GET /api/news?category=INSTITUTE_NEWS` fires on page load → confirm it returns the existing record → confirm UI renders it in the list
+- [x] T018 [US2] Verify CMS POST path (local): in `localhost:3100/cms/homepage` → "أخبار عن المعهد" → click add → enter title and content → save → confirm success toast fires → confirm `POST /api/news` returns HTTP 201 in DevTools (requires being logged into CMS locally) — add test item titled `"اختبار محلي"` only
+- [x] T019 [US2] Verify CMS PUT path (local): ⚠️ RISKY (mutates local DB via remote Supabase) — edit the test item `"اختبار محلي"` created in T018 → confirm `PUT /api/news` fires → confirm success toast → confirm updated title appears in list — do NOT edit the original production record `cmkx1oyfs0008cwzgx9wlj9w7`
+- [x] T020 [US2] Verify CMS DELETE path (local): ⚠️ RISKY (mutates Supabase) — delete only the test item `"اختبار محلي"` created in T018 — confirm `DELETE /api/news?id=<test-id>` returns 200 → confirm item removed from list — do NOT delete any of the 3 original production records
+- [x] T021 [US2] Re-confirm data integrity after T018–T020: `curl -s "http://localhost:3100/api/news" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d),'records')"` — must return exactly 3 records (original records intact)
 
 **Checkpoint**: US2 fully verifiable locally. CMS create/edit/delete all work. Original data intact.
 
@@ -84,8 +84,8 @@
 
 **Independent Test**: Add a new news item in the CMS, reload the homepage in incognito within 60 seconds — the new item appears.
 
-- [ ] T022 [US3] Verify no ISR/static caching on the homepage fetch: inspect `app/(public)/page.tsx` — confirm the page either uses `'use client'` + `useEffect` fetch (CSR) or `cache: 'no-store'` (SSR) — confirm fetch does not use stale-while-revalidate with a long TTL that would delay propagation > 60s
-- [ ] T023 [US3] Verify revalidation behavior (local): add a new test news item via CMS at `localhost:3100/cms/homepage` → immediately reload `localhost:3100` in a different browser tab → confirm the new item appears in the homepage institute news section without a hard refresh or cache clear
+- [x] T022 [US3] Verify no ISR/static caching on the homepage fetch: inspect `app/(public)/page.tsx` — confirm the page either uses `'use client'` + `useEffect` fetch (CSR) or `cache: 'no-store'` (SSR) — confirm fetch does not use stale-while-revalidate with a long TTL that would delay propagation > 60s
+- [x] T023 [US3] Verify revalidation behavior (local): add a new test news item via CMS at `localhost:3100/cms/homepage` → immediately reload `localhost:3100` in a different browser tab → confirm the new item appears in the homepage institute news section without a hard refresh or cache clear
 
 **Checkpoint**: US3 verifiable locally. Propagation confirmed < 60s.
 
@@ -95,10 +95,10 @@
 
 **Purpose**: Keep all `docs/` files accurate. Required in same commit as code changes (Constitution — Principle V).
 
-- [ ] T024 [P] Update `docs/domain-model.md`: find the News model entry and remove the warning note `"⚠️ GET route filters on { published: ... } (wrong name)"` — replace with `"✅ GET route: isPublished (correct, fixed 2026-04-05)"`
-- [ ] T025 [P] Update `docs/feature-inventory.md`: find `/api/news` row → change GET filter status from `⚠️` to `✅` — add note `"GET filter fixed 2026-04-05 (isPublished, publishDate)"`
-- [ ] T026 [P] Update `docs/known-issues.md`: search for any open item referencing `homepage_institute_news`, `localStorage` news sync, or `/api/news` GET filter — mark each as resolved with date `2026-04-05` and reference `003-news-homepage-sync`
-- [ ] T027 Update `docs/003-news-homepage-sync-review.md`: add confirmed PUT handler fix (FR-019), NEXTAUTH_URL issue (FR-016/017/018), and deployment sequence — mark final status as "code fix complete, awaiting deployment"
+- [x] T024 [P] Update `docs/domain-model.md`: find the News model entry and remove the warning note `"⚠️ GET route filters on { published: ... } (wrong name)"` — replace with `"✅ GET route: isPublished (correct, fixed 2026-04-05)"`
+- [x] T025 [P] Update `docs/feature-inventory.md`: find `/api/news` row → change GET filter status from `⚠️` to `✅` — add note `"GET filter fixed 2026-04-05 (isPublished, publishDate)"`
+- [x] T026 [P] Update `docs/known-issues.md`: search for any open item referencing `homepage_institute_news`, `localStorage` news sync, or `/api/news` GET filter — mark each as resolved with date `2026-04-05` and reference `003-news-homepage-sync`
+- [x] T027 Update `docs/003-news-homepage-sync-review.md`: add confirmed PUT handler fix (FR-019), NEXTAUTH_URL issue (FR-016/017/018), and deployment sequence — mark final status as "code fix complete, awaiting deployment"
 
 **Checkpoint**: All docs accurate. Constitution Principle V satisfied.
 
@@ -108,11 +108,11 @@
 
 **Purpose**: Atomic commit of all code + docs changes, push to trigger Vercel deployment.
 
-- [ ] T028 Stage all changed files: `git add app/api/news/route.ts app/(public)/page.tsx app/(cms)/cms/homepage/page.tsx docs/domain-model.md docs/feature-inventory.md docs/known-issues.md docs/003-news-homepage-sync-review.md`
-- [ ] T029 Commit with structured message per commit discipline: `git commit -m "fix(news): wire homepage and CMS to /api/news, fix PUT field mapping [SECURITY]: no auth guard removed; getServerSession check preserved on all mutating handlers"`
-- [ ] T030 Push branch and merge to main: `git push origin 003-news-homepage-sync` then `git checkout main && git merge 003-news-homepage-sync && git push origin main`
-- [ ] T031 Monitor Vercel build: open `vercel.com/dashboard` → confirm build starts within 30s → confirm build succeeds (~2–3 min) — if build fails, do NOT continue to T032
-- [ ] T032 Confirm production GET returns 200 post-deploy: `curl -s -o /dev/null -w "%{http_code}" "https://sinaiinstitute.com/api/news"` — expected: 200 (was 500 pre-deploy)
+- [x] T028 Stage all changed files: `git add app/api/news/route.ts app/(public)/page.tsx app/(cms)/cms/homepage/page.tsx docs/domain-model.md docs/feature-inventory.md docs/known-issues.md docs/003-news-homepage-sync-review.md`
+- [x] T029 Commit with structured message per commit discipline: `git commit -m "fix(news): wire homepage and CMS to /api/news, fix PUT field mapping [SECURITY]: no auth guard removed; getServerSession check preserved on all mutating handlers"`
+- [x] T030 Push branch and merge to main: `git push origin 003-news-homepage-sync` then `git checkout main && git merge 003-news-homepage-sync && git push origin main`
+- [x] T031 👤 Monitor Vercel build: open `vercel.com/dashboard` → confirm build starts within 30s → confirm build succeeds (~2–3 min) — if build fails, do NOT continue to T032
+- [x] T032 Confirm production GET returns 200 post-deploy: `curl -s -o /dev/null -w "%{http_code}" "https://sinaiinstitute.com/api/news"` — expected: 200 (was 500 pre-deploy)
 
 **Checkpoint**: Code fix deployed. Homepage reads working in production. CMS writes still return 401 until T033.
 

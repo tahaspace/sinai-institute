@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import {
   Wallet,
@@ -9,8 +10,6 @@ import {
   Users,
   GraduationCap,
   AlertTriangle,
-  CheckCircle,
-  Clock,
   ArrowUpRight,
   ArrowDownRight,
   Receipt,
@@ -25,72 +24,134 @@ import {
 } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { Progress } from "@/components/ui/progress"
 
-// إحصائيات المعهد المالية
-const financialStats = {
-  totalRevenue: 18500000,
-  totalExpenses: 14200000,
-  netIncome: 4300000,
-  collectionRate: 83.5,
-  studentsCount: 2800,
-  paidStudents: 2338,
-  pendingAmount: 3052500,
+interface FinancialStats {
+  totalRevenue: number
+  totalExpenses: number
+  netIncome: number
+  collectionRate: number
+  studentsCount: number
+  paidStudents: number
+  pendingAmount: number
 }
 
-// إيرادات الأقسام
-const departmentRevenue = [
-  { name: "قسم الهندسة", students: 850, revenue: 6800000, rate: 85 },
-  { name: "قسم إدارة الأعمال", students: 720, revenue: 4320000, rate: 82 },
-  { name: "قسم الحاسبات", students: 680, revenue: 5440000, rate: 88 },
-  { name: "قسم المحاسبة", students: 550, revenue: 1940000, rate: 78 },
-]
+interface DepartmentRevenue {
+  name: string
+  students: number
+  revenue: number
+  rate: number
+}
 
-// آخر المعاملات
-const recentTransactions = [
-  {
-    id: 1,
-    type: "revenue",
-    description: "تحصيل رسوم - قسم الهندسة",
-    amount: 45000,
-    date: "2024-11-20",
-    status: "completed",
-  },
-  {
-    id: 2,
-    type: "expense",
-    description: "صيانة معامل الحاسب",
-    amount: 12500,
-    date: "2024-11-20",
-    status: "completed",
-  },
-  {
-    id: 3,
-    type: "revenue",
-    description: "تحصيل رسوم - قسم إدارة الأعمال",
-    amount: 28000,
-    date: "2024-11-19",
-    status: "completed",
-  },
-  {
-    id: 4,
-    type: "expense",
-    description: "رواتب الموظفين - نوفمبر",
-    amount: 850000,
-    date: "2024-11-25",
-    status: "pending",
-  },
-]
+interface Transaction {
+  id: string
+  type: string
+  description: string
+  amount: number
+  date: string
+  status: string
+}
+
+interface FinanceApiStats {
+  totalDues: number
+  collected: number
+  remaining: number
+  collectionRate: number
+  scholarshipsCount: number
+  scholarshipsTotal: number
+}
+
+interface FinanceApiTransaction {
+  id: string
+  student: string
+  type: string
+  amount: number
+  date: string
+  method: string
+}
+
+interface FinanceApiDepartment {
+  name: string
+  collected: number
+  total: number
+}
+
+interface FinanceApiResponse {
+  stats: FinanceApiStats
+  recentTransactions: FinanceApiTransaction[]
+  departmentCollection: FinanceApiDepartment[]
+}
+
+const emptyFinancialStats: FinancialStats = {
+  totalRevenue: 0,
+  totalExpenses: 0,
+  netIncome: 0,
+  collectionRate: 0,
+  studentsCount: 0,
+  paidStudents: 0,
+  pendingAmount: 0,
+}
 
 export default function InstituteAccountingDashboardPage() {
+  const [financialStats, setFinancialStats] = useState<FinancialStats>(emptyFinancialStats)
+  const [departmentRevenue, setDepartmentRevenue] = useState<DepartmentRevenue[]>([])
+  const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/finance`)
+        if (!res.ok) throw new Error("فشل في جلب البيانات المالية")
+        const json: FinanceApiResponse = await res.json()
+        if (cancelled) return
+
+        const s = json.stats
+        setFinancialStats({
+          totalRevenue: s?.collected ?? 0,
+          totalExpenses: 0,
+          netIncome: 0,
+          collectionRate: s?.collectionRate ?? 0,
+          studentsCount: 0,
+          paidStudents: 0,
+          pendingAmount: s?.remaining ?? 0,
+        })
+
+        setDepartmentRevenue(
+          (json.departmentCollection ?? []).map((d) => ({
+            name: d.name,
+            students: 0,
+            revenue: d.collected,
+            rate: d.total > 0 ? Math.round((d.collected / d.total) * 100) : 0,
+          }))
+        )
+
+        setRecentTransactions(
+          (json.recentTransactions ?? []).map((t) => ({
+            id: t.id,
+            type: t.type,
+            description: `${t.student} - ${t.method}`,
+            amount: t.amount,
+            date: t.date,
+            status: "completed",
+          }))
+        )
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("ar-EG", {
       style: "currency",
@@ -131,6 +192,19 @@ export default function InstituteAccountingDashboardPage() {
           </Button>
         </div>
       </div>
+
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">
+            جارٍ تحميل البيانات المالية...
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -1,7 +1,6 @@
 "use client"
 
-import { useState } from "react"
-import { motion } from "framer-motion"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -14,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { BookOpen, Search, Plus, Filter, Download, Building2 } from "lucide-react"
+import { BookOpen, Search, Plus, Download, Building2 } from "lucide-react"
 import {
   Select,
   SelectContent,
@@ -23,20 +22,61 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
+interface CourseRow {
+  id: string
+  code: string
+  name: string
+  nameEn: string
+  department: string
+  departmentId: string | null
+  creditHours: number
+  instructor: string
+  students: number
+  countsInGpa: boolean
+  requirementType: string
+  availableInSummer: boolean
+  gradeSplit: { midterm: number; final: number; practical: number; homework: number }
+}
+
 export default function CoursesPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [departmentFilter, setDepartmentFilter] = useState("all")
+  const [allCourses, setAllCourses] = useState<CourseRow[]>([])
+  const [apiStats, setApiStats] = useState<{ total: number; totalCreditHours: number }>({ total: 0, totalCreditHours: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const courses = [
-    { code: "MATH101", name: "الرياضيات (1)", department: "الهندسة", creditHours: 3, theoretical: 2, practical: 2, prerequisite: "-" },
-    { code: "CS101", name: "مقدمة في البرمجة", department: "الحاسبات", creditHours: 3, theoretical: 2, practical: 2, prerequisite: "-" },
-    { code: "CS201", name: "هياكل البيانات", department: "الحاسبات", creditHours: 3, theoretical: 2, practical: 2, prerequisite: "CS101" },
-    { code: "BUS101", name: "مبادئ الإدارة", department: "إدارة الأعمال", creditHours: 3, theoretical: 3, practical: 0, prerequisite: "-" },
-    { code: "ACC101", name: "مبادئ المحاسبة", department: "المحاسبة", creditHours: 3, theoretical: 2, practical: 2, prerequisite: "-" },
-    { code: "ENG101", name: "اللغة الإنجليزية", department: "اللغات", creditHours: 2, theoretical: 2, practical: 0, prerequisite: "-" },
-    { code: "MATH201", name: "الرياضيات (2)", department: "الهندسة", creditHours: 3, theoretical: 3, practical: 0, prerequisite: "MATH101" },
-    { code: "PHYS101", name: "الفيزياء", department: "الهندسة", creditHours: 3, theoretical: 2, practical: 2, prerequisite: "-" },
-  ]
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/courses`)
+        if (!res.ok) throw new Error("فشل في جلب المقررات")
+        const json = await res.json()
+        if (!cancelled) { setAllCourses(json.courses ?? []); setApiStats(json.stats ?? { total: 0, totalCreditHours: 0 }) }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const departmentLabels: Record<string, string> = {
+    engineering: "الهندسة",
+    cs: "الحاسبات",
+    business: "إدارة الأعمال",
+  }
+
+  const courses = allCourses.filter((c) => {
+    const matchesSearch = !searchQuery || c.name.includes(searchQuery) || c.code.includes(searchQuery)
+    const matchesDepartment = departmentFilter === "all" || c.department === departmentLabels[departmentFilter]
+    return matchesSearch && matchesDepartment
+  })
 
   return (
     <div className="space-y-6">
@@ -59,6 +99,9 @@ export default function CoursesPage() {
           </Button>
         </div>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل المقررات...</CardContent></Card>}
 
       <Card>
         <CardContent className="p-4">
@@ -91,7 +134,7 @@ export default function CoursesPage() {
       <Card>
         <CardHeader>
           <CardTitle>قائمة المقررات</CardTitle>
-          <CardDescription>إجمالي {courses.length} مقرر</CardDescription>
+          <CardDescription>إجمالي {apiStats.total} مقرر · {apiStats.totalCreditHours} ساعة معتمدة</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -101,14 +144,15 @@ export default function CoursesPage() {
                 <TableHead>اسم المقرر</TableHead>
                 <TableHead>القسم</TableHead>
                 <TableHead>الساعات</TableHead>
-                <TableHead>نظري</TableHead>
-                <TableHead>عملي</TableHead>
-                <TableHead>المتطلب السابق</TableHead>
+                <TableHead>يدخل في المعدل</TableHead>
+                <TableHead>النوع</TableHead>
+                <TableHead>الفصل الصيفي</TableHead>
+                <TableHead>تقسيم الدرجات (س/تحريري/عملي/أعمال)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {courses.map((course) => (
-                <TableRow key={course.code}>
+                <TableRow key={course.id}>
                   <TableCell className="font-mono font-bold">{course.code}</TableCell>
                   <TableCell className="font-medium">{course.name}</TableCell>
                   <TableCell>
@@ -117,9 +161,22 @@ export default function CoursesPage() {
                   <TableCell>
                     <Badge className="bg-institute-blue text-institute-blue">{course.creditHours}</Badge>
                   </TableCell>
-                  <TableCell>{course.theoretical}</TableCell>
-                  <TableCell>{course.practical}</TableCell>
-                  <TableCell className="text-muted-foreground">{course.prerequisite}</TableCell>
+                  <TableCell>
+                    {course.countsInGpa
+                      ? <Badge className="bg-green-100 text-green-700">✓ نعم</Badge>
+                      : <Badge className="bg-gray-100 text-gray-600">نجاح/رسوب</Badge>}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{course.requirementType === "elective" ? "اختياري" : "إجباري"}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    {course.availableInSummer
+                      ? <Badge className="bg-blue-100 text-blue-700">✓</Badge>
+                      : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="font-mono text-sm text-muted-foreground">
+                    {course.gradeSplit.homework}/{course.gradeSplit.final}/{course.gradeSplit.practical}/{course.gradeSplit.midterm}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

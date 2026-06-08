@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -11,8 +12,6 @@ import {
   GraduationCap,
   Building2,
   FileText,
-  TrendingUp,
-  TrendingDown,
   Calendar,
   Clock,
   BookOpen,
@@ -22,76 +21,122 @@ import {
   UserPlus,
   Wallet,
   BarChart3,
-  PieChart,
 } from "lucide-react"
 
+interface DashboardStats {
+  students: number
+  instructors: number
+  departments: number
+  courses: number
+}
+
+interface DepartmentRow {
+  id: string
+  name: string
+  students: number
+  faculty: number
+}
+
+interface UpcomingEvent {
+  id: string
+  title: string
+  date: string
+  type: "exam"
+}
+
+interface AcademicAlert {
+  id: string
+  student: string
+  type: string
+  gpa: number | null
+  department: string
+}
+
+interface TermStats {
+  enrolledStudents: number
+  offeredCourses: number
+  passRate: number
+  collectionRate: number
+}
+
+interface TermInfo {
+  label: string
+  studyWeek: string | null
+}
+
 export default function InstituteDashboard() {
-  // إحصائيات المعهد
-  const stats = [
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [departments, setDepartments] = useState<DepartmentRow[]>([])
+  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([])
+  const [academicAlerts, setAcademicAlerts] = useState<AcademicAlert[]>([])
+  const [termStats, setTermStats] = useState<TermStats | null>(null)
+  const [term, setTerm] = useState<TermInfo | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/dashboard")
+        if (!res.ok) throw new Error("فشل تحميل البيانات")
+        const json = await res.json()
+        if (!cancelled) {
+          setStats(json.stats ?? null)
+          setDepartments(json.departments ?? [])
+          setUpcomingEvents(json.upcomingEvents ?? [])
+          setAcademicAlerts(json.academicAlerts ?? [])
+          setTermStats(json.termStats ?? null)
+          setTerm(json.term ?? null)
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // KPI cards — values come from the API; presentation (icon/colors) stays here.
+  const statCards = [
     {
       title: "إجمالي الطلاب",
-      value: "2,548",
-      change: "+12%",
-      trend: "up",
+      value: stats?.students ?? 0,
       icon: Users,
       color: "text-institute-blue",
       bgColor: "bg-gradient-to-br from-institute-blue/10 to-institute-blue/20 dark:bg-institute-blue/20",
     },
     {
       title: "أعضاء هيئة التدريس",
-      value: "124",
-      change: "+3",
-      trend: "up",
+      value: stats?.instructors ?? 0,
       icon: GraduationCap,
       color: "text-institute-gold",
       bgColor: "bg-gradient-to-br from-institute-gold/10 to-institute-gold/20 dark:bg-institute-gold/20",
     },
     {
       title: "الأقسام العلمية",
-      value: "8",
-      change: "0",
-      trend: "stable",
+      value: stats?.departments ?? 0,
       icon: Building2,
       color: "text-institute-blue",
       bgColor: "bg-gradient-to-br from-institute-blue/20 to-institute-gold/10 dark:bg-institute-blue/30",
     },
     {
       title: "المقررات النشطة",
-      value: "156",
-      change: "+8",
-      trend: "up",
+      value: stats?.courses ?? 0,
       icon: BookOpen,
       color: "text-institute-gold",
       bgColor: "bg-gradient-to-br from-institute-gold/20 to-institute-blue/10 dark:bg-institute-gold/30",
     },
   ]
 
-  // الأقسام العلمية
-  const departments = [
-    { name: "قسم الهندسة", students: 520, faculty: 25, color: "bg-institute-blue" },
-    { name: "قسم الحاسبات", students: 480, faculty: 22, color: "bg-institute-gold" },
-    { name: "قسم إدارة الأعمال", students: 420, faculty: 18, color: "bg-institute-blue" },
-    { name: "قسم المحاسبة", students: 380, faculty: 16, color: "bg-institute-gold" },
-    { name: "قسم السياحة", students: 250, faculty: 12, color: "bg-institute-blue" },
-    { name: "قسم الإعلام", students: 220, faculty: 14, color: "bg-institute-gold" },
-    { name: "قسم اللغات", students: 180, faculty: 10, color: "bg-institute-blue" },
-    { name: "قسم الخدمة الاجتماعية", students: 98, faculty: 7, color: "bg-institute-gold" },
-  ]
-
-  // الأحداث القادمة
-  const upcomingEvents = [
-    { title: "بدء امتحانات نصف الفصل", date: "15 يناير 2025", type: "exam" },
-    { title: "آخر موعد لتسجيل المقررات", date: "20 يناير 2025", type: "registration" },
-    { title: "اجتماع مجلس المعهد", date: "25 يناير 2025", type: "meeting" },
-    { title: "ورشة عمل أكاديمية", date: "1 فبراير 2025", type: "workshop" },
-  ]
-
-  // الإنذارات الأكاديمية
-  const academicAlerts = [
-    { student: "أحمد محمود", type: "إنذار أول", gpa: "1.8", department: "الهندسة" },
-    { student: "سارة أحمد", type: "إنذار ثاني", gpa: "1.5", department: "الحاسبات" },
-    { student: "محمد علي", type: "إنذار أول", gpa: "1.9", department: "إدارة الأعمال" },
-  ]
+  // Progress-bar denominator: largest department headcount in the response.
+  const maxDeptStudents = Math.max(1, ...departments.map((d) => d.students))
 
   return (
     <div className="space-y-6">
@@ -108,18 +153,31 @@ export default function InstituteDashboard() {
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="gap-1 border-institute-blue text-institute-blue">
             <Calendar className="w-3 h-3" />
-            الفصل الدراسي الأول 2024/2025
+            {term?.label ?? "الفصل الدراسي الحالي"}
           </Badge>
-          <Badge className="gap-1 bg-institute-gold text-white hover:bg-institute-gold/90">
-            <Clock className="w-3 h-3" />
-            الأسبوع الدراسي: 12
-          </Badge>
+          {term?.studyWeek && (
+            <Badge className="gap-1 bg-institute-gold text-white hover:bg-institute-gold/90">
+              <Clock className="w-3 h-3" />
+              الأسبوع الدراسي: {term.studyWeek}
+            </Badge>
+          )}
         </div>
       </div>
 
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ التحميل...</CardContent>
+        </Card>
+      )}
+
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {stats.map((stat, index) => (
+        {statCards.map((stat, index) => (
           <motion.div
             key={stat.title}
             initial={{ opacity: 0, y: 20 }}
@@ -132,16 +190,9 @@ export default function InstituteDashboard() {
                   <div className={`w-12 h-12 rounded-xl ${stat.bgColor} flex items-center justify-center`}>
                     <stat.icon className={`w-6 h-6 ${stat.color}`} />
                   </div>
-                  <div className={`flex items-center gap-1 text-sm ${
-                    stat.trend === "up" ? "text-institute-blue" : stat.trend === "down" ? "text-red-600" : "text-gray-600"
-                  }`}>
-                    {stat.trend === "up" && <TrendingUp className="w-4 h-4" />}
-                    {stat.trend === "down" && <TrendingDown className="w-4 h-4" />}
-                    {stat.change}
-                  </div>
                 </div>
                 <div className="mt-3">
-                  <p className="text-2xl font-bold">{stat.value}</p>
+                  <p className="text-2xl font-bold">{stat.value.toLocaleString("ar-EG")}</p>
                   <p className="text-sm text-muted-foreground">{stat.title}</p>
                 </div>
               </CardContent>
@@ -164,13 +215,13 @@ export default function InstituteDashboard() {
             <div className="space-y-4">
               {departments.map((dept, index) => (
                 <motion.div
-                  key={dept.name}
+                  key={dept.id}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.05 }}
                   className="flex items-center gap-4"
                 >
-                  <div className={`w-3 h-3 rounded-full ${dept.color}`} />
+                  <div className={`w-3 h-3 rounded-full ${index % 2 === 0 ? "bg-institute-blue" : "bg-institute-gold"}`} />
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-medium text-sm">{dept.name}</span>
@@ -178,10 +229,13 @@ export default function InstituteDashboard() {
                         {dept.students} طالب | {dept.faculty} عضو
                       </span>
                     </div>
-                    <Progress value={(dept.students / 520) * 100} className="h-2" />
+                    <Progress value={(dept.students / maxDeptStudents) * 100} className="h-2" />
                   </div>
                 </motion.div>
               ))}
+              {!loading && departments.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">لا توجد أقسام</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -196,24 +250,15 @@ export default function InstituteDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {upcomingEvents.map((event, index) => (
+              {upcomingEvents.map((event) => (
                 <motion.div
-                  key={index}
+                  key={event.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
                   className="flex items-start gap-3 p-3 rounded-lg bg-muted/50"
                 >
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                    event.type === "exam" ? "bg-red-100 text-red-600 dark:bg-red-900/30" :
-                    event.type === "registration" ? "bg-institute-blue/10 text-institute-blue" :
-                    event.type === "meeting" ? "bg-institute-gold/10 text-institute-gold" :
-                    "bg-institute-blue text-institute-blue dark:bg-institute-blue/30"
-                  }`}>
-                    {event.type === "exam" ? <FileText className="w-4 h-4" /> :
-                     event.type === "registration" ? <UserPlus className="w-4 h-4" /> :
-                     event.type === "meeting" ? <Users className="w-4 h-4" /> :
-                     <BookOpen className="w-4 h-4" />}
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center bg-red-100 text-red-600 dark:bg-red-900/30">
+                    <FileText className="w-4 h-4" />
                   </div>
                   <div>
                     <p className="font-medium text-sm">{event.title}</p>
@@ -221,6 +266,9 @@ export default function InstituteDashboard() {
                   </div>
                 </motion.div>
               ))}
+              {!loading && upcomingEvents.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">لا توجد امتحانات قادمة</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -238,8 +286,8 @@ export default function InstituteDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {academicAlerts.map((alert, index) => (
-                <div key={index} className="flex items-center justify-between p-3 rounded-lg border">
+              {academicAlerts.map((alert) => (
+                <div key={alert.id} className="flex items-center justify-between p-3 rounded-lg border">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-institute-gold/20 to-red-100 flex items-center justify-center">
                       <AlertTriangle className="w-5 h-5 text-institute-gold" />
@@ -253,10 +301,15 @@ export default function InstituteDashboard() {
                     <Badge variant={alert.type === "إنذار ثاني" ? "destructive" : "secondary"}>
                       {alert.type}
                     </Badge>
-                    <p className="text-sm text-muted-foreground mt-1">GPA: {alert.gpa}</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      GPA: {alert.gpa !== null ? alert.gpa.toFixed(2) : "—"}
+                    </p>
                   </div>
                 </div>
               ))}
+              {!loading && academicAlerts.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">لا توجد إنذارات نشطة</p>
+              )}
             </div>
             <Button variant="outline" className="w-full mt-4" asChild>
               <Link href="/institute/students/warnings">عرض جميع الإنذارات</Link>
@@ -276,22 +329,26 @@ export default function InstituteDashboard() {
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 rounded-lg bg-gradient-to-br from-institute-blue/10 to-institute-blue/5 dark:bg-institute-blue/20 text-center border border-institute-blue/20">
                 <CheckCircle className="w-8 h-8 text-institute-blue mx-auto mb-2" />
-                <p className="text-2xl font-bold text-institute-blue">2,180</p>
+                <p className="text-2xl font-bold text-institute-blue">
+                  {(termStats?.enrolledStudents ?? 0).toLocaleString("ar-EG")}
+                </p>
                 <p className="text-sm text-muted-foreground">طالب مسجل</p>
               </div>
               <div className="p-4 rounded-lg bg-gradient-to-br from-institute-gold/10 to-institute-gold/5 dark:bg-institute-gold/20 text-center border border-institute-gold/20">
                 <FileText className="w-8 h-8 text-institute-gold mx-auto mb-2" />
-                <p className="text-2xl font-bold text-institute-gold">156</p>
+                <p className="text-2xl font-bold text-institute-gold">
+                  {(termStats?.offeredCourses ?? 0).toLocaleString("ar-EG")}
+                </p>
                 <p className="text-sm text-muted-foreground">مقرر مطروح</p>
               </div>
               <div className="p-4 rounded-lg bg-gradient-to-br from-institute-blue/10 to-institute-gold/10 dark:bg-institute-blue/20 text-center border border-institute-blue/20">
                 <Award className="w-8 h-8 text-institute-blue mx-auto mb-2" />
-                <p className="text-2xl font-bold text-institute-blue">89%</p>
+                <p className="text-2xl font-bold text-institute-blue">{termStats?.passRate ?? 0}%</p>
                 <p className="text-sm text-muted-foreground">نسبة النجاح</p>
               </div>
               <div className="p-4 rounded-lg bg-gradient-to-br from-institute-gold/10 to-institute-blue/10 dark:bg-institute-gold/20 text-center border border-institute-gold/20">
                 <Wallet className="w-8 h-8 text-institute-gold mx-auto mb-2" />
-                <p className="text-2xl font-bold text-institute-gold">92%</p>
+                <p className="text-2xl font-bold text-institute-gold">{termStats?.collectionRate ?? 0}%</p>
                 <p className="text-sm text-muted-foreground">نسبة التحصيل</p>
               </div>
             </div>

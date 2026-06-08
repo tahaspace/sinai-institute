@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import {
@@ -12,19 +12,14 @@ import {
   Settings,
   CheckCircle2,
   AlertCircle,
-  Plus,
   Trash2,
-  GripVertical,
   Search,
   Filter,
   Eye,
   Shuffle,
   Lock,
-  Unlock,
   Timer,
   RotateCcw,
-  Save,
-  ArrowLeft,
   ArrowRight,
   ListChecks,
   CheckSquare,
@@ -62,14 +57,14 @@ import {
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 
-// Mock Data
-const courses = [
-  { id: "CS101", code: "CS101", name: "مقدمة في البرمجة" },
-  { id: "CS201", code: "CS201", name: "هياكل البيانات" },
-  { id: "CS301", code: "CS301", name: "قواعد البيانات" },
-  { id: "NET101", code: "NET101", name: "شبكات الحاسب" },
-  { id: "ACC101", code: "ACC101", name: "مبادئ المحاسبة" },
-]
+// Course shape from GET /api/institute/courses
+interface Course {
+  id: string
+  code: string
+  name: string
+  creditHours?: number
+  students?: number
+}
 
 const semesters = [
   { id: "fall2024", name: "الفصل الأول 2024/2025" },
@@ -173,7 +168,39 @@ const difficultyNames: Record<string, string> = {
 export default function CreateOnlineExamPage() {
   const router = useRouter()
   const [currentStep, setCurrentStep] = useState(1)
-  
+
+  // Courses loaded from the API (replaces the former hardcoded list)
+  const [courses, setCourses] = useState<Course[]>([])
+  const [coursesLoading, setCoursesLoading] = useState(true)
+  const [coursesError, setCoursesError] = useState<string | null>(null)
+
+  // Final create-exam request state
+  const [saving, setSaving] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submitSuccess, setSubmitSuccess] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadCourses() {
+      setCoursesLoading(true)
+      setCoursesError(null)
+      try {
+        const res = await fetch("/api/institute/courses")
+        if (!res.ok) throw new Error("فشل في جلب المقررات")
+        const json = await res.json()
+        if (!cancelled) setCourses(json.courses ?? [])
+      } catch (e) {
+        if (!cancelled) setCoursesError((e as Error).message)
+      } finally {
+        if (!cancelled) setCoursesLoading(false)
+      }
+    }
+    loadCourses()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Form State
   const [examData, setExamData] = useState({
     // Step 1: Basic Info
@@ -274,9 +301,34 @@ export default function CreateOnlineExamPage() {
     }
   }
 
-  const handleSubmit = () => {
-    console.log("Exam Data:", examData)
-    router.push("/institute/online-exams")
+  const handleSubmit = async () => {
+    setSaving(true)
+    setSubmitError(null)
+    try {
+      const res = await fetch("/api/institute/exams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseId: examData.courseCode,
+          title: examData.name,
+          examType: "online",
+          date: examData.startDate,
+          startTime: examData.startTime,
+          durationMins: examData.duration,
+          hall: null,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || "فشل في نشر الامتحان")
+      }
+      setSubmitSuccess(true)
+      router.push("/institute/online-exams")
+    } catch (e) {
+      setSubmitError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -389,16 +441,19 @@ export default function CreateOnlineExamPage() {
                   >
                     <SelectTrigger>
                       <BookOpen className="w-4 h-4 ml-2" />
-                      <SelectValue placeholder="اختر المقرر" />
+                      <SelectValue placeholder={coursesLoading ? "جاري التحميل..." : "اختر المقرر"} />
                     </SelectTrigger>
                     <SelectContent>
                       {courses.map(course => (
-                        <SelectItem key={course.id} value={course.code}>
+                        <SelectItem key={course.id} value={course.id}>
                           {course.code} - {course.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {coursesError && (
+                    <p className="text-xs text-red-600">{coursesError}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -923,7 +978,7 @@ export default function CreateOnlineExamPage() {
                   <h4 className="font-medium">المعلومات الأساسية</h4>
                   <div className="p-4 rounded-lg bg-muted/50 space-y-2">
                     <p><span className="text-muted-foreground">الاسم:</span> {examData.name}</p>
-                    <p><span className="text-muted-foreground">المقرر:</span> {courses.find(c => c.code === examData.courseCode)?.name}</p>
+                    <p><span className="text-muted-foreground">المقرر:</span> {courses.find(c => c.id === examData.courseCode)?.name}</p>
                     <p><span className="text-muted-foreground">الفصل:</span> {semesters.find(s => s.id === examData.semester)?.name}</p>
                     <p><span className="text-muted-foreground">الشعبة:</span> {sections.find(s => s.id === examData.section)?.name}</p>
                   </div>
@@ -968,6 +1023,20 @@ export default function CreateOnlineExamPage() {
                   بعد النشر، سيتمكن الطلاب من رؤية الامتحان في بوابتهم والدخول إليه في الموعد المحدد.
                 </AlertDescription>
               </Alert>
+
+              {submitError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{submitError}</AlertDescription>
+                </Alert>
+              )}
+
+              {submitSuccess && (
+                <Alert className="bg-green-50 border-green-200">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <AlertDescription>تم نشر الامتحان بنجاح. جاري التحويل...</AlertDescription>
+                </Alert>
+              )}
             </CardContent>
           </Card>
         )}
@@ -994,12 +1063,13 @@ export default function CreateOnlineExamPage() {
             <ChevronLeft className="w-4 h-4 mr-2" />
           </Button>
         ) : (
-          <Button 
+          <Button
             onClick={handleSubmit}
+            disabled={saving || submitSuccess}
             className="bg-institute-blue hover:bg-institute-blue"
           >
             <CheckCircle2 className="w-4 h-4 ml-2" />
-            نشر الامتحان
+            {saving ? "جاري النشر..." : "نشر الامتحان"}
           </Button>
         )}
       </div>

@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -7,20 +8,66 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { BarChart3, Download, FileText, TrendingUp, Wallet, PieChart } from "lucide-react"
 
+interface ReportStats {
+  totalDues: number
+  collected: number
+  remaining: number
+  collectionRate: number
+}
+
+interface MonthlyData {
+  month: string
+  collected: number
+}
+
+interface ReportType {
+  name: string
+  type: string
+  href: string
+  dataAsOf: string | null
+}
+
 export default function FinanceReportsPage() {
-  const reports = [
-    { name: "تقرير التحصيل الشهري", type: "شهري", lastGenerated: "2024-12-28", status: "ready" },
-    { name: "تقرير المتأخرات", type: "أسبوعي", lastGenerated: "2024-12-25", status: "ready" },
-    { name: "تقرير المنح والإعفاءات", type: "فصلي", lastGenerated: "2024-12-01", status: "ready" },
-    { name: "التقرير المالي الشامل", type: "سنوي", lastGenerated: "2024-12-31", status: "pending" },
+  const [stats, setStats] = useState<ReportStats | null>(null)
+  const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([])
+  const [reports, setReports] = useState<ReportType[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/finance/reports`)
+        if (!res.ok) throw new Error("فشل تحميل البيانات")
+        const json = await res.json()
+        if (!cancelled) {
+          setStats(json.stats ?? null)
+          setMonthlyData(json.monthly ?? [])
+          setReports(json.reportTypes ?? [])
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const summaryCards = [
+    { label: "إجمالي الإيرادات", value: `${((stats?.totalDues ?? 0) / 1000000).toFixed(1)}M`, color: "text-institute-blue", icon: TrendingUp },
+    { label: "المحصل", value: `${((stats?.collected ?? 0) / 1000000).toFixed(1)}M`, color: "text-institute-blue", icon: Wallet },
+    { label: "المتبقي", value: `${((stats?.remaining ?? 0) / 1000000).toFixed(1)}M`, color: "text-red-600", icon: PieChart },
+    { label: "نسبة التحصيل", value: `${stats?.collectionRate ?? 0}%`, color: "text-institute-gold", icon: BarChart3 },
   ]
 
-  const monthlyData = [
-    { month: "سبتمبر", collected: 2500000, target: 3000000 },
-    { month: "أكتوبر", collected: 2800000, target: 3000000 },
-    { month: "نوفمبر", collected: 3200000, target: 3000000 },
-    { month: "ديسمبر", collected: 2700000, target: 3000000 },
-  ]
+  // No schema-backed monthly target exists; scale each month's bar against the
+  // highest-collected month so the chart is honest rather than fabricated.
+  const maxCollected = monthlyData.reduce((m, d) => Math.max(m, d.collected), 0)
 
   return (
     <div className="space-y-6">
@@ -38,14 +85,12 @@ export default function FinanceReportsPage() {
         </Button>
       </div>
 
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ التحميل...</CardContent></Card>}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: "إجمالي الإيرادات", value: "12.5M", color: "text-institute-blue", icon: TrendingUp },
-          { label: "المحصل", value: "11.2M", color: "text-institute-blue", icon: Wallet },
-          { label: "المتأخرات", value: "1.3M", color: "text-red-600", icon: PieChart },
-          { label: "نسبة التحصيل", value: "92%", color: "text-institute-gold", icon: BarChart3 },
-        ].map((stat, index) => (
+        {summaryCards.map((stat, index) => (
           <motion.div
             key={index}
             initial={{ opacity: 0, y: 20 }}
@@ -72,12 +117,12 @@ export default function FinanceReportsPage() {
         <Card>
           <CardHeader>
             <CardTitle>التحصيل الشهري</CardTitle>
-            <CardDescription>مقارنة التحصيل الفعلي بالمستهدف</CardDescription>
+            <CardDescription>إجمالي المحصل في كل شهر</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {monthlyData.map((data, index) => {
-                const percentage = (data.collected / data.target) * 100
+                const percentage = maxCollected > 0 ? (data.collected / maxCollected) * 100 : 0
                 return (
                   <motion.div
                     key={index}
@@ -88,21 +133,21 @@ export default function FinanceReportsPage() {
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-medium">{data.month}</span>
                       <span className="text-sm text-muted-foreground">
-                        {(data.collected / 1000000).toFixed(1)}M / {(data.target / 1000000).toFixed(1)}M
+                        {(data.collected / 1000000).toFixed(1)}M
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Progress 
-                        value={percentage > 100 ? 100 : percentage} 
-                        className={`h-2 flex-1 ${percentage >= 100 ? "[&>div]:bg-institute-blue" : "[&>div]:bg-yellow-500"}`}
+                      <Progress
+                        value={percentage}
+                        className="h-2 flex-1 [&>div]:bg-institute-blue"
                       />
-                      <span className={`text-sm font-bold ${percentage >= 100 ? "text-institute-blue" : "text-yellow-600"}`}>
-                        {percentage.toFixed(0)}%
-                      </span>
                     </div>
                   </motion.div>
                 )
               })}
+              {!loading && monthlyData.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">لا توجد بيانات تحصيل</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -131,13 +176,15 @@ export default function FinanceReportsPage() {
                       <h4 className="font-medium">{report.name}</h4>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Badge variant="outline">{report.type}</Badge>
-                        <span>{report.lastGenerated}</span>
+                        {report.dataAsOf && <span>محدّث حتى {report.dataAsOf}</span>}
                       </div>
                     </div>
                   </div>
-                  <Button variant="outline" size="sm" disabled={report.status !== "ready"}>
-                    <Download className="w-4 h-4 ml-1" />
-                    تحميل
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={report.href} target="_blank" rel="noopener noreferrer">
+                      <Download className="w-4 h-4 ml-1" />
+                      تحميل
+                    </a>
                   </Button>
                 </motion.div>
               ))}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -12,16 +12,79 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { CreditCard, Search, Plus, Receipt, User, Wallet } from "lucide-react"
+import { CreditCard, Plus, Receipt, User, Wallet } from "lucide-react"
+
+interface PaymentRow {
+  id: string
+  student: string
+  studentCode: string
+  amount: number
+  method: string
+  receipt: string
+  status: "paid" | "pending" | "overdue"
+  date: string
+}
+
+interface CollectionStats {
+  totalPayments: number
+  collected: number
+  pending: number
+  collectedToday: number
+}
 
 export default function CollectionPage() {
   const [studentId, setStudentId] = useState("")
+  const [allPayments, setAllPayments] = useState<PaymentRow[]>([])
+  const [stats, setStats] = useState<CollectionStats>({
+    totalPayments: 0,
+    collected: 0,
+    pending: 0,
+    collectedToday: 0,
+  })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const recentPayments = [
-    { id: 1, student: "أحمد محمد", amount: 15000, method: "بطاقة", date: "2024-12-28", receipt: "RCP001" },
-    { id: 2, student: "سارة علي", amount: 20000, method: "تحويل", date: "2024-12-27", receipt: "RCP002" },
-    { id: 3, student: "محمد حسن", amount: 5000, method: "نقدي", date: "2024-12-27", receipt: "RCP003" },
-  ]
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/finance/collection`)
+        if (!res.ok) throw new Error("فشل في جلب التحصيل")
+        const json = await res.json()
+        if (!cancelled) {
+          setAllPayments(json.recentPayments ?? [])
+          setStats(
+            json.stats ?? { totalPayments: 0, collected: 0, pending: 0, collectedToday: 0 }
+          )
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const recentPayments = allPayments
+
+  const getStatusBadge = (status: PaymentRow["status"]) => {
+    switch (status) {
+      case "paid":
+        return <Badge className="bg-green-100 text-green-700">مدفوع</Badge>
+      case "pending":
+        return <Badge className="bg-yellow-100 text-yellow-700">معلق</Badge>
+      case "overdue":
+        return <Badge className="bg-red-100 text-red-700">متأخر</Badge>
+      default:
+        return <Badge variant="secondary">{status}</Badge>
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -33,6 +96,57 @@ export default function CollectionPage() {
           </h1>
           <p className="text-muted-foreground">تسجيل المدفوعات وإصدار الإيصالات</p>
         </div>
+      </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل التحصيل...</CardContent></Card>}
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+              <Receipt className="w-5 h-5 text-institute-blue" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{stats.totalPayments}</p>
+              <p className="text-xs text-muted-foreground">إجمالي المدفوعات</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+              <Wallet className="w-5 h-5 text-institute-blue" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{stats.collected.toLocaleString()} ج.م</p>
+              <p className="text-xs text-muted-foreground">المحصّل</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+              <CreditCard className="w-5 h-5 text-institute-gold" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{stats.pending.toLocaleString()} ج.م</p>
+              <p className="text-xs text-muted-foreground">المعلّق</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+              <User className="w-5 h-5 text-institute-blue" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{stats.collectedToday.toLocaleString()} ج.م</p>
+              <p className="text-xs text-muted-foreground">محصّل اليوم</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* New Payment */}
@@ -111,9 +225,12 @@ export default function CollectionPage() {
                   <div>
                     <p className="font-medium">{payment.student}</p>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <span>{payment.studentCode}</span>
+                      <span>•</span>
                       <Badge variant="outline">{payment.method}</Badge>
                       <span>•</span>
                       <span>{payment.date}</span>
+                      {getStatusBadge(payment.status)}
                     </div>
                   </div>
                 </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
   Video,
@@ -11,16 +11,9 @@ import {
   Calendar,
   Settings,
   MoreVertical,
-  Monitor,
-  Mic,
-  MicOff,
-  VideoOff,
   Share2,
-  MessageSquare,
-  Hand,
-  Grid,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -42,67 +35,22 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-// Virtual Classes
-const virtualClasses = [
-  {
-    id: 1,
-    title: "مراجعة الرياضيات",
-    class: "3/1",
-    date: "2024-12-25",
-    time: "14:00",
-    duration: "60 دقيقة",
-    students: 35,
-    status: "live",
-    platform: "zoom",
-  },
-  {
-    id: 2,
-    title: "شرح الفيزياء - قوانين نيوتن",
-    class: "3/2",
-    date: "2024-12-25",
-    time: "15:30",
-    duration: "45 دقيقة",
-    students: 32,
-    status: "upcoming",
-    platform: "teams",
-  },
-  {
-    id: 3,
-    title: "حصة اللغة الإنجليزية",
-    class: "2/1",
-    date: "2024-12-25",
-    time: "16:30",
-    duration: "45 دقيقة",
-    students: 30,
-    status: "scheduled",
-    platform: "meet",
-  },
-  {
-    id: 4,
-    title: "مراجعة الكيمياء",
-    class: "3/3",
-    date: "2024-12-24",
-    time: "14:00",
-    duration: "60 دقيقة",
-    students: 28,
-    status: "completed",
-    platform: "zoom",
-    recording: true,
-  },
-]
-
-// Recordings
-const recordings = [
-  { id: 1, title: "مراجعة الكيمياء - 24 ديسمبر", duration: "58:30", views: 45, date: "2024-12-24" },
-  { id: 2, title: "شرح التفاضل - 23 ديسمبر", duration: "45:20", views: 89, date: "2024-12-23" },
-  { id: 3, title: "اللغة الإنجليزية - 22 ديسمبر", duration: "42:15", views: 56, date: "2024-12-22" },
-]
+interface VirtualClass {
+  id: string
+  title: string
+  date: string
+  time: string
+  durationMins: number
+  platform: "zoom" | "teams" | "meet"
+  status: "live" | "upcoming" | "scheduled" | "ended"
+  recordingUrl: string | null
+}
 
 const statusConfig = {
   live: { label: "مباشر الآن", color: "bg-red-500", textColor: "text-red-600" },
   upcoming: { label: "قريباً", color: "bg-orange-500", textColor: "text-orange-600" },
   scheduled: { label: "مجدول", color: "bg-blue-500", textColor: "text-blue-600" },
-  completed: { label: "مكتمل", color: "bg-green-500", textColor: "text-green-600" },
+  ended: { label: "مكتمل", color: "bg-green-500", textColor: "text-green-600" },
 }
 
 const platformIcon = {
@@ -113,6 +61,42 @@ const platformIcon = {
 
 export default function VirtualClassesPage() {
   const [showNewForm, setShowNewForm] = useState(false)
+  const [virtualClasses, setVirtualClasses] = useState<VirtualClass[]>([])
+  const [recordings, setRecordings] = useState<VirtualClass[]>([])
+  const [apiStats, setApiStats] = useState<{ total: number; live: number; upcoming: number; ended: number }>({
+    total: 0,
+    live: 0,
+    upcoming: 0,
+    ended: 0,
+  })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/lms/virtual-classes`)
+        if (!res.ok) throw new Error("فشل في جلب الفصول الافتراضية")
+        const json = await res.json()
+        if (!cancelled) {
+          setVirtualClasses(json.virtualClasses ?? [])
+          setRecordings(json.recordings ?? [])
+          setApiStats(json.stats ?? { total: 0, live: 0, upcoming: 0, ended: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -128,6 +112,9 @@ export default function VirtualClassesPage() {
         </Button>
       </div>
 
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الفصول الافتراضية...</CardContent></Card>}
+
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
@@ -138,29 +125,29 @@ export default function VirtualClassesPage() {
                 <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
               </div>
             </div>
-            <p className="text-2xl font-bold text-red-600">1</p>
+            <p className="text-2xl font-bold text-red-600">{apiStats.live}</p>
             <p className="text-sm text-muted-foreground">مباشر الآن</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
             <Calendar className="w-10 h-10 mx-auto text-blue-500 mb-2" />
-            <p className="text-2xl font-bold">3</p>
-            <p className="text-sm text-muted-foreground">مجدولة اليوم</p>
+            <p className="text-2xl font-bold">{apiStats.upcoming}</p>
+            <p className="text-sm text-muted-foreground">قادمة</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
             <Users className="w-10 h-10 mx-auto text-green-500 mb-2" />
-            <p className="text-2xl font-bold">125</p>
-            <p className="text-sm text-muted-foreground">إجمالي الطلاب</p>
+            <p className="text-2xl font-bold">{apiStats.total}</p>
+            <p className="text-sm text-muted-foreground">إجمالي الفصول</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
             <Clock className="w-10 h-10 mx-auto text-purple-500 mb-2" />
-            <p className="text-2xl font-bold">45</p>
-            <p className="text-sm text-muted-foreground">ساعة تدريس</p>
+            <p className="text-2xl font-bold">{apiStats.ended}</p>
+            <p className="text-sm text-muted-foreground">منتهية</p>
           </CardContent>
         </Card>
       </div>
@@ -249,7 +236,8 @@ export default function VirtualClassesPage() {
         <TabsContent value="classes" className="mt-6">
           <div className="space-y-4">
             {virtualClasses.map((cls) => {
-              const status = statusConfig[cls.status as keyof typeof statusConfig]
+              const status = cls.status in statusConfig ? statusConfig[cls.status] : null
+              const icon = cls.platform in platformIcon ? platformIcon[cls.platform] : "🎥"
 
               return (
                 <Card key={cls.id} className={cn(
@@ -268,30 +256,28 @@ export default function VirtualClassesPage() {
                               <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
                             </div>
                           ) : (
-                            <span>{platformIcon[cls.platform as keyof typeof platformIcon]}</span>
+                            <span>{icon}</span>
                           )}
                         </div>
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             <h3 className="font-bold">{cls.title}</h3>
-                            <Badge className={cn(
-                              "text-white",
-                              status.color
-                            )}>
-                              {status.label}
-                            </Badge>
+                            {status && (
+                              <Badge className={cn(
+                                "text-white",
+                                status.color
+                              )}>
+                                {status.label}
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            الفصل {cls.class} • {new Date(cls.date).toLocaleDateString("ar-EG")} • {cls.time}
+                            {new Date(cls.date).toLocaleDateString("ar-EG")} • {cls.time}
                           </p>
                           <div className="flex items-center gap-4 mt-2 text-sm">
                             <span className="flex items-center gap-1">
-                              <Users className="w-4 h-4" />
-                              {cls.students} طالب
-                            </span>
-                            <span className="flex items-center gap-1">
                               <Clock className="w-4 h-4" />
-                              {cls.duration}
+                              {cls.durationMins} دقيقة
                             </span>
                           </div>
                         </div>
@@ -313,10 +299,12 @@ export default function VirtualClassesPage() {
                             تعديل
                           </Button>
                         )}
-                        {cls.status === "completed" && cls.recording && (
-                          <Button variant="outline">
-                            <Video className="w-4 h-4 ml-2" />
-                            مشاهدة التسجيل
+                        {cls.status === "ended" && cls.recordingUrl && (
+                          <Button variant="outline" asChild>
+                            <Link href={cls.recordingUrl}>
+                              <Video className="w-4 h-4 ml-2" />
+                              مشاهدة التسجيل
+                            </Link>
                           </Button>
                         )}
                         <DropdownMenu>
@@ -359,15 +347,19 @@ export default function VirtualClassesPage() {
                       <div>
                         <h4 className="font-medium">{recording.title}</h4>
                         <p className="text-sm text-muted-foreground">
-                          {recording.duration} • {recording.views} مشاهدة
+                          {new Date(recording.date).toLocaleDateString("ar-EG")} • {recording.durationMins} دقيقة
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline">
-                        <Play className="w-4 h-4 ml-2" />
-                        تشغيل
-                      </Button>
+                      {recording.recordingUrl && (
+                        <Button variant="outline" asChild>
+                          <Link href={recording.recordingUrl}>
+                            <Play className="w-4 h-4 ml-2" />
+                            تشغيل
+                          </Link>
+                        </Button>
+                      )}
                       <Button variant="ghost" size="icon">
                         <Share2 className="w-4 h-4" />
                       </Button>

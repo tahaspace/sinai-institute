@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { signIn } from 'next-auth/react';
+import { signIn, getSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
@@ -34,10 +34,18 @@ export default function LoginPage() {
       if (result?.error) {
         setError(result.error);
       } else if (result?.ok) {
-        router.push('/cms/dashboard');
+        // Route by role: each portal has its own home; staff land in the CMS.
+        const session = await getSession();
+        const role = (session?.user as { role?: string } | undefined)?.role;
+        const homeByRole: Record<string, string> = {
+          STUDENT: '/student/dashboard',
+          FACULTY: '/faculty/dashboard',
+          PARENT: '/parent/dashboard',
+        };
+        router.push((role && homeByRole[role]) || '/cms/dashboard');
         router.refresh();
       }
-    } catch (error) {
+    } catch {
       setError('حدث خطأ أثناء تسجيل الدخول');
     } finally {
       setLoading(false);

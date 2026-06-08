@@ -1,11 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
-  MessageSquare,
   Send,
   Calendar,
-  User,
   Plus,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -25,46 +23,77 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-// Messages
-const messages = [
-  {
-    id: 1,
-    from: "أ. محمد أحمد",
-    role: "معلم الرياضيات",
-    subject: "بخصوص مستوى أحمد",
-    message: "أحمد يتقدم بشكل ممتاز في مادة الرياضيات...",
-    date: "2024-12-24",
-    read: true,
-  },
-  {
-    id: 2,
-    from: "إدارة المدرسة",
-    role: "إدارة",
-    subject: "موعد اجتماع أولياء الأمور",
-    message: "يسرنا دعوتكم لحضور اجتماع أولياء الأمور...",
-    date: "2024-12-22",
-    read: true,
-  },
-  {
-    id: 3,
-    from: "أ. سارة خالد",
-    role: "معلمة اللغة العربية",
-    subject: "ملاحظة على سارة",
-    message: "سارة طالبة مجتهدة ولكنها تحتاج...",
-    date: "2024-12-20",
-    read: false,
-  },
-]
-
-// Appointments
-const appointments = [
-  { id: 1, teacher: "أ. محمد أحمد", subject: "الرياضيات", date: "2024-12-28", time: "10:00", status: "confirmed" },
-  { id: 2, teacher: "أ. سارة خالد", subject: "اللغة العربية", date: "2024-12-30", time: "11:00", status: "pending" },
-]
+interface MessageRow {
+  id: string
+  from: string
+  role: string
+  subject: string
+  body: string
+  read: boolean
+  date: string
+}
 
 export default function ParentMessagesPage() {
   const [showNewMessage, setShowNewMessage] = useState(false)
   const [showNewAppointment, setShowNewAppointment] = useState(false)
+  const [messages, setMessages] = useState<MessageRow[]>([])
+  const [apiStats, setApiStats] = useState<{ total: number; unread: number }>({ total: 0, unread: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  async function load() {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/messages`)
+      if (!res.ok) throw new Error("فشل في جلب الرسائل")
+      const json = await res.json()
+      setMessages(json.messages ?? [])
+      setApiStats(json.stats ?? { total: 0, unread: 0 })
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadGuarded() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/messages`)
+        if (!res.ok) throw new Error("فشل في جلب الرسائل")
+        const json = await res.json()
+        if (!cancelled) {
+          setMessages(json.messages ?? [])
+          setApiStats(json.stats ?? { total: 0, unread: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadGuarded()
+    return () => { cancelled = true }
+  }, [])
+
+  async function handleOpenMessage(msg: MessageRow) {
+    if (msg.read) return
+    try {
+      const res = await fetch(`/api/messages`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: msg.id, read: true }),
+      })
+      if (!res.ok) throw new Error("فشل في تحديث الرسالة")
+      await load()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -75,6 +104,9 @@ export default function ParentMessagesPage() {
           <p className="text-muted-foreground">مراسلة المعلمين وحجز المواعيد</p>
         </div>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الرسائل...</CardContent></Card>}
 
       {/* Tabs */}
       <Tabs defaultValue="messages">
@@ -137,12 +169,17 @@ export default function ParentMessagesPage() {
           <Card>
             <CardHeader>
               <CardTitle>صندوق الوارد</CardTitle>
+              <CardDescription>{apiStats.total} رسالة · {apiStats.unread} غير مقروءة</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
+                {!loading && messages.length === 0 && (
+                  <p className="text-center text-muted-foreground py-8">لا توجد رسائل</p>
+                )}
                 {messages.map((msg) => (
                   <div
                     key={msg.id}
+                    onClick={() => handleOpenMessage(msg)}
                     className={cn(
                       "flex items-start gap-4 p-4 rounded-lg cursor-pointer hover:bg-muted/80 transition-colors",
                       !msg.read ? "bg-blue-50 dark:bg-blue-950/20" : "bg-muted/50"
@@ -165,7 +202,7 @@ export default function ParentMessagesPage() {
                         </span>
                       </div>
                       <p className="font-medium text-sm">{msg.subject}</p>
-                      <p className="text-sm text-muted-foreground line-clamp-1">{msg.message}</p>
+                      <p className="text-sm text-muted-foreground line-clamp-1">{msg.body}</p>
                     </div>
                   </div>
                 ))}
@@ -238,31 +275,9 @@ export default function ParentMessagesPage() {
               <CardTitle>المواعيد المحجوزة</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {appointments.map((apt) => (
-                  <div key={apt.id} className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-pink-100 flex items-center justify-center">
-                        <Calendar className="w-6 h-6 text-pink-600" />
-                      </div>
-                      <div>
-                        <p className="font-medium">{apt.teacher}</p>
-                        <p className="text-sm text-muted-foreground">{apt.subject}</p>
-                      </div>
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium">
-                        {new Date(apt.date).toLocaleDateString("ar-EG")}
-                      </p>
-                      <p className="text-sm text-muted-foreground">{apt.time}</p>
-                    </div>
-                    <Badge className={cn(
-                      apt.status === "confirmed" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
-                    )}>
-                      {apt.status === "confirmed" ? "مؤكد" : "قيد المراجعة"}
-                    </Badge>
-                  </div>
-                ))}
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Calendar className="w-10 h-10 text-muted-foreground mb-3" />
+                <p className="text-muted-foreground">لا توجد مواعيد</p>
               </div>
             </CardContent>
           </Card>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   BookOpen,
   Play,
@@ -19,74 +19,38 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-// Courses Data
-const courses = [
-  {
-    id: 1,
-    name: "الرياضيات - الباب الثالث",
-    lessons: 12,
-    completed: 8,
-    duration: "6 ساعات",
-    teacher: "أ. محمد أحمد",
-    image: "📐",
-  },
-  {
-    id: 2,
-    name: "الفيزياء - قوانين نيوتن",
-    lessons: 8,
-    completed: 5,
-    duration: "4 ساعات",
-    teacher: "أ. أحمد علي",
-    image: "⚛️",
-  },
-  {
-    id: 3,
-    name: "الكيمياء - التفاعلات",
-    lessons: 10,
-    completed: 3,
-    duration: "5 ساعات",
-    teacher: "أ. خالد سعيد",
-    image: "🧪",
-  },
-]
+interface Course {
+  id: string
+  name: string
+  teacher: string
+  lessons: number
+  completed: number
+}
 
-// Lessons Data
-const lessons = [
-  { id: 1, title: "مقدمة في التفاضل", duration: "30 دقيقة", type: "video", status: "completed" },
-  { id: 2, title: "قواعد الاشتقاق", duration: "45 دقيقة", type: "video", status: "completed" },
-  { id: 3, title: "تمارين على الاشتقاق", duration: "20 دقيقة", type: "quiz", status: "completed" },
-  { id: 4, title: "التكامل الأساسي", duration: "40 دقيقة", type: "video", status: "current" },
-  { id: 5, title: "تطبيقات التكامل", duration: "35 دقيقة", type: "video", status: "locked" },
-  { id: 6, title: "اختبار الباب", duration: "60 دقيقة", type: "exam", status: "locked" },
-]
+interface Lesson {
+  id: string
+  title: string
+  type: "video" | "pdf" | "image" | "audio" | "quiz" | "exam"
+  status: "completed" | "current" | "locked"
+}
 
-// Virtual Classes
-const virtualClasses = [
-  {
-    id: 1,
-    subject: "الرياضيات",
-    teacher: "أ. محمد أحمد",
-    date: "2024-12-26",
-    time: "16:00",
-    duration: "60 دقيقة",
-    status: "upcoming",
-  },
-  {
-    id: 2,
-    subject: "الفيزياء",
-    teacher: "أ. أحمد علي",
-    date: "2024-12-27",
-    time: "17:00",
-    duration: "45 دقيقة",
-    status: "upcoming",
-  },
-]
+interface VirtualClass {
+  id: string
+  subject: string
+  date: string
+  time: string
+  status: string
+}
 
-// Online Exams
-const onlineExams = [
-  { id: 1, subject: "الرياضيات", title: "اختبار الباب الثالث", date: "2024-12-28", duration: "60 دقيقة", status: "upcoming" },
-  { id: 2, subject: "الفيزياء", title: "اختبار قصير", date: "2024-12-20", duration: "30 دقيقة", status: "completed", grade: 18, maxGrade: 20 },
-]
+interface OnlineExam {
+  id: string
+  subject: string
+  title: string
+  date: string
+  status: "upcoming" | "completed"
+  grade: number | null
+  maxGrade: number | null
+}
 
 const lessonTypeIcon = {
   video: Video,
@@ -95,7 +59,39 @@ const lessonTypeIcon = {
 }
 
 export default function StudentElearningPage() {
-  const [selectedCourse, setSelectedCourse] = useState(courses[0])
+  const [courses, setCourses] = useState<Course[]>([])
+  const [lessons, setLessons] = useState<Lesson[]>([])
+  const [virtualClasses, setVirtualClasses] = useState<VirtualClass[]>([])
+  const [onlineExams, setOnlineExams] = useState<OnlineExam[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/student/elearning`)
+        if (!res.ok) throw new Error("فشل في جلب التعلم الإلكتروني")
+        const json = await res.json()
+        if (!cancelled) {
+          setCourses(json.courses ?? [])
+          setLessons(json.lessons ?? [])
+          setVirtualClasses(json.virtualClasses ?? [])
+          setOnlineExams(json.onlineExams ?? [])
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const selectedCourse = courses[0]
 
   return (
     <div className="space-y-6">
@@ -106,6 +102,9 @@ export default function StudentElearningPage() {
           <p className="text-muted-foreground">تابع دروسك واختباراتك الإلكترونية</p>
         </div>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل التعلم الإلكتروني...</CardContent></Card>}
 
       {/* Tabs */}
       <Tabs defaultValue="courses">
@@ -120,12 +119,12 @@ export default function StudentElearningPage() {
         <TabsContent value="courses" className="mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {courses.map((course) => {
-              const progress = (course.completed / course.lessons) * 100
+              const progress = course.lessons > 0 ? (course.completed / course.lessons) * 100 : 0
 
               return (
                 <Card key={course.id} className="hover:shadow-lg transition-shadow cursor-pointer">
                   <CardContent className="p-6">
-                    <div className="text-4xl mb-4">{course.image}</div>
+                    <div className="text-4xl mb-4">📚</div>
                     <h3 className="font-bold mb-1">{course.name}</h3>
                     <p className="text-sm text-muted-foreground mb-4">{course.teacher}</p>
                     <div className="space-y-2 mb-4">
@@ -138,7 +137,7 @@ export default function StudentElearningPage() {
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {course.duration}
+                        —
                       </span>
                       <span className="flex items-center gap-1">
                         <BookOpen className="w-3 h-3" />
@@ -160,15 +159,17 @@ export default function StudentElearningPage() {
         <TabsContent value="lessons" className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle>دروس {selectedCourse.name}</CardTitle>
+              <CardTitle>دروس {selectedCourse?.name ?? "المقرر"}</CardTitle>
               <CardDescription>
-                تقدمك: {selectedCourse.completed}/{selectedCourse.lessons} درس
+                تقدمك: {selectedCourse?.completed ?? 0}/{selectedCourse?.lessons ?? 0} درس
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
                 {lessons.map((lesson, index) => {
-                  const Icon = lessonTypeIcon[lesson.type as keyof typeof lessonTypeIcon]
+                  const Icon = lesson.type in lessonTypeIcon
+                    ? lessonTypeIcon[lesson.type as keyof typeof lessonTypeIcon]
+                    : FileText
 
                   return (
                     <div
@@ -204,7 +205,7 @@ export default function StudentElearningPage() {
                       <div className="flex-1">
                         <p className="font-medium">{lesson.title}</p>
                         <p className="text-sm text-muted-foreground">
-                          {lesson.duration} • {lesson.type === "video" ? "فيديو" : lesson.type === "quiz" ? "تمارين" : "اختبار"}
+                          {lesson.type === "video" ? "فيديو" : lesson.type === "quiz" ? "تمارين" : lesson.type === "exam" ? "اختبار" : lesson.type === "pdf" ? "ملف PDF" : lesson.type === "image" ? "صورة" : lesson.type === "audio" ? "صوت" : "درس"}
                         </p>
                       </div>
                       {lesson.status === "current" && (
@@ -246,7 +247,7 @@ export default function StudentElearningPage() {
                       </div>
                       <div>
                         <h4 className="font-medium">{cls.subject}</h4>
-                        <p className="text-sm text-muted-foreground">{cls.teacher}</p>
+                        <p className="text-sm text-muted-foreground">—</p>
                       </div>
                     </div>
                     <div className="text-left">
@@ -254,7 +255,7 @@ export default function StudentElearningPage() {
                         {new Date(cls.date).toLocaleDateString("ar-EG")}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {cls.time} • {cls.duration}
+                        {cls.time}
                       </p>
                     </div>
                     <Button>
@@ -294,7 +295,7 @@ export default function StudentElearningPage() {
                       <div>
                         <h4 className="font-medium">{exam.title}</h4>
                         <p className="text-sm text-muted-foreground">
-                          {exam.subject} • {exam.duration}
+                          {exam.subject}
                         </p>
                       </div>
                     </div>
@@ -309,7 +310,7 @@ export default function StudentElearningPage() {
                       ) : (
                         <>
                           <p className="font-bold text-green-600">
-                            {exam.grade}/{exam.maxGrade}
+                            {exam.grade !== null ? `${exam.grade}/${exam.maxGrade ?? "—"}` : "—"}
                           </p>
                           <Badge className="bg-green-100 text-green-700">مكتمل</Badge>
                         </>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import {
   TrendingUp,
@@ -13,8 +13,6 @@ import {
   BarChart3,
   PieChart,
   Activity,
-  ArrowUpRight,
-  ArrowDownRight,
   Calendar,
   RefreshCw,
   Download,
@@ -42,102 +40,89 @@ import {
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-// مؤشرات الأداء المالي للمعهد
-const instituteKPIs = [
-  {
-    id: "revenue",
-    title: "إجمالي الإيرادات",
-    value: 42000000,
-    previousValue: 38000000,
-    target: 45000000,
-    trend: "up",
-    change: 10.5,
-    icon: TrendingUp,
-    color: "green",
-  },
-  {
-    id: "expenses",
-    title: "إجمالي المصروفات",
-    value: 32000000,
-    previousValue: 30000000,
-    target: 31000000,
-    trend: "up",
-    change: 6.7,
-    icon: TrendingDown,
-    color: "red",
-  },
-  {
-    id: "profit",
-    title: "صافي الربح",
-    value: 10000000,
-    previousValue: 8000000,
-    target: 14000000,
-    trend: "up",
-    change: 25.0,
-    icon: DollarSign,
-    color: "blue",
-  },
-  {
-    id: "collection",
-    title: "نسبة التحصيل",
-    value: 89.5,
-    previousValue: 85.2,
-    target: 95,
-    trend: "up",
-    change: 4.3,
-    icon: Target,
-    color: "teal",
-    isPercentage: true,
-  },
-]
+// API response shapes
+interface ApiKpi {
+  value: number
+  isPercentage: boolean
+}
 
-// إيرادات الأقسام
-const revenueByDepartment = [
-  { department: "قسم الحاسبات والمعلومات", amount: 12500000, students: 850, percentage: 29.8 },
-  { department: "قسم إدارة الأعمال", amount: 10800000, students: 920, percentage: 25.7 },
-  { department: "قسم الهندسة", amount: 9200000, students: 580, percentage: 21.9 },
-  { department: "قسم المحاسبة", amount: 5500000, students: 450, percentage: 13.1 },
-  { department: "قسم نظم المعلومات", amount: 4000000, students: 320, percentage: 9.5 },
-]
+interface CfoKpis {
+  revenue: ApiKpi
+  expenses: ApiKpi
+  profit: ApiKpi
+  collection: ApiKpi
+}
 
-// التنبيهات المالية
-const financialAlerts = [
-  {
-    id: 1,
-    type: "warning",
-    title: "متأخرات تحصيل مرتفعة",
-    description: "125 طالب لم يسدد رسوم الفصل الحالي",
-    amount: 2850000,
-    priority: "high",
-  },
-  {
-    id: 2,
-    type: "info",
-    title: "موعد سداد التأمينات",
-    description: "يجب سداد التأمينات الاجتماعية قبل 15 يناير",
-    amount: 185000,
-    priority: "medium",
-  },
-  {
-    id: 3,
-    type: "success",
-    title: "تحقيق هدف التحصيل",
-    description: "تم تحقيق 102% من هدف التحصيل لقسم الحاسبات",
-    amount: null,
-    priority: "low",
-  },
-]
+interface DepartmentRevenue {
+  department: string
+  amount: number
+  students: number
+  percentage: number
+}
 
-// مقارنة الفصول
-const semesterComparison = [
-  { semester: "خريف 2023", revenue: 19500000, students: 2800 },
-  { semester: "ربيع 2024", revenue: 18200000, students: 2750 },
-  { semester: "خريف 2024", revenue: 21000000, students: 3120 },
-]
+interface FinancialAlert {
+  id: string
+  type: "warning" | "info" | "success"
+  title: string
+  description: string
+  amount: number | null
+  priority: "high" | "medium" | "low"
+}
+
+interface SemesterRow {
+  semester: string
+  revenue: number
+  students: number
+}
+
+// Presentation config per KPI id — title/icon/color are UI concerns, not data.
+// `expenses` is salaries-only (Payroll is the only modeled cost source).
+const KPI_META = {
+  revenue: { title: "إجمالي الإيرادات (المُحصّل)", icon: TrendingUp, color: "green" },
+  expenses: { title: "مصروفات الرواتب", icon: TrendingDown, color: "red" },
+  profit: { title: "صافي الربح", icon: DollarSign, color: "blue" },
+  collection: { title: "نسبة التحصيل", icon: Target, color: "teal" },
+} as const
+
+const KPI_ORDER: (keyof CfoKpis)[] = ["revenue", "expenses", "profit", "collection"]
 
 export default function InstituteCFODashboardPage() {
   const [selectedPeriod, setSelectedPeriod] = useState("year")
   const [selectedDepartment, setSelectedDepartment] = useState("all")
+
+  const [kpis, setKpis] = useState<CfoKpis | null>(null)
+  const [revenueByDepartment, setRevenueByDepartment] = useState<DepartmentRevenue[]>([])
+  const [financialAlerts, setFinancialAlerts] = useState<FinancialAlert[]>([])
+  const [semesterComparison, setSemesterComparison] = useState<SemesterRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/finance/cfo-dashboard`)
+        if (!res.ok) throw new Error("فشل تحميل البيانات")
+        const json = await res.json()
+        if (!cancelled) {
+          setKpis(json.kpis ?? null)
+          setRevenueByDepartment(json.revenueByDepartment ?? [])
+          setFinancialAlerts(json.financialAlerts ?? [])
+          setSemesterComparison(json.semesterComparison ?? [])
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("ar-EG", {
@@ -209,24 +194,31 @@ export default function InstituteCFODashboardPage() {
         </div>
       </div>
 
+      {/* حالة التحميل / الخطأ */}
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ التحميل...</CardContent></Card>}
+
       {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {instituteKPIs.map((kpi) => {
-          const Icon = kpi.icon
-          const progressValue = (kpi.value / kpi.target) * 100
+        {KPI_ORDER.map((id) => {
+          const meta = KPI_META[id]
+          const kpi = kpis?.[id]
+          const Icon = meta.icon
+          const value = kpi?.value ?? 0
+          const isPercentage = kpi?.isPercentage ?? false
 
           return (
-            <Card key={kpi.id}>
+            <Card key={id}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-muted-foreground">{kpi.title}</span>
+                  <span className="text-sm text-muted-foreground">{meta.title}</span>
                   <div
                     className={`p-2 rounded-lg ${
-                      kpi.color === "green"
+                      meta.color === "green"
                         ? "bg-institute-blue text-institute-blue"
-                        : kpi.color === "red"
+                        : meta.color === "red"
                         ? "bg-red-100 text-red-600"
-                        : kpi.color === "blue"
+                        : meta.color === "blue"
                         ? "bg-institute-blue text-institute-blue"
                         : "bg-institute-blue text-institute-blue"
                     }`}
@@ -236,27 +228,11 @@ export default function InstituteCFODashboardPage() {
                 </div>
                 <div className="space-y-2">
                   <p className="text-2xl font-bold font-mono">
-                    {kpi.isPercentage ? `${kpi.value}%` : formatCurrency(kpi.value)}
+                    {isPercentage ? `${value}%` : formatCurrency(value)}
                   </p>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      className={
-                        kpi.trend === "up" && kpi.id !== "expenses"
-                          ? "bg-institute-blue text-green-800"
-                          : kpi.trend === "up" && kpi.id === "expenses"
-                          ? "bg-red-100 text-red-800"
-                          : "bg-gray-100 text-gray-800"
-                      }
-                    >
-                      {kpi.trend === "up" ? (
-                        <ArrowUpRight className="h-3 w-3 ml-1" />
-                      ) : (
-                        <ArrowDownRight className="h-3 w-3 ml-1" />
-                      )}
-                      {kpi.change}%
-                    </Badge>
-                  </div>
-                  <Progress value={Math.min(progressValue, 100)} className="h-2" />
+                  {id === "collection" && (
+                    <Progress value={Math.min(value, 100)} className="h-2" />
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -301,7 +277,7 @@ export default function InstituteCFODashboardPage() {
                       <Progress value={dept.percentage} className="h-2" />
                       <div className="flex justify-between text-xs text-muted-foreground">
                         <span>{dept.students} طالب</span>
-                        <span>متوسط/طالب: {formatCurrency(dept.amount / dept.students)}</span>
+                        <span>متوسط/طالب: {formatCurrency(dept.students > 0 ? dept.amount / dept.students : 0)}</span>
                       </div>
                     </div>
                   )

@@ -1,29 +1,20 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Megaphone,
-  Search,
   Plus,
   TrendingUp,
   Users,
   Eye,
   MousePointer,
-  DollarSign,
-  Calendar,
   BarChart3,
-  Mail,
-  Phone,
   Clock,
-  CheckCircle2,
-  XCircle,
   MoreVertical,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
 import {
   DropdownMenu,
@@ -31,104 +22,32 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { cn } from "@/lib/utils"
 
-// Campaigns Data
-const campaigns = [
-  {
-    id: "CMP001",
-    name: "حملة الشتاء 2024",
-    type: "إعلانات رقمية",
-    budget: 50000,
-    spent: 35000,
-    leads: 245,
-    conversions: 48,
-    status: "active",
-    startDate: "2024-12-01",
-    endDate: "2025-01-31",
-  },
-  {
-    id: "CMP002",
-    name: "برنامج PMP المكثف",
-    type: "البريد الإلكتروني",
-    budget: 15000,
-    spent: 12000,
-    leads: 180,
-    conversions: 35,
-    status: "active",
-    startDate: "2024-12-15",
-    endDate: "2025-02-15",
-  },
-  {
-    id: "CMP003",
-    name: "التسويق عبر السوشيال",
-    type: "السوشيال ميديا",
-    budget: 30000,
-    spent: 30000,
-    leads: 420,
-    conversions: 62,
-    status: "completed",
-    startDate: "2024-10-01",
-    endDate: "2024-11-30",
-  },
-]
-
-// Leads Data
-const leads = [
-  {
-    id: "LEAD001",
-    name: "أحمد محمد علي",
-    phone: "01012345678",
-    email: "ahmed@example.com",
-    interest: "تطوير الويب",
-    source: "إعلان فيسبوك",
-    status: "new",
-    date: "2024-12-25",
-  },
-  {
-    id: "LEAD002",
-    name: "سارة خالد أحمد",
-    phone: "01123456789",
-    email: "sara@example.com",
-    interest: "التسويق الرقمي",
-    source: "الموقع الإلكتروني",
-    status: "contacted",
-    date: "2024-12-24",
-  },
-  {
-    id: "LEAD003",
-    name: "محمد سعيد حسن",
-    phone: "01234567890",
-    email: "mohamed@example.com",
-    interest: "إدارة المشاريع",
-    source: "تحويل صديق",
-    status: "qualified",
-    date: "2024-12-23",
-  },
-]
-
-// Market Analytics
-const analytics = {
-  visitors: 12500,
-  pageViews: 45000,
-  bounceRate: 35,
-  avgSessionDuration: "3:45",
+type Campaign = {
+  id: string
+  name: string
+  type: string | null
+  budget: number
+  spent: number
+  leads: number
+  conversions: number
+  status: string
+  startDate: string
+  endDate: string
 }
 
-// Stats
-const stats = {
-  totalCampaigns: campaigns.length,
-  activeCampaigns: campaigns.filter(c => c.status === "active").length,
-  totalLeads: 845,
-  conversionRate: 12.5,
+type Stats = {
+  total: number
+  active: number
+  totalBudget: number
+  totalSpent: number
+  totalLeads: number
+}
+
+type MarketingResponse = {
+  campaigns: Campaign[]
+  stats: Stats
 }
 
 const statusConfig = {
@@ -137,17 +56,49 @@ const statusConfig = {
   paused: { label: "متوقف", color: "bg-yellow-100 text-yellow-700" },
 }
 
-const leadStatusConfig = {
-  new: { label: "جديد", color: "bg-institute-blue text-blue-700" },
-  contacted: { label: "تم التواصل", color: "bg-yellow-100 text-yellow-700" },
-  qualified: { label: "مؤهل", color: "bg-institute-blue text-green-700" },
-  converted: { label: "تحول", color: "bg-institute-gold text-purple-700" },
-  lost: { label: "خسارة", color: "bg-red-100 text-red-700" },
-}
-
 export default function MarketingPage() {
-  const [searchQuery, setSearchQuery] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  const [stats, setStats] = useState<Stats>({
+    total: 0,
+    active: 0,
+    totalBudget: 0,
+    totalSpent: 0,
+    totalLeads: 0,
+  })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/marketing")
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}))
+          throw new Error(b.error || "فشل في جلب البيانات")
+        }
+        const json: MarketingResponse = await res.json()
+        if (!cancelled) {
+          setCampaigns(json.campaigns)
+          setStats(json.stats)
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // معدل التحويل العام: مجموع التحويلات ÷ مجموع العملاء المحتملين
+  const totalConversions = campaigns.reduce((s, c) => s + c.conversions, 0)
+  const conversionRate =
+    stats.totalLeads > 0 ? ((totalConversions / stats.totalLeads) * 100).toFixed(1) : "0"
 
   return (
     <div className="space-y-6">
@@ -163,19 +114,31 @@ export default function MarketingPage() {
         </Button>
       </div>
 
+      {loading && (
+        <Card>
+          <CardContent className="p-6 text-center text-muted-foreground">جارٍ التحميل...</CardContent>
+        </Card>
+      )}
+
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4 text-center">
             <Megaphone className="w-8 h-8 mx-auto text-institute-blue mb-2" />
-            <p className="text-2xl font-bold">{stats.totalCampaigns}</p>
+            <p className="text-2xl font-bold">{stats.total}</p>
             <p className="text-sm text-muted-foreground">حملة</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
             <TrendingUp className="w-8 h-8 mx-auto text-green-500 mb-2" />
-            <p className="text-2xl font-bold text-institute-blue">{stats.activeCampaigns}</p>
+            <p className="text-2xl font-bold text-institute-blue">{stats.active}</p>
             <p className="text-sm text-muted-foreground">نشطة</p>
           </CardContent>
         </Card>
@@ -189,7 +152,7 @@ export default function MarketingPage() {
         <Card>
           <CardContent className="p-4 text-center">
             <MousePointer className="w-8 h-8 mx-auto text-orange-500 mb-2" />
-            <p className="text-2xl font-bold text-institute-gold">{stats.conversionRate}%</p>
+            <p className="text-2xl font-bold text-institute-gold">{conversionRate}%</p>
             <p className="text-sm text-muted-foreground">معدل التحويل</p>
           </CardContent>
         </Card>
@@ -291,42 +254,8 @@ export default function MarketingPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {leads.map((lead) => {
-                  const status = leadStatusConfig[lead.status as keyof typeof leadStatusConfig]
-
-                  return (
-                    <div
-                      key={lead.id}
-                      className="flex items-center justify-between p-4 rounded-lg bg-muted/50"
-                    >
-                      <div className="flex items-center gap-4">
-                        <Avatar>
-                          <AvatarFallback className="bg-institute-blue text-institute-blue">
-                            {lead.name.charAt(0)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-medium">{lead.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {lead.interest} • {lead.source}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <Badge className={status.color}>{status.label}</Badge>
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon">
-                            <Phone className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon">
-                            <Mail className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
+              <div className="py-12 text-center text-muted-foreground">
+                لا توجد بيانات عملاء محتملين متاحة حالياً
               </div>
             </CardContent>
           </Card>
@@ -338,28 +267,28 @@ export default function MarketingPage() {
             <Card>
               <CardContent className="p-4 text-center">
                 <Eye className="w-8 h-8 mx-auto text-blue-500 mb-2" />
-                <p className="text-2xl font-bold">{analytics.visitors.toLocaleString()}</p>
+                <p className="text-2xl font-bold">—</p>
                 <p className="text-sm text-muted-foreground">زائر</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4 text-center">
                 <MousePointer className="w-8 h-8 mx-auto text-green-500 mb-2" />
-                <p className="text-2xl font-bold">{analytics.pageViews.toLocaleString()}</p>
+                <p className="text-2xl font-bold">—</p>
                 <p className="text-sm text-muted-foreground">مشاهدة صفحة</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4 text-center">
                 <TrendingUp className="w-8 h-8 mx-auto text-yellow-500 mb-2" />
-                <p className="text-2xl font-bold">{analytics.bounceRate}%</p>
+                <p className="text-2xl font-bold">—</p>
                 <p className="text-sm text-muted-foreground">معدل الارتداد</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4 text-center">
                 <Clock className="w-8 h-8 mx-auto text-purple-500 mb-2" />
-                <p className="text-2xl font-bold">{analytics.avgSessionDuration}</p>
+                <p className="text-2xl font-bold">—</p>
                 <p className="text-sm text-muted-foreground">متوسط الجلسة</p>
               </CardContent>
             </Card>

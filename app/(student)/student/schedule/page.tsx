@@ -1,10 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
-  Calendar,
   Download,
-  Clock,
   MapPin,
   User,
   ChevronRight,
@@ -16,48 +14,19 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-// Week Schedule
-const weekSchedule = {
-  الأحد: [
-    { period: 1, subject: "الرياضيات", teacher: "أ. محمد أحمد", room: "101", time: "8:00 - 8:45" },
-    { period: 2, subject: "اللغة العربية", teacher: "أ. سارة خالد", room: "101", time: "9:00 - 9:45" },
-    { period: 3, subject: "الفيزياء", teacher: "أ. أحمد علي", room: "معمل 1", time: "10:00 - 10:45" },
-    { period: 4, subject: "استراحة", teacher: "", room: "", time: "10:45 - 11:00" },
-    { period: 5, subject: "الإنجليزية", teacher: "أ. نورا محمد", room: "101", time: "11:00 - 11:45" },
-    { period: 6, subject: "الكيمياء", teacher: "أ. خالد سعيد", room: "معمل 2", time: "12:00 - 12:45" },
-  ],
-  الاثنين: [
-    { period: 1, subject: "الفيزياء", teacher: "أ. أحمد علي", room: "معمل 1", time: "8:00 - 8:45" },
-    { period: 2, subject: "الرياضيات", teacher: "أ. محمد أحمد", room: "101", time: "9:00 - 9:45" },
-    { period: 3, subject: "الإنجليزية", teacher: "أ. نورا محمد", room: "101", time: "10:00 - 10:45" },
-    { period: 4, subject: "استراحة", teacher: "", room: "", time: "10:45 - 11:00" },
-    { period: 5, subject: "اللغة العربية", teacher: "أ. سارة خالد", room: "101", time: "11:00 - 11:45" },
-    { period: 6, subject: "الأحياء", teacher: "أ. هالة محمود", room: "معمل 3", time: "12:00 - 12:45" },
-  ],
-  الثلاثاء: [
-    { period: 1, subject: "الكيمياء", teacher: "أ. خالد سعيد", room: "معمل 2", time: "8:00 - 8:45" },
-    { period: 2, subject: "الفيزياء", teacher: "أ. أحمد علي", room: "معمل 1", time: "9:00 - 9:45" },
-    { period: 3, subject: "الرياضيات", teacher: "أ. محمد أحمد", room: "101", time: "10:00 - 10:45" },
-    { period: 4, subject: "استراحة", teacher: "", room: "", time: "10:45 - 11:00" },
-    { period: 5, subject: "التربية الدينية", teacher: "أ. علي حسن", room: "101", time: "11:00 - 11:45" },
-    { period: 6, subject: "الإنجليزية", teacher: "أ. نورا محمد", room: "101", time: "12:00 - 12:45" },
-  ],
-  الأربعاء: [
-    { period: 1, subject: "اللغة العربية", teacher: "أ. سارة خالد", room: "101", time: "8:00 - 8:45" },
-    { period: 2, subject: "الكيمياء", teacher: "أ. خالد سعيد", room: "معمل 2", time: "9:00 - 9:45" },
-    { period: 3, subject: "الأحياء", teacher: "أ. هالة محمود", room: "معمل 3", time: "10:00 - 10:45" },
-    { period: 4, subject: "استراحة", teacher: "", room: "", time: "10:45 - 11:00" },
-    { period: 5, subject: "الرياضيات", teacher: "أ. محمد أحمد", room: "101", time: "11:00 - 11:45" },
-    { period: 6, subject: "الفيزياء", teacher: "أ. أحمد علي", room: "معمل 1", time: "12:00 - 12:45" },
-  ],
-  الخميس: [
-    { period: 1, subject: "الإنجليزية", teacher: "أ. نورا محمد", room: "101", time: "8:00 - 8:45" },
-    { period: 2, subject: "اللغة العربية", teacher: "أ. سارة خالد", room: "101", time: "9:00 - 9:45" },
-    { period: 3, subject: "الرياضيات", teacher: "أ. محمد أحمد", room: "101", time: "10:00 - 10:45" },
-    { period: 4, subject: "استراحة", teacher: "", room: "", time: "10:45 - 11:00" },
-    { period: 5, subject: "نشاط", teacher: "", room: "الملعب", time: "11:00 - 11:45" },
-    { period: 6, subject: "نشاط", teacher: "", room: "الملعب", time: "12:00 - 12:45" },
-  ],
+// --- API response shapes (served by /api/student/schedule) ---
+interface Lesson {
+  period: number
+  subject: string
+  teacher: string
+  room: string
+  time: string
+}
+type WeekSchedule = Record<string, Lesson[]>
+interface ScheduleResponse {
+  student: { id: string; studentCode: string; name: string }
+  days: string[]
+  weekSchedule: WeekSchedule
 }
 
 const days = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس"]
@@ -76,6 +45,37 @@ const subjectColors: Record<string, string> = {
 
 export default function StudentSchedulePage() {
   const [selectedDay, setSelectedDay] = useState("الأحد")
+  const [data, setData] = useState<ScheduleResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/student/schedule`)
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error || "فشل في جلب الجدول الدراسي")
+        }
+        const json = (await res.json()) as ScheduleResponse
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const weekSchedule: WeekSchedule = data?.weekSchedule ?? {}
+  const maxPeriods = Math.max(1, ...days.map((d) => (weekSchedule[d]?.length ?? 0)))
 
   return (
     <div className="space-y-6">
@@ -91,7 +91,19 @@ export default function StudentSchedulePage() {
         </Button>
       </div>
 
-      {/* Tabs */}
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الجدول الدراسي...</CardContent>
+        </Card>
+      )}
+
+      {!loading && !error && (
+      /* Tabs */
       <Tabs defaultValue="week">
         <TabsList className="grid w-full grid-cols-2 max-w-xs">
           <TabsTrigger value="week">عرض أسبوعي</TabsTrigger>
@@ -114,19 +126,19 @@ export default function StudentSchedulePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {[1, 2, 3, 4, 5, 6].map((period) => (
+                  {Array.from({ length: maxPeriods }, (_, i) => i + 1).map((period) => (
                     <tr key={period} className="border-b">
                       <td className="p-4 text-right">
                         <div className="flex items-center gap-2">
                           <Badge variant="outline">{period}</Badge>
                           <span className="text-sm text-muted-foreground">
-                            {weekSchedule["الأحد"][period - 1]?.time}
+                            {days.map((d) => weekSchedule[d]?.[period - 1]?.time).find(Boolean)}
                           </span>
                         </div>
                       </td>
                       {days.map((day) => {
-                        const lesson = weekSchedule[day as keyof typeof weekSchedule][period - 1]
-                        const colorClass = subjectColors[lesson?.subject] || "bg-gray-100"
+                        const lesson = weekSchedule[day]?.[period - 1]
+                        const colorClass = subjectColors[lesson?.subject ?? ""] || "bg-gray-100"
                         
                         return (
                           <td key={day} className="p-2">
@@ -202,7 +214,7 @@ export default function StudentSchedulePage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {weekSchedule[selectedDay as keyof typeof weekSchedule].map((lesson, index) => {
+                {(weekSchedule[selectedDay] ?? []).map((lesson, index) => {
                   const colorClass = subjectColors[lesson.subject] || "bg-gray-100"
                   
                   return (
@@ -242,6 +254,7 @@ export default function StudentSchedulePage() {
           </Card>
         </TabsContent>
       </Tabs>
+      )}
     </div>
   )
 }

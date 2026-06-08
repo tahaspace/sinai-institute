@@ -49,6 +49,10 @@ prisma/dev.db-journal
 # scripts output
 sync-to-supabase.js
 
+# generated repomix codebase dumps (regeneratable, ~1MB each)
+repomix-project.md
+repomix-project.xml
+
 # IDE
 .vscode/
 .idea/

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -17,129 +17,61 @@ import {
   ChevronLeft,
   Settings,
   BarChart3,
-  Award,
 } from "lucide-react"
+
+// --- API response shape (served by GET /api/departments) ---
+interface DepartmentRow {
+  id: string
+  nameAr: string
+  nameEn: string
+  description: string | null
+  head: string | null
+  order: number
+  isActive: boolean
+  specializations: { id: string; nameAr: string }[]
+  _count: { specializations: number }
+}
+
+// Presentation-only styling assigned per card position (not data from the API)
+const cardGradients = [
+  "from-institute-blue to-blue-600",
+  "from-institute-gold to-yellow-600",
+]
+const cardIcons = ["🔧", "💻", "📊", "📈", "✈️", "📺", "🌍", "🤝"]
 
 export default function DepartmentsPage() {
   const [searchQuery, setSearchQuery] = useState("")
+  const [departments, setDepartments] = useState<DepartmentRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const departments = [
-    {
-      id: 1,
-      name: "قسم الهندسة",
-      nameEn: "Engineering",
-      description: "هندسة الحاسبات والاتصالات والإلكترونيات",
-      students: 520,
-      faculty: 25,
-      courses: 42,
-      programs: ["هندسة الحاسبات", "هندسة الاتصالات", "هندسة الإلكترونيات"],
-      head: "د. أحمد محمد",
-      color: "from-institute-blue to-blue-600",
-      icon: "🔧",
-    },
-    {
-      id: 2,
-      name: "قسم الحاسبات والمعلومات",
-      nameEn: "Computer Science",
-      description: "علوم الحاسب ونظم المعلومات",
-      students: 480,
-      faculty: 22,
-      courses: 38,
-      programs: ["علوم الحاسب", "نظم المعلومات", "الذكاء الاصطناعي"],
-      head: "د. محمد علي",
-      color: "from-institute-gold to-yellow-600",
-      icon: "💻",
-    },
-    {
-      id: 3,
-      name: "قسم إدارة الأعمال",
-      nameEn: "Business Administration",
-      description: "إدارة الأعمال والتسويق والموارد البشرية",
-      students: 420,
-      faculty: 18,
-      courses: 35,
-      programs: ["إدارة الأعمال", "التسويق", "الموارد البشرية"],
-      head: "د. سارة أحمد",
-      color: "from-institute-blue to-blue-600",
-      icon: "📊",
-    },
-    {
-      id: 4,
-      name: "قسم المحاسبة",
-      nameEn: "Accounting",
-      description: "المحاسبة والمراجعة والتمويل",
-      students: 380,
-      faculty: 16,
-      courses: 32,
-      programs: ["المحاسبة", "المراجعة", "التمويل والاستثمار"],
-      head: "د. محمود حسن",
-      color: "from-institute-gold to-yellow-600",
-      icon: "📈",
-    },
-    {
-      id: 5,
-      name: "قسم السياحة والفنادق",
-      nameEn: "Tourism & Hotels",
-      description: "السياحة وإدارة الفنادق والإرشاد",
-      students: 250,
-      faculty: 12,
-      courses: 28,
-      programs: ["السياحة", "إدارة الفنادق", "الإرشاد السياحي"],
-      head: "د. نورا علي",
-      color: "from-institute-blue to-blue-600",
-      icon: "✈️",
-    },
-    {
-      id: 6,
-      name: "قسم الإعلام",
-      nameEn: "Media",
-      description: "الصحافة والإذاعة والتلفزيون والعلاقات العامة",
-      students: 220,
-      faculty: 14,
-      courses: 30,
-      programs: ["الصحافة", "الإذاعة والتلفزيون", "العلاقات العامة"],
-      head: "د. هدى سالم",
-      color: "to-blue-600 to-blue-600",
-      icon: "📺",
-    },
-    {
-      id: 7,
-      name: "قسم اللغات والترجمة",
-      nameEn: "Languages & Translation",
-      description: "اللغة الإنجليزية والترجمة",
-      students: 180,
-      faculty: 10,
-      courses: 25,
-      programs: ["اللغة الإنجليزية", "الترجمة التحريرية", "الترجمة الفورية"],
-      head: "د. منى حسين",
-      color: "from-institute-gold to-yellow-600",
-      icon: "🌍",
-    },
-    {
-      id: 8,
-      name: "قسم الخدمة الاجتماعية",
-      nameEn: "Social Work",
-      description: "الخدمة الاجتماعية والتنمية المجتمعية",
-      students: 98,
-      faculty: 7,
-      courses: 22,
-      programs: ["الخدمة الاجتماعية", "التنمية المجتمعية"],
-      head: "د. فاطمة محمد",
-      color: "from-institute-blue to-blue-600",
-      icon: "🤝",
-    },
-  ]
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/departments")
+        if (!res.ok) {
+          throw new Error("فشل في جلب الأقسام")
+        }
+        const json = (await res.json()) as DepartmentRow[]
+        if (!cancelled) setDepartments(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-  const filteredDepartments = departments.filter(
-    (dept) =>
-      dept.name.includes(searchQuery) ||
-      dept.nameEn.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      dept.description.includes(searchQuery)
+  const filteredDepartments = departments.filter((dept) =>
+    dept.nameAr.includes(searchQuery)
   )
-
-  const totalStudents = departments.reduce((acc, dept) => acc + dept.students, 0)
-  const totalFaculty = departments.reduce((acc, dept) => acc + dept.faculty, 0)
-  const totalCourses = departments.reduce((acc, dept) => acc + dept.courses, 0)
 
   return (
     <div className="space-y-6">
@@ -160,13 +92,27 @@ export default function DepartmentsPage() {
         </Button>
       </div>
 
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">
+            جارٍ تحميل الأقسام...
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: "الأقسام العلمية", value: departments.length, icon: Building2, color: "text-institute-blue" },
-          { label: "إجمالي الطلاب", value: totalStudents.toLocaleString(), icon: Users, color: "text-institute-blue" },
-          { label: "أعضاء هيئة التدريس", value: totalFaculty, icon: GraduationCap, color: "text-institute-gold" },
-          { label: "المقررات الدراسية", value: totalCourses, icon: BookOpen, color: "text-institute-gold" },
+          { label: "إجمالي الطلاب", value: "—", icon: Users, color: "text-institute-blue" },
+          { label: "أعضاء هيئة التدريس", value: "—", icon: GraduationCap, color: "text-institute-gold" },
+          { label: "المقررات الدراسية", value: "—", icon: BookOpen, color: "text-institute-gold" },
         ].map((stat, index) => (
           <motion.div
             key={index}
@@ -212,29 +158,29 @@ export default function DepartmentsPage() {
             <Card className="h-full hover:shadow-lg transition-shadow">
               <CardHeader>
                 <div className="flex items-start justify-between">
-                  <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${dept.color} flex items-center justify-center text-2xl`}>
-                    {dept.icon}
+                  <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${cardGradients[index % cardGradients.length]} flex items-center justify-center text-2xl`}>
+                    {cardIcons[index % cardIcons.length]}
                   </div>
                   <Button variant="ghost" size="icon">
                     <Settings className="w-4 h-4" />
                   </Button>
                 </div>
-                <CardTitle className="mt-4">{dept.name}</CardTitle>
-                <CardDescription>{dept.description}</CardDescription>
+                <CardTitle className="mt-4">{dept.nameAr}</CardTitle>
+                <CardDescription>{dept.description ?? "—"}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="p-2 rounded-lg bg-muted/50">
-                    <p className="text-lg font-bold">{dept.students}</p>
+                    <p className="text-lg font-bold">—</p>
                     <p className="text-xs text-muted-foreground">طالب</p>
                   </div>
                   <div className="p-2 rounded-lg bg-muted/50">
-                    <p className="text-lg font-bold">{dept.faculty}</p>
+                    <p className="text-lg font-bold">—</p>
                     <p className="text-xs text-muted-foreground">عضو</p>
                   </div>
                   <div className="p-2 rounded-lg bg-muted/50">
-                    <p className="text-lg font-bold">{dept.courses}</p>
+                    <p className="text-lg font-bold">{dept._count.specializations}</p>
                     <p className="text-xs text-muted-foreground">مقرر</p>
                   </div>
                 </div>
@@ -243,9 +189,9 @@ export default function DepartmentsPage() {
                 <div>
                   <p className="text-sm font-medium mb-2">البرامج:</p>
                   <div className="flex flex-wrap gap-1">
-                    {dept.programs.map((program, i) => (
-                      <Badge key={i} variant="secondary" className="text-xs">
-                        {program}
+                    {dept.specializations.map((program) => (
+                      <Badge key={program.id} variant="secondary" className="text-xs">
+                        {program.nameAr}
                       </Badge>
                     ))}
                   </div>
@@ -257,7 +203,7 @@ export default function DepartmentsPage() {
                     <GraduationCap className="w-4 h-4 text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">رئيس القسم:</span>
                   </div>
-                  <span className="text-sm font-medium">{dept.head}</span>
+                  <span className="text-sm font-medium">{dept.head ?? "—"}</span>
                 </div>
 
                 {/* Actions */}

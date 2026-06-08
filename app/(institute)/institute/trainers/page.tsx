@@ -1,18 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
   UserCheck,
   Search,
   Plus,
   Download,
-  MoreVertical,
   Eye,
-  Edit,
   Star,
   BookOpen,
-  Clock,
   Phone,
   Mail,
   Calendar,
@@ -21,14 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Progress } from "@/components/ui/progress"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   Select,
   SelectContent,
@@ -39,61 +29,27 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-// Trainers Data
-const trainers = [
-  {
-    id: "TRN001",
-    name: "م. أحمد سعيد محمد",
-    specialty: "تطوير الويب",
-    phone: "01012345678",
-    email: "ahmed@example.com",
-    courses: 5,
-    trainees: 150,
-    rating: 4.9,
-    status: "active",
-    experience: "8 سنوات",
-    certifications: ["AWS Certified", "Google Cloud"],
-  },
-  {
-    id: "TRN002",
-    name: "د. سارة محمود حسن",
-    specialty: "إدارة المشاريع",
-    phone: "01123456789",
-    email: "sara@example.com",
-    courses: 8,
-    trainees: 220,
-    rating: 4.8,
-    status: "active",
-    experience: "12 سنة",
-    certifications: ["PMP", "PRINCE2"],
-  },
-  {
-    id: "TRN003",
-    name: "أ. محمد خالد علي",
-    specialty: "التسويق الرقمي",
-    phone: "01234567890",
-    email: "mohamed@example.com",
-    courses: 6,
-    trainees: 180,
-    rating: 4.7,
-    status: "active",
-    experience: "6 سنوات",
-    certifications: ["Google Ads", "Facebook Blueprint"],
-  },
-  {
-    id: "TRN004",
-    name: "م. فاطمة أحمد سعيد",
-    specialty: "تحليل البيانات",
-    phone: "01098765432",
-    email: "fatma@example.com",
-    courses: 3,
-    trainees: 85,
-    rating: 4.6,
-    status: "inactive",
-    experience: "4 سنوات",
-    certifications: ["Python", "Data Science"],
-  },
-]
+type Trainer = {
+  id: string
+  name: string
+  specialty: string
+  phone: string
+  email: string
+  courses: number
+  trainees: number
+  rating: number
+  status: string
+  experience: string
+  certifications: string[]
+}
+
+type Stats = {
+  total: number
+  active: number
+  avgRating: number
+  totalTrainees: number
+  totalCourses: number
+}
 
 // Schedule Data
 const scheduleData = [
@@ -103,17 +59,40 @@ const scheduleData = [
   { trainer: "أ. محمد خالد", day: "الثلاثاء", time: "6:00 - 9:00 م", course: "التسويق الرقمي" },
 ]
 
-// Stats
-const stats = {
-  total: 45,
-  active: 38,
-  avgRating: 4.7,
-  totalCourses: 85,
-}
-
 export default function TrainersPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [specialtyFilter, setSpecialtyFilter] = useState("all")
+  const [trainers, setTrainers] = useState<Trainer[]>([])
+  const [stats, setStats] = useState<Stats>({ total: 0, active: 0, avgRating: 0, totalTrainees: 0, totalCourses: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/trainers")
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}))
+          throw new Error(b.error || "فشل في جلب البيانات")
+        }
+        const json = await res.json()
+        if (!cancelled) {
+          setTrainers(json.trainers ?? [])
+          setStats(json.stats ?? { total: 0, active: 0, avgRating: 0, totalTrainees: 0, totalCourses: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filteredTrainers = trainers.filter((trainer) => {
     const matchesSearch = trainer.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -140,6 +119,17 @@ export default function TrainersPage() {
           </Button>
         </div>
       </div>
+
+      {loading && (
+        <Card>
+          <CardContent className="p-4 text-center text-muted-foreground">جارٍ التحميل...</CardContent>
+        </Card>
+      )}
+      {error && (
+        <Card>
+          <CardContent className="p-4 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

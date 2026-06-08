@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Award,
   Search,
@@ -12,8 +12,6 @@ import {
   Clock,
   QrCode,
   Printer,
-  Copy,
-  ExternalLink,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -38,48 +36,27 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-// Certificates Data
-const certificates = [
-  {
-    id: "CERT-2024-001",
-    trainee: "أحمد محمد علي",
-    program: "تطوير تطبيقات الويب",
-    issueDate: "2024-12-20",
-    status: "issued",
-    verificationCode: "VER-ABC123",
-  },
-  {
-    id: "CERT-2024-002",
-    trainee: "سارة خالد أحمد",
-    program: "التسويق الرقمي",
-    issueDate: "2024-12-18",
-    status: "issued",
-    verificationCode: "VER-DEF456",
-  },
-  {
-    id: "CERT-2024-003",
-    trainee: "محمد سعيد حسن",
-    program: "إدارة المشاريع PMP",
-    issueDate: null,
-    status: "pending",
-    verificationCode: null,
-  },
-]
+type Certificate = {
+  id: string
+  trainee: string
+  program: string | null
+  issueDate: string | null
+  status: string
+  verificationCode: string | null
+}
 
-// Templates
+type Stats = {
+  total: number
+  issued: number
+  pending: number
+}
+
+// Templates — no API source; kept as static reference data.
 const templates = [
   { id: 1, name: "شهادة إتمام التدريب", uses: 450, type: "completion" },
   { id: 2, name: "شهادة الحضور", uses: 320, type: "attendance" },
   { id: 3, name: "شهادة التميز", uses: 85, type: "excellence" },
 ]
-
-// Stats
-const stats = {
-  total: 850,
-  thisMonth: 45,
-  pending: 12,
-  verified: 1250,
-}
 
 const statusConfig = {
   issued: { label: "صادرة", color: "bg-institute-blue text-green-700", icon: CheckCircle2 },
@@ -90,6 +67,37 @@ export default function CertificatesPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [verificationCode, setVerificationCode] = useState("")
+  const [certificates, setCertificates] = useState<Certificate[]>([])
+  const [stats, setStats] = useState<Stats>({ total: 0, issued: 0, pending: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/certificates")
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}))
+          throw new Error(b.error || "فشل في جلب البيانات")
+        }
+        const json = await res.json()
+        if (!cancelled) {
+          setCertificates(json.certificates ?? [])
+          setStats(json.stats ?? { total: 0, issued: 0, pending: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filteredCertificates = certificates.filter((cert) => {
     const matchesSearch =
@@ -119,20 +127,34 @@ export default function CertificatesPage() {
         </div>
       </div>
 
+      {/* Loading / Error */}
+      {loading && (
+        <Card>
+          <CardContent className="p-4 text-center text-muted-foreground">
+            جارٍ التحميل...
+          </CardContent>
+        </Card>
+      )}
+      {error && (
+        <Card>
+          <CardContent className="p-4 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4 text-center">
             <Award className="w-8 h-8 mx-auto text-institute-blue mb-2" />
-            <p className="text-2xl font-bold">{stats.total}</p>
+            <p className="text-2xl font-bold">{stats.issued}</p>
             <p className="text-sm text-muted-foreground">شهادة صادرة</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
             <FileText className="w-8 h-8 mx-auto text-blue-500 mb-2" />
-            <p className="text-2xl font-bold text-institute-blue">{stats.thisMonth}</p>
-            <p className="text-sm text-muted-foreground">هذا الشهر</p>
+            <p className="text-2xl font-bold text-institute-blue">{stats.total}</p>
+            <p className="text-sm text-muted-foreground">إجمالي الشهادات</p>
           </CardContent>
         </Card>
         <Card>
@@ -145,7 +167,7 @@ export default function CertificatesPage() {
         <Card>
           <CardContent className="p-4 text-center">
             <QrCode className="w-8 h-8 mx-auto text-green-500 mb-2" />
-            <p className="text-2xl font-bold text-institute-blue">{stats.verified.toLocaleString()}</p>
+            <p className="text-2xl font-bold text-institute-blue">—</p>
             <p className="text-sm text-muted-foreground">عملية تحقق</p>
           </CardContent>
         </Card>
@@ -205,7 +227,9 @@ export default function CertificatesPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredCertificates.map((cert) => {
-                    const status = statusConfig[cert.status as keyof typeof statusConfig]
+                    const status =
+                      statusConfig[cert.status as keyof typeof statusConfig] ??
+                      statusConfig.pending
                     const StatusIcon = status.icon
 
                     return (
@@ -225,7 +249,7 @@ export default function CertificatesPage() {
                         <TableCell>
                           {cert.issueDate
                             ? new Date(cert.issueDate).toLocaleDateString("ar-EG")
-                            : "-"}
+                            : "—"}
                         </TableCell>
                         <TableCell>
                           <Badge className={cn("gap-1", status.color)}>

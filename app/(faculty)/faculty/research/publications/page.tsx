@@ -1,23 +1,34 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { BookOpen, Search, Plus, Download, FileText, Star, ExternalLink, Quote, Eye, Edit, Trash2, TrendingUp } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { BookOpen, Search, Plus, Download, FileText, Star, ExternalLink, Quote, Edit, Trash2, TrendingUp } from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-const myPublications = [
-  { id: 1, title: "Machine Learning in Education: A Comprehensive Review", journal: "IEEE Transactions on Education", year: 2024, citations: 45, type: "journal", impact: 4.5, status: "published" },
-  { id: 2, title: "AI-Powered Learning Systems for Higher Education", journal: "ACM Conference on Learning", year: 2024, citations: 28, type: "conference", impact: 3.1, status: "published" },
-  { id: 3, title: "Data Analytics in Higher Education: Challenges and Opportunities", journal: "Springer Education", year: 2023, citations: 32, type: "book_chapter", impact: null, status: "published" },
-  { id: 4, title: "Deep Learning for Student Performance Prediction", journal: "Nature Machine Intelligence", year: 2024, citations: 0, type: "journal", impact: 8.2, status: "under_review" },
-  { id: 5, title: "Adaptive Learning Algorithms: A Survey", journal: "IEEE Access", year: 2023, citations: 18, type: "journal", impact: 3.9, status: "published" },
-]
+interface PublicationRow {
+  id: string
+  title: string
+  journal: string
+  year: number | null
+  citations: number
+  type: string
+  impact: number | null
+  status: string
+}
+
+interface ResearchStats {
+  total: number
+  published: number
+  underReview: number
+  totalCitations: number
+  journal: number
+  conference: number
+  book: number
+}
 
 const typeConfig = {
   journal: { label: "مجلة علمية", color: "bg-blue-100 text-blue-700" },
@@ -31,9 +42,61 @@ const statusConfig = {
   accepted: { label: "مقبول", color: "bg-blue-100 text-blue-700" },
 }
 
+// API type/status values differ from the existing config keys; normalize to the
+// closest existing key so the badges keep working without changing the maps.
+function normalizeType(apiType: string): string {
+  if (apiType === "book") return "book_chapter"
+  return apiType
+}
+
+function normalizeStatus(apiStatus: string): string {
+  if (apiStatus === "under-review") return "under_review"
+  return apiStatus
+}
+
 export default function FacultyPublicationsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [typeFilter, setTypeFilter] = useState("all")
+  const [myPublications, setMyPublications] = useState<PublicationRow[]>([])
+  const [apiStats, setApiStats] = useState<ResearchStats>({ total: 0, published: 0, underReview: 0, totalCitations: 0, journal: 0, conference: 0, book: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/faculty/research`)
+        if (!res.ok) throw new Error("فشل في جلب المنشورات")
+        const json = await res.json()
+        if (!cancelled) {
+          const pubs: PublicationRow[] = (json.publications ?? []).map((p: {
+            id: string; title: string; venue: string; year: number | null;
+            type: string; citations: number; impactFactor: number | null; status: string
+          }) => ({
+            id: p.id,
+            title: p.title,
+            journal: p.venue,
+            year: p.year,
+            citations: p.citations,
+            type: normalizeType(p.type),
+            impact: p.impactFactor,
+            status: normalizeStatus(p.status),
+          }))
+          setMyPublications(pubs)
+          setApiStats(json.stats ?? { total: 0, published: 0, underReview: 0, totalCitations: 0, journal: 0, conference: 0, book: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
 
   const filteredPubs = myPublications.filter(pub => {
     const matchesSearch = pub.title.toLowerCase().includes(searchTerm.toLowerCase())
@@ -41,9 +104,12 @@ export default function FacultyPublicationsPage() {
     return matchesSearch && matchesType
   })
 
-  const totalCitations = myPublications.reduce((s, p) => s + p.citations, 0)
-  const hIndex = 4 // Calculated H-index
-  const publishedCount = myPublications.filter(p => p.status === "published").length
+  const totalCitations = apiStats.totalCitations
+  const avgImpact = (() => {
+    const withImpact = myPublications.filter(p => p.impact != null) as (PublicationRow & { impact: number })[]
+    if (withImpact.length === 0) return "—"
+    return (withImpact.reduce((s, p) => s + p.impact, 0) / withImpact.length).toFixed(1)
+  })()
 
   return (
     <div className="space-y-6">
@@ -61,13 +127,16 @@ export default function FacultyPublicationsPage() {
         </Button>
       </div>
 
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-gray-500">جارٍ تحميل المنشورات...</CardContent></Card>}
+
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
-          { label: "إجمالي المنشورات", value: myPublications.length, icon: FileText, color: "indigo" },
+          { label: "إجمالي المنشورات", value: apiStats.total, icon: FileText, color: "indigo" },
           { label: "إجمالي الاستشهادات", value: totalCitations, icon: Quote, color: "purple" },
-          { label: "H-Index", value: hIndex, icon: TrendingUp, color: "green" },
-          { label: "متوسط Impact Factor", value: "4.8", icon: Star, color: "yellow" },
+          { label: "منشورة", value: apiStats.published, icon: TrendingUp, color: "green" },
+          { label: "متوسط Impact Factor", value: avgImpact, icon: Star, color: "yellow" },
         ].map((stat, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
             <Card className={`border-r-4 border-r-${stat.color}-500`}>
@@ -134,19 +203,25 @@ export default function FacultyPublicationsPage() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <h3 className="font-bold text-lg text-gray-900 dark:text-white">{pub.title}</h3>
-                    <p className="text-sm text-gray-500 mt-1">{pub.journal} • {pub.year}</p>
+                    <p className="text-sm text-gray-500 mt-1">{pub.journal} • {pub.year ?? "—"}</p>
                     <div className="flex items-center gap-3 mt-3">
-                      <Badge className={typeConfig[pub.type as keyof typeof typeConfig].color}>
-                        {typeConfig[pub.type as keyof typeof typeConfig].label}
-                      </Badge>
-                      <Badge className={statusConfig[pub.status as keyof typeof statusConfig].color}>
-                        {statusConfig[pub.status as keyof typeof statusConfig].label}
-                      </Badge>
-                      {pub.impact && (
-                        <Badge className="bg-yellow-100 text-yellow-700">
-                          IF: {pub.impact}
+                      {pub.type in typeConfig ? (
+                        <Badge className={typeConfig[pub.type as keyof typeof typeConfig].color}>
+                          {typeConfig[pub.type as keyof typeof typeConfig].label}
                         </Badge>
+                      ) : (
+                        <Badge className="bg-gray-100 text-gray-700">{pub.type}</Badge>
                       )}
+                      {pub.status in statusConfig ? (
+                        <Badge className={statusConfig[pub.status as keyof typeof statusConfig].color}>
+                          {statusConfig[pub.status as keyof typeof statusConfig].label}
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-gray-100 text-gray-700">{pub.status}</Badge>
+                      )}
+                      <Badge className="bg-yellow-100 text-yellow-700">
+                        IF: {pub.impact != null ? pub.impact : "—"}
+                      </Badge>
                       <span className="text-sm text-gray-500 flex items-center gap-1">
                         <Quote className="w-4 h-4" />
                         {pub.citations} استشهاد

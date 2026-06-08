@@ -1,33 +1,74 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Gift, Users, Percent, Award, Plus, Eye } from "lucide-react"
+import { Gift, Users, Percent, Award, Plus } from "lucide-react"
+
+interface ScholarshipRow {
+  id: string
+  student: string
+  studentCode: string
+  type: string
+  amount: number
+  percentage: number | null
+  academicYear: string
+  reason: string
+  status: "ACTIVE" | "ENDED"
+}
+
+interface ScholarshipStats {
+  total: number
+  active: number
+  totalAmount: number
+}
 
 export default function ScholarshipsPage() {
+  const [allScholarships, setAllScholarships] = useState<ScholarshipRow[]>([])
+  const [apiStats, setApiStats] = useState<ScholarshipStats>({ total: 0, active: 0, totalAmount: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/finance/scholarships`)
+        if (!res.ok) throw new Error("فشل في جلب المنح")
+        const json = await res.json()
+        if (!cancelled) {
+          setAllScholarships(json.scholarships ?? [])
+          setApiStats(json.stats ?? { total: 0, active: 0, totalAmount: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
   const stats = [
-    { label: "المستفيدين", value: "185", icon: Users, color: "text-institute-blue" },
-    { label: "منح كاملة", value: "25", icon: Award, color: "text-institute-gold" },
-    { label: "إعفاء جزئي", value: "120", icon: Percent, color: "text-institute-blue" },
-    { label: "قيمة المنح", value: "2.5M", icon: Gift, color: "text-institute-gold" },
+    { label: "المستفيدين", value: String(apiStats.total), icon: Users, color: "text-institute-blue" },
+    { label: "المنح النشطة", value: String(apiStats.active), icon: Award, color: "text-institute-gold" },
+    { label: "قيمة المنح", value: apiStats.totalAmount.toLocaleString(), icon: Gift, color: "text-institute-gold" },
+    { label: "إجمالي المنح", value: String(allScholarships.length), icon: Percent, color: "text-institute-blue" },
   ]
 
-  const scholarships = [
-    { type: "منحة التفوق", percentage: 100, beneficiaries: 25, criteria: "معدل تراكمي 3.7 فأعلى" },
-    { type: "منحة الرياضة", percentage: 50, beneficiaries: 40, criteria: "لاعبي المنتخبات" },
-    { type: "منحة اجتماعية", percentage: 75, beneficiaries: 60, criteria: "الحالات الاجتماعية" },
-    { type: "إعفاء أبناء العاملين", percentage: 30, beneficiaries: 35, criteria: "أبناء موظفي المعهد" },
-    { type: "منحة الإعاقة", percentage: 100, beneficiaries: 15, criteria: "ذوي الاحتياجات الخاصة" },
-  ]
+  const recentBeneficiaries = allScholarships.slice(0, 5).map((s) => ({
+    name: s.student,
+    type: s.type,
+    amount: s.amount,
+  }))
 
-  const recentBeneficiaries = [
-    { name: "أحمد محمد", type: "منحة التفوق", percentage: 100, gpa: 3.85 },
-    { name: "سارة علي", type: "منحة اجتماعية", percentage: 75, gpa: 3.2 },
-    { name: "محمد حسن", type: "منحة الرياضة", percentage: 50, gpa: 2.8 },
-  ]
+  const statusLabel = (status: ScholarshipRow["status"]) => (status === "ACTIVE" ? "نشط" : "منتهٍ")
 
   return (
     <div className="space-y-6">
@@ -44,6 +85,9 @@ export default function ScholarshipsPage() {
           منحة جديدة
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل المنح...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -70,29 +114,34 @@ export default function ScholarshipsPage() {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
-        {/* Scholarship Types */}
+        {/* Scholarships */}
         <Card>
           <CardHeader>
-            <CardTitle>أنواع المنح</CardTitle>
+            <CardTitle>المنح والإعفاءات</CardTitle>
             <CardDescription>برامج المنح والإعفاءات المتاحة</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {scholarships.map((scholarship, index) => (
+              {allScholarships.map((scholarship, index) => (
                 <motion.div
-                  key={index}
+                  key={scholarship.id}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.1 }}
                   className="flex items-center justify-between p-3 rounded-lg border"
                 >
                   <div>
-                    <h4 className="font-medium">{scholarship.type}</h4>
-                    <p className="text-sm text-muted-foreground">{scholarship.criteria}</p>
+                    <h4 className="font-medium">{scholarship.student}</h4>
+                    <p className="text-sm text-muted-foreground">{scholarship.studentCode} · {scholarship.type}</p>
+                    <p className="text-sm text-muted-foreground">{scholarship.reason}</p>
+                    <p className="text-xs text-muted-foreground">{scholarship.academicYear}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge className="bg-institute-gold text-purple-700">{scholarship.percentage}%</Badge>
-                    <Badge variant="outline">{scholarship.beneficiaries} مستفيد</Badge>
+                    <Badge className="bg-institute-gold text-purple-700">
+                      {scholarship.percentage !== null ? `${scholarship.percentage}%` : "—"}
+                    </Badge>
+                    <Badge variant="outline">{scholarship.amount.toLocaleString()}</Badge>
+                    <Badge variant="secondary">{statusLabel(scholarship.status)}</Badge>
                   </div>
                 </motion.div>
               ))}
@@ -126,8 +175,7 @@ export default function ScholarshipsPage() {
                     <p className="text-sm text-muted-foreground">{beneficiary.type}</p>
                   </div>
                   <div className="text-left">
-                    <Badge className="bg-institute-blue text-green-700">{beneficiary.percentage}%</Badge>
-                    <p className="text-xs text-muted-foreground mt-1">GPA: {beneficiary.gpa}</p>
+                    <Badge className="bg-institute-blue text-green-700">{beneficiary.amount.toLocaleString()}</Badge>
                   </div>
                 </motion.div>
               ))}

@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { motion } from "framer-motion"
 import {
@@ -12,62 +13,97 @@ import {
   Bell,
   ChevronLeft,
   CheckCircle2,
-  AlertCircle,
   Play,
   TrendingUp,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 
-// Today's Schedule
-const todaySchedule = [
-  { id: 1, subject: "الرياضيات", time: "8:00 - 8:45", teacher: "أ. محمد أحمد", room: "قاعة 101", status: "completed" },
-  { id: 2, subject: "اللغة العربية", time: "9:00 - 9:45", teacher: "أ. سارة خالد", room: "قاعة 101", status: "completed" },
-  { id: 3, subject: "الفيزياء", time: "10:00 - 10:45", teacher: "أ. أحمد علي", room: "معمل 1", status: "current" },
-  { id: 4, subject: "اللغة الإنجليزية", time: "11:00 - 11:45", teacher: "أ. نورا محمد", room: "قاعة 101", status: "upcoming" },
-  { id: 5, subject: "الكيمياء", time: "12:00 - 12:45", teacher: "أ. خالد سعيد", room: "معمل 2", status: "upcoming" },
-]
-
-// Upcoming Assignments
-const upcomingAssignments = [
-  { id: 1, subject: "الرياضيات", title: "حل تمارين الباب الثالث", dueDate: "2024-12-26", status: "pending" },
-  { id: 2, subject: "الفيزياء", title: "تقرير عن قوانين نيوتن", dueDate: "2024-12-27", status: "pending" },
-  { id: 3, subject: "اللغة العربية", title: "إنشاء عن حب الوطن", dueDate: "2024-12-28", status: "pending" },
-]
-
-// Recent Grades
-const recentGrades = [
-  { id: 1, subject: "الرياضيات", exam: "اختبار شهري", grade: 48, total: 50, date: "2024-12-20" },
-  { id: 2, subject: "اللغة الإنجليزية", exam: "اختبار قصير", grade: 18, total: 20, date: "2024-12-19" },
-  { id: 3, subject: "الفيزياء", exam: "اختبار عملي", grade: 28, total: 30, date: "2024-12-18" },
-]
-
-// Stats
-const stats = {
-  attendance: 95,
-  gpa: 3.8,
-  completedAssignments: 24,
-  totalAssignments: 28,
+// --- API response shapes (served by /api/student/dashboard) ---
+interface TodayLesson {
+  id: number
+  subject: string
+  time: string
+  teacher: string
+  room: string
+  status: string
+}
+interface UpcomingAssignment {
+  id: string
+  subject: string
+  title: string
+  dueDate: string
+  status: string
+}
+interface RecentGrade {
+  id: string
+  subject: string
+  exam: string
+  grade: number
+  total: number
+  date: string
+}
+interface DashboardNotification {
+  id: string
+  type: string
+  message: string
+  time: string
+}
+interface DashboardResponse {
+  student: { id: string; studentCode: string; name: string }
+  stats: { attendance: number; gpa: number; completedAssignments: number; totalAssignments: number }
+  todaySchedule: TodayLesson[]
+  upcomingAssignments: UpcomingAssignment[]
+  recentGrades: RecentGrade[]
+  notifications: DashboardNotification[]
 }
 
-// Notifications
-const notifications = [
-  { id: 1, type: "assignment", message: "واجب جديد في الرياضيات", time: "منذ ساعة" },
-  { id: 2, type: "grade", message: "تم رصد درجة اختبار الفيزياء", time: "منذ 3 ساعات" },
-  { id: 3, type: "announcement", message: "إجازة رسمية يوم الأحد", time: "أمس" },
-]
-
 export default function StudentDashboard() {
+  const [data, setData] = useState<DashboardResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/student/dashboard`)
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error || "فشل في جلب لوحة التحكم")
+        }
+        const json = (await res.json()) as DashboardResponse
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const todaySchedule = data?.todaySchedule ?? []
+  const upcomingAssignments = data?.upcomingAssignments ?? []
+  const recentGrades = data?.recentGrades ?? []
+  const notifications = data?.notifications ?? []
+  const stats = data?.stats
+  const firstName = data?.student?.name?.split(" ")[0] ?? ""
+
   return (
     <div className="space-y-6">
       {/* Welcome Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">مرحباً، أحمد 👋</h1>
+          <h1 className="text-2xl font-bold">مرحباً، {firstName} 👋</h1>
           <p className="text-muted-foreground">
             {new Date().toLocaleDateString("ar-EG", {
               weekday: "long",
@@ -83,6 +119,19 @@ export default function StudentDashboard() {
         </Badge>
       </div>
 
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل لوحة التحكم...</CardContent>
+        </Card>
+      )}
+
+      {!loading && !error && stats && (
+      <>
       {/* Quick Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <motion.div
@@ -359,6 +408,8 @@ export default function StudentDashboard() {
           </div>
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   )
 }

@@ -1,11 +1,11 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import {
   CreditCard,
   Download,
   CheckCircle2,
   Clock,
-  Calendar,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -15,37 +15,56 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 
-// Children Fees
-const childrenFees = [
-  {
-    id: 1,
-    name: "أحمد محمد علي",
-    avatar: "أ",
-    total: 25000,
-    paid: 20000,
-    remaining: 5000,
-    nextDue: "2025-01-15",
-    payments: [
-      { date: "2024-12-01", amount: 10000, method: "بطاقة ائتمان", status: "paid" },
-      { date: "2024-11-01", amount: 10000, method: "فوري", status: "paid" },
-      { date: "2025-01-15", amount: 5000, method: "-", status: "pending" },
-    ],
-  },
-  {
-    id: 2,
-    name: "سارة محمد علي",
-    avatar: "س",
-    total: 18000,
-    paid: 18000,
-    remaining: 0,
-    nextDue: null,
-    payments: [
-      { date: "2024-09-01", amount: 18000, method: "تحويل بنكي", status: "paid" },
-    ],
-  },
-]
+// --- API response shape (served by /api/parent/fees) ---
+interface FeeItem {
+  label: string
+  amount: number
+}
+
+interface Payment {
+  date: string | null
+  amount: number
+  method: string
+  status: "paid" | "pending" | "overdue"
+}
+
+interface ChildFees {
+  id: string
+  name: string
+  studentCode: string
+  total: number
+  paid: number
+  remaining: number
+  nextDueDate: string | null
+  items: FeeItem[]
+  payments: Payment[]
+}
 
 export default function ParentFeesPage() {
+  const [childrenFees, setChildrenFees] = useState<ChildFees[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/parent/fees`)
+        if (!res.ok) throw new Error("فشل في جلب المصروفات")
+        const json = await res.json()
+        if (!cancelled) setChildrenFees(json.childrenFees ?? [])
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
   const totalFees = childrenFees.reduce((acc, c) => acc + c.total, 0)
   const totalPaid = childrenFees.reduce((acc, c) => acc + c.paid, 0)
   const totalRemaining = childrenFees.reduce((acc, c) => acc + c.remaining, 0)
@@ -63,6 +82,13 @@ export default function ParentFeesPage() {
           دفع الآن
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل المصروفات...</CardContent></Card>}
+
+      {!loading && !error && childrenFees.length === 0 && (
+        <Card><CardContent className="p-12 text-center text-muted-foreground">لا يوجد أبناء مرتبطون بهذا الحساب</CardContent></Card>
+      )}
 
       {/* Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -96,13 +122,14 @@ export default function ParentFeesPage() {
       </div>
 
       {/* Children Tabs */}
-      <Tabs defaultValue="1">
+      {!loading && !error && childrenFees.length > 0 && (
+      <Tabs defaultValue={childrenFees[0].id}>
         <TabsList className="w-full justify-start">
           {childrenFees.map((child) => (
-            <TabsTrigger key={child.id} value={child.id.toString()} className="gap-2">
+            <TabsTrigger key={child.id} value={child.id} className="gap-2">
               <Avatar className="w-6 h-6">
                 <AvatarFallback className="text-xs bg-pink-100 text-pink-600">
-                  {child.avatar}
+                  {child.name.charAt(0)}
                 </AvatarFallback>
               </Avatar>
               {child.name}
@@ -111,19 +138,20 @@ export default function ParentFeesPage() {
         </TabsList>
 
         {childrenFees.map((child) => {
-          const progress = (child.paid / child.total) * 100
+          const progress = child.total > 0 ? (child.paid / child.total) * 100 : 0
 
           return (
-            <TabsContent key={child.id} value={child.id.toString()} className="mt-6">
+            <TabsContent key={child.id} value={child.id} className="mt-6">
               {/* Child Fee Summary */}
               <Card className="mb-6">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between mb-4">
                     <div>
                       <h3 className="font-bold text-lg">{child.name}</h3>
-                      {child.nextDue && (
+                      <p className="text-sm text-muted-foreground">رقم الطالب: {child.studentCode}</p>
+                      {child.nextDueDate && (
                         <p className="text-sm text-muted-foreground">
-                          موعد القسط القادم: {new Date(child.nextDue).toLocaleDateString("ar-EG")}
+                          موعد القسط القادم: {new Date(child.nextDueDate).toLocaleDateString("ar-EG")}
                         </p>
                       )}
                     </div>
@@ -141,6 +169,23 @@ export default function ParentFeesPage() {
                   <p className="text-sm text-muted-foreground mt-2">
                     {child.paid.toLocaleString()} من {child.total.toLocaleString()} ج.م
                   </p>
+                </CardContent>
+              </Card>
+
+              {/* Fee Breakdown */}
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle>تفاصيل المصروفات</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {child.items.map((item, index) => (
+                      <div key={index} className="flex items-center justify-between text-sm">
+                        <span>{item.label}</span>
+                        <span className="font-medium">{item.amount.toLocaleString()} ج.م</span>
+                      </div>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
 
@@ -167,7 +212,7 @@ export default function ParentFeesPage() {
                           <div>
                             <p className="font-medium">{payment.amount.toLocaleString()} ج.م</p>
                             <p className="text-sm text-muted-foreground">
-                              {new Date(payment.date).toLocaleDateString("ar-EG")} • {payment.method}
+                              {payment.date ? new Date(payment.date).toLocaleDateString("ar-EG") : "—"} • {payment.method}
                             </p>
                           </div>
                         </div>
@@ -192,6 +237,7 @@ export default function ParentFeesPage() {
           )
         })}
       </Tabs>
+      )}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,9 +22,45 @@ export default function SettingsPage() {
     headerLogo: '/logo.png',
     footerText: 'Powered by Smart Innovation: info@sictb.com',
   });
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
-    toast.success('تم حفظ الإعدادات بنجاح');
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSettings() {
+      try {
+        const res = await fetch('/api/settings?key=cms.general');
+        if (!res.ok) return;
+        const data = await res.json();
+        const value = data?.value;
+        if (!cancelled && value && typeof value === 'object' && Object.keys(value).length > 0) {
+          // Merge over defaults so any field the API doesn't carry yet stays intact.
+          setSettings((prev) => ({ ...prev, ...value }));
+        }
+      } catch {
+        // A failed load just leaves the defaults in place; nothing to surface.
+      }
+    }
+    loadSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'cms.general', value: settings }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      toast.success('تم الحفظ');
+    } catch {
+      toast.error('فشل في حفظ الإعدادات');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -80,9 +116,9 @@ export default function SettingsPage() {
                   placeholder="مؤسسة تعليمية رائدة..."
                 />
               </div>
-              <Button onClick={handleSave}>
+              <Button onClick={handleSave} disabled={saving}>
                 <Save className="ml-2 h-4 w-4" />
-                حفظ التغييرات
+                {saving ? 'جاري الحفظ...' : 'حفظ التغييرات'}
               </Button>
             </CardContent>
           </Card>
@@ -136,9 +172,9 @@ export default function SettingsPage() {
                   onChange={(e) => setSettings({ ...settings, facebook: e.target.value })}
                 />
               </div>
-              <Button onClick={handleSave}>
+              <Button onClick={handleSave} disabled={saving}>
                 <Save className="ml-2 h-4 w-4" />
-                حفظ التغييرات
+                {saving ? 'جاري الحفظ...' : 'حفظ التغييرات'}
               </Button>
             </CardContent>
           </Card>
@@ -176,9 +212,9 @@ export default function SettingsPage() {
                   <li>• يمكن تعديل الألوان من ملف Tailwind Config</li>
                 </ul>
               </div>
-              <Button onClick={handleSave}>
+              <Button onClick={handleSave} disabled={saving}>
                 <Save className="ml-2 h-4 w-4" />
-                حفظ التغييرات
+                {saving ? 'جاري الحفظ...' : 'حفظ التغييرات'}
               </Button>
             </CardContent>
           </Card>

@@ -1,13 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
-import { motion } from "framer-motion"
 import {
   Monitor,
   Plus,
   Search,
-  Filter,
   MoreVertical,
   Eye,
   Edit,
@@ -18,20 +16,16 @@ import {
   CheckCircle2,
   Clock,
   Users,
-  Calendar,
   Timer,
   BarChart3,
   FileText,
-  Settings,
   Download,
   Send,
-  AlertCircle,
-  TrendingUp,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Table,
   TableBody,
@@ -47,92 +41,29 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 
-// Mock Data
-const exams = [
-  {
-    id: "EX001",
-    name: "امتحان منتصف الفصل - مقدمة في البرمجة",
-    courseCode: "CS101",
-    courseName: "مقدمة في البرمجة",
-    semester: "الفصل الأول 2024/2025",
-    section: "جميع الشعب",
-    startDate: "2025-01-10T09:00:00",
-    endDate: "2025-01-10T11:00:00",
-    duration: 90,
-    questionsCount: 30,
-    totalPoints: 50,
-    studentsCount: 120,
-    completedCount: 85,
-    averageScore: 72,
-    status: "active", // draft, scheduled, active, completed
-    createdAt: "2025-01-02",
-  },
-  {
-    id: "EX002",
-    name: "اختبار قصير - هياكل البيانات",
-    courseCode: "CS201",
-    courseName: "هياكل البيانات",
-    semester: "الفصل الأول 2024/2025",
-    section: "الشعبة A",
-    startDate: "2025-01-15T14:00:00",
-    endDate: "2025-01-15T15:00:00",
-    duration: 45,
-    questionsCount: 15,
-    totalPoints: 20,
-    studentsCount: 40,
-    completedCount: 0,
-    averageScore: null,
-    status: "scheduled",
-    createdAt: "2025-01-03",
-  },
-  {
-    id: "EX003",
-    name: "امتحان نهائي - قواعد البيانات",
-    courseCode: "CS301",
-    courseName: "قواعد البيانات",
-    semester: "الفصل الأول 2024/2025",
-    section: "جميع الشعب",
-    startDate: "2024-12-20T10:00:00",
-    endDate: "2024-12-20T13:00:00",
-    duration: 150,
-    questionsCount: 50,
-    totalPoints: 100,
-    studentsCount: 95,
-    completedCount: 95,
-    averageScore: 68,
-    status: "completed",
-    createdAt: "2024-12-10",
-  },
-  {
-    id: "EX004",
-    name: "اختبار تجريبي - شبكات الحاسب",
-    courseCode: "NET101",
-    courseName: "شبكات الحاسب",
-    semester: "الفصل الأول 2024/2025",
-    section: "الشعبة B",
-    startDate: "",
-    endDate: "",
-    duration: 60,
-    questionsCount: 20,
-    totalPoints: 30,
-    studentsCount: 35,
-    completedCount: 0,
-    averageScore: null,
-    status: "draft",
-    createdAt: "2025-01-03",
-  },
-]
+interface ExamRow {
+  id: string
+  title: string
+  course: string
+  code: string
+  date: string
+  time: string
+  durationMins: number
+  questions: number
+  participants: number
+  status: "active" | "scheduled" | "completed"
+}
+
+interface ExamStats {
+  total: number
+  active: number
+  scheduled: number
+  completed: number
+  totalQuestions: number
+}
 
 const statusConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
   draft: { label: "مسودة", color: "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400", icon: FileText },
@@ -143,41 +74,58 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.E
 
 export default function OnlineExamsPage() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
+  const [statusFilter] = useState("all")
   const [activeTab, setActiveTab] = useState("all")
+  const [exams, setExams] = useState<ExamRow[]>([])
+  const [apiStats, setApiStats] = useState<ExamStats>({ total: 0, active: 0, scheduled: 0, completed: 0, totalQuestions: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/online-exams`)
+        if (!res.ok) throw new Error("فشل في جلب الامتحانات الإلكترونية")
+        const json = await res.json()
+        if (!cancelled) {
+          setExams(json.exams ?? [])
+          setApiStats(json.stats ?? { total: 0, active: 0, scheduled: 0, completed: 0, totalQuestions: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
 
   const filteredExams = exams.filter(exam => {
-    const matchesSearch = 
-      exam.name.includes(searchQuery) ||
-      exam.courseCode.includes(searchQuery) ||
-      exam.courseName.includes(searchQuery)
+    const matchesSearch =
+      exam.title.includes(searchQuery) ||
+      exam.code.includes(searchQuery) ||
+      exam.course.includes(searchQuery)
     const matchesStatus = statusFilter === "all" || exam.status === statusFilter
     const matchesTab = activeTab === "all" || exam.status === activeTab
     return matchesSearch && matchesStatus && matchesTab
   })
 
   const stats = {
-    total: exams.length,
-    draft: exams.filter(e => e.status === "draft").length,
-    scheduled: exams.filter(e => e.status === "scheduled").length,
-    active: exams.filter(e => e.status === "active").length,
-    completed: exams.filter(e => e.status === "completed").length,
-    totalStudents: exams.reduce((sum, e) => sum + e.studentsCount, 0),
-    averageCompletion: Math.round(
-      exams.filter(e => e.status === "completed").reduce((sum, e) => sum + (e.completedCount / e.studentsCount) * 100, 0) / 
-      (exams.filter(e => e.status === "completed").length || 1)
-    ),
+    total: apiStats.total,
+    draft: 0,
+    scheduled: apiStats.scheduled,
+    active: apiStats.active,
+    completed: apiStats.completed,
+    totalQuestions: apiStats.totalQuestions,
   }
 
-  const formatDateTime = (dateStr: string) => {
+  const formatDateTime = (dateStr: string, timeStr: string) => {
     if (!dateStr) return "غير محدد"
-    return new Date(dateStr).toLocaleString("ar-EG", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
+    return timeStr ? `${dateStr} ${timeStr}` : dateStr
   }
 
   return (
@@ -214,6 +162,9 @@ export default function OnlineExamsPage() {
           </Button>
         </div>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الامتحانات الإلكترونية...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -313,52 +264,46 @@ export default function OnlineExamsPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredExams.map((exam) => {
-                    const status = statusConfig[exam.status]
+                    const status = statusConfig[exam.status] ?? statusConfig.scheduled
                     const StatusIcon = status.icon
-                    const completionRate = exam.studentsCount > 0 
-                      ? Math.round((exam.completedCount / exam.studentsCount) * 100) 
-                      : 0
-                    
+
                     return (
                       <TableRow key={exam.id}>
                         <TableCell>
                           <div>
-                            <p className="font-medium">{exam.name}</p>
+                            <p className="font-medium">{exam.title}</p>
                             <p className="text-xs text-muted-foreground">{exam.id}</p>
                           </div>
                         </TableCell>
                         <TableCell>
                           <div>
-                            <p className="font-mono text-sm">{exam.courseCode}</p>
-                            <p className="text-xs text-muted-foreground">{exam.courseName}</p>
+                            <p className="font-mono text-sm">{exam.code}</p>
+                            <p className="text-xs text-muted-foreground">{exam.course}</p>
                           </div>
                         </TableCell>
                         <TableCell>
                           <div className="text-sm">
-                            <p>{formatDateTime(exam.startDate)}</p>
+                            <p>{formatDateTime(exam.date, exam.time)}</p>
                           </div>
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="gap-1">
                             <Timer className="w-3 h-3" />
-                            {exam.duration} دقيقة
+                            {exam.durationMins} دقيقة
                           </Badge>
                         </TableCell>
                         <TableCell>
                           <div className="text-center">
-                            <p className="font-bold">{exam.questionsCount}</p>
-                            <p className="text-xs text-muted-foreground">{exam.totalPoints} درجة</p>
+                            <p className="font-bold">{exam.questions}</p>
+                            <p className="text-xs text-muted-foreground">—</p>
                           </div>
                         </TableCell>
                         <TableCell>
                           <div>
                             <div className="flex items-center gap-2 mb-1">
                               <Users className="w-4 h-4 text-muted-foreground" />
-                              <span>{exam.completedCount}/{exam.studentsCount}</span>
+                              <span>{exam.participants}</span>
                             </div>
-                            {exam.status === "completed" && (
-                              <Progress value={completionRate} className="h-1" />
-                            )}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -366,11 +311,6 @@ export default function OnlineExamsPage() {
                             <StatusIcon className="w-3 h-3" />
                             {status.label}
                           </Badge>
-                          {exam.status === "completed" && exam.averageScore !== null && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              المتوسط: {exam.averageScore}%
-                            </p>
-                          )}
                         </TableCell>
                         <TableCell>
                           <DropdownMenu>
@@ -386,13 +326,13 @@ export default function OnlineExamsPage() {
                                   عرض التفاصيل
                                 </Link>
                               </DropdownMenuItem>
-                              {exam.status === "draft" && (
+                              {(exam.status as string) === "draft" && (
                                 <DropdownMenuItem>
                                   <Edit className="w-4 h-4 ml-2" />
                                   تعديل
                                 </DropdownMenuItem>
                               )}
-                              {exam.status === "draft" && (
+                              {(exam.status as string) === "draft" && (
                                 <DropdownMenuItem>
                                   <Send className="w-4 h-4 ml-2" />
                                   نشر الامتحان

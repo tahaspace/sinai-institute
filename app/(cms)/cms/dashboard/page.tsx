@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -16,11 +17,80 @@ import {
   BarChart3,
 } from 'lucide-react';
 
+interface DashboardStats {
+  newApplications: number;
+  pendingComplaints: number;
+  availableResults: number;
+}
+
+interface ActivityItem {
+  id: string;
+  type: 'application' | 'complaint' | 'news';
+  label: string;
+  detail: string | null;
+  at: string;
+}
+
+interface DashboardResponse {
+  stats: DashboardStats;
+  recentActivity: ActivityItem[];
+}
+
+const activityDotColor: Record<ActivityItem['type'], string> = {
+  application: 'bg-blue-500',
+  complaint: 'bg-yellow-500',
+  news: 'bg-green-500',
+};
+
+// Relative 'منذ X' label derived client-side from the ISO timestamp the API returns.
+function formatRelativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const diffMs = Date.now() - then;
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return 'الآن';
+  if (minutes < 60) return `منذ ${minutes} دقيقة`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `منذ ${hours} ساعة`;
+  const days = Math.floor(hours / 24);
+  return `منذ ${days} يوم`;
+}
+
 export default function DashboardPage() {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch('/api/cms/dashboard');
+        if (!res.ok) throw new Error('فشل تحميل البيانات');
+        const json = (await res.json()) as DashboardResponse;
+        if (!cancelled) {
+          setStats(json.stats ?? null);
+          setRecentActivity(json.recentActivity ?? []);
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const quickStats = [
-    { label: 'طلبات التقديم الجديدة', value: '24', color: 'text-blue-600', trend: '+12%' },
-    { label: 'الشكاوى المعلقة', value: '8', color: 'text-yellow-600', trend: '-4%' },
-    { label: 'النتائج المتاحة', value: '4', color: 'text-purple-600', trend: '0%' },
+    { label: 'طلبات التقديم الجديدة', value: stats?.newApplications ?? 0, color: 'text-blue-600' },
+    { label: 'الشكاوى المعلقة', value: stats?.pendingComplaints ?? 0, color: 'text-yellow-600' },
+    { label: 'النتائج المتاحة', value: stats?.availableResults ?? 0, color: 'text-purple-600' },
   ];
 
   const managementSections = [
@@ -90,6 +160,18 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">مرحباً بك في نظام إدارة معهد سيناء العالي</p>
       </div>
 
+      {loading && (
+        <p className="text-sm text-muted-foreground mb-4">جارٍ التحميل...</p>
+      )}
+
+      {error && (
+        <Card className="mb-8 border-red-200">
+          <CardContent className="p-4">
+            <p className="text-sm text-red-600">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Quick Stats */}
       <div className="grid md:grid-cols-3 gap-4 mb-8">
         {quickStats.map((stat, index) => (
@@ -100,12 +182,7 @@ export default function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-between">
-                <div className={`text-3xl font-bold ${stat.color}`}>{stat.value}</div>
-                <div className={`text-sm ${stat.trend.startsWith('+') ? 'text-green-600' : stat.trend.startsWith('-') ? 'text-red-600' : 'text-gray-600'}`}>
-                  {stat.trend} من الشهر الماضي
-                </div>
-              </div>
+              <div className={`text-3xl font-bold ${stat.color}`}>{stat.value}</div>
             </CardContent>
           </Card>
         ))}
@@ -143,29 +220,26 @@ export default function DashboardPage() {
           <CardTitle>أحدث النشاطات</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <div className="h-2 w-2 rounded-full bg-blue-500"></div>
-              <div className="flex-1">
-                <p className="text-sm">طلب تقديم جديد من أحمد محمد علي</p>
-                <p className="text-xs text-muted-foreground">منذ 5 دقائق - إدارة ضيافة</p>
-              </div>
+          {recentActivity.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {loading ? 'جارٍ التحميل...' : 'لا توجد نشاطات حديثة'}
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {recentActivity.map((item) => (
+                <div key={`${item.type}-${item.id}`} className="flex items-center gap-4">
+                  <div className={`h-2 w-2 rounded-full ${activityDotColor[item.type]}`}></div>
+                  <div className="flex-1">
+                    <p className="text-sm">{item.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatRelativeTime(item.at)}
+                      {item.detail ? ` - ${item.detail}` : ''}
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="flex items-center gap-4">
-              <div className="h-2 w-2 rounded-full bg-yellow-500"></div>
-              <div className="flex-1">
-                <p className="text-sm">شكوى جديدة من فاطمة حسن</p>
-                <p className="text-xs text-muted-foreground">منذ 15 دقيقة - إرشاد سياحي</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="h-2 w-2 rounded-full bg-green-500"></div>
-              <div className="flex-1">
-                <p className="text-sm">تم نشر خبر جديد: بدء التسجيل للفصل الدراسي</p>
-                <p className="text-xs text-muted-foreground">منذ ساعة</p>
-              </div>
-            </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>

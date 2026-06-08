@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import {
   FileSpreadsheet,
@@ -45,45 +45,36 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
 
-// مصادر البيانات
+// مصادر البيانات — إعدادات واجهة ثابتة لأنواع التقارير المتاحة
 const dataSources = [
   { id: "tuition", name: "الرسوم الدراسية", icon: "🎓" },
   { id: "installments", name: "الأقساط", icon: "📅" },
   { id: "scholarships", name: "المنح والإعفاءات", icon: "🏆" },
   { id: "payroll", name: "الرواتب", icon: "💰" },
-  { id: "expenses", name: "المصروفات", icon: "📊" },
 ]
 
-// التقارير المحفوظة
-const savedReports = [
-  {
-    id: 1,
-    name: "تقرير التحصيل الفصلي",
-    description: "تحليل تفصيلي للتحصيل حسب القسم",
-    source: "tuition",
-    lastRun: "2024-11-20",
-    schedule: "شهري",
-    createdBy: "أ. أحمد محمد",
-  },
-  {
-    id: 2,
-    name: "تقرير الأقساط المتأخرة",
-    description: "متابعة الأقساط المستحقة والمتأخرة",
-    source: "installments",
-    lastRun: "2024-11-18",
-    schedule: "أسبوعي",
-    createdBy: "أ. سارة علي",
-  },
-  {
-    id: 3,
-    name: "كشف المرتبات الشهري",
-    description: "تفاصيل الرواتب والاستقطاعات",
-    source: "payroll",
-    lastRun: "2024-11-15",
-    schedule: "شهري",
-    createdBy: "أ. محمد أحمد",
-  },
-]
+// التقرير المحفوظ — كما يُعاد من /api/institute/finance/report-builder
+interface SavedReport {
+  id: string
+  name: string
+  description: string
+  source: string
+  lastRun: string
+  schedule: string
+  createdBy: string
+}
+
+// صف معاينة الرسوم لكل طالب — كما يُعاد من نفس المسار
+interface PreviewRow {
+  student_id: string
+  student_name: string
+  department: string
+  level: number
+  total_fees: number
+  paid_amount: number
+  remaining: number
+  status: string
+}
 
 // حقول الرسوم
 const tuitionFields = [
@@ -102,6 +93,35 @@ export default function InstituteReportBuilderPage() {
   const [selectedSource, setSelectedSource] = useState("")
   const [selectedFields, setSelectedFields] = useState<string[]>([])
   const [showPreview, setShowPreview] = useState(false)
+  const [savedReports, setSavedReports] = useState<SavedReport[]>([])
+  const [previewData, setPreviewData] = useState<PreviewRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/finance/report-builder")
+        if (!res.ok) throw new Error("فشل تحميل البيانات")
+        const json = await res.json()
+        if (!cancelled) {
+          setSavedReports(json.savedReports ?? [])
+          setPreviewData(json.previewData ?? [])
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("ar-EG", {
@@ -118,14 +138,6 @@ export default function InstituteReportBuilderPage() {
         : [...prev, fieldName]
     )
   }
-
-  // بيانات المعاينة
-  const previewData = [
-    { student_name: "أحمد محمد", department: "الحاسبات", level: "الثالث", total_fees: 18000, paid_amount: 18000, remaining: 0, status: "مكتمل" },
-    { student_name: "سارة علي", department: "إدارة الأعمال", level: "الثاني", total_fees: 15000, paid_amount: 10000, remaining: 5000, status: "جزئي" },
-    { student_name: "محمد أحمد", department: "المحاسبة", level: "الأول", total_fees: 15000, paid_amount: 7500, remaining: 7500, status: "جزئي" },
-    { student_name: "فاطمة حسن", department: "الهندسة", level: "الرابع", total_fees: 20000, paid_amount: 0, remaining: 20000, status: "متأخر" },
-  ]
 
   return (
     <motion.div
@@ -149,6 +161,15 @@ export default function InstituteReportBuilderPage() {
           تقرير جديد
         </Button>
       </div>
+
+      {loading && (
+        <p className="text-sm text-muted-foreground">جارٍ التحميل...</p>
+      )}
+      {error && (
+        <Card className="border-red-300">
+          <CardContent className="py-4 text-red-600">{error}</CardContent>
+        </Card>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full max-w-md grid-cols-3">
@@ -301,21 +322,29 @@ export default function InstituteReportBuilderPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {previewData.map((row, index) => (
-                            <tr key={index} className="hover:bg-muted/50">
-                              <td className="border p-2">{row.student_name}</td>
-                              <td className="border p-2">{row.department}</td>
-                              <td className="border p-2">{row.level}</td>
-                              <td className="border p-2 font-mono">{formatCurrency(row.total_fees)}</td>
-                              <td className="border p-2 font-mono text-institute-blue">{formatCurrency(row.paid_amount)}</td>
-                              <td className="border p-2 font-mono text-red-600">{formatCurrency(row.remaining)}</td>
-                              <td className="border p-2">
-                                <Badge variant={row.status === "مكتمل" ? "default" : row.status === "جزئي" ? "secondary" : "destructive"}>
-                                  {row.status}
-                                </Badge>
+                          {previewData.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="border p-4 text-center text-muted-foreground">
+                                لا توجد بيانات للعرض
                               </td>
                             </tr>
-                          ))}
+                          ) : (
+                            previewData.map((row, index) => (
+                              <tr key={index} className="hover:bg-muted/50">
+                                <td className="border p-2">{row.student_name}</td>
+                                <td className="border p-2">{row.department}</td>
+                                <td className="border p-2">{row.level}</td>
+                                <td className="border p-2 font-mono">{formatCurrency(row.total_fees)}</td>
+                                <td className="border p-2 font-mono text-institute-blue">{formatCurrency(row.paid_amount)}</td>
+                                <td className="border p-2 font-mono text-red-600">{formatCurrency(row.remaining)}</td>
+                                <td className="border p-2">
+                                  <Badge variant={row.status === "مكتمل" ? "default" : row.status === "جزئي" ? "secondary" : "destructive"}>
+                                    {row.status}
+                                  </Badge>
+                                </td>
+                              </tr>
+                            ))
+                          )}
                         </tbody>
                       </table>
                     </div>

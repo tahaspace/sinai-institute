@@ -1,32 +1,64 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Progress } from "@/components/ui/progress"
-import { GraduationCap, Users, MessageSquare, Calendar, Clock, TrendingUp, BookOpen } from "lucide-react"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { GraduationCap, Users, MessageSquare, Calendar, Clock, TrendingUp } from "lucide-react"
+
+interface AdviceStudent {
+  id: string
+  studentCode: string
+  name: string
+  department: string
+  gpa: number
+  level: number
+  activeWarnings: number
+}
+
+interface AdvisingApiStats {
+  needAdvice: number
+  totalStudents: number
+  sessionsScheduled: number
+}
 
 export default function AdvisingPage() {
+  const [studentsNeedingAdvice, setStudentsNeedingAdvice] = useState<AdviceStudent[]>([])
+  const [upcomingSessions, setUpcomingSessions] = useState<unknown[]>([])
+  const [apiStats, setApiStats] = useState<AdvisingApiStats>({ needAdvice: 0, totalStudents: 0, sessionsScheduled: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/students/advising`)
+        if (!res.ok) throw new Error("فشل في جلب بيانات الإرشاد")
+        const json = await res.json()
+        if (!cancelled) {
+          setStudentsNeedingAdvice(json.studentsNeedingAdvice ?? [])
+          setUpcomingSessions(json.upcomingSessions ?? [])
+          setApiStats(json.stats ?? { needAdvice: 0, totalStudents: 0, sessionsScheduled: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
   const advisingStats = [
-    { label: "طلاب تحت الإرشاد", value: "185", icon: Users, color: "text-institute-blue" },
-    { label: "جلسات هذا الشهر", value: "42", icon: Calendar, color: "text-institute-blue" },
-    { label: "طلاب بحاجة متابعة", value: "12", icon: TrendingUp, color: "text-red-600" },
-    { label: "متوسط GPA", value: "2.85", icon: GraduationCap, color: "text-institute-gold" },
-  ]
-
-  const studentsNeedingAdvice = [
-    { id: 1, name: "أحمد محمد", gpa: 1.8, level: "الثانية", issue: "إنذار أكاديمي", creditHours: 58 },
-    { id: 2, name: "سارة علي", gpa: 2.1, level: "الثالثة", issue: "تأخر في التخرج", creditHours: 95 },
-    { id: 3, name: "محمد حسن", gpa: 1.5, level: "الأولى", issue: "إنذار ثاني", creditHours: 24 },
-    { id: 4, name: "نور سعيد", gpa: 2.3, level: "الرابعة", issue: "اختيار تخصص", creditHours: 120 },
-  ]
-
-  const upcomingSessions = [
-    { student: "أحمد محمد", date: "2025-01-05", time: "10:00 AM", type: "إرشاد أكاديمي" },
-    { student: "سارة علي", date: "2025-01-05", time: "11:30 AM", type: "خطة دراسية" },
-    { student: "محمد حسن", date: "2025-01-06", time: "9:00 AM", type: "متابعة إنذار" },
+    { label: "طلاب يحتاجون إرشاد", value: String(apiStats.needAdvice), icon: TrendingUp, color: "text-red-600" },
+    { label: "إجمالي الطلاب", value: String(apiStats.totalStudents), icon: Users, color: "text-institute-blue" },
+    { label: "جلسات مجدولة", value: String(apiStats.sessionsScheduled), icon: Calendar, color: "text-institute-blue" },
   ]
 
   return (
@@ -44,6 +76,9 @@ export default function AdvisingPage() {
           جدولة جلسة إرشاد
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل بيانات الإرشاد...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -97,16 +132,20 @@ export default function AdvisingPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <h4 className="font-medium">{student.name}</h4>
-                      <Badge variant="outline">{student.level}</Badge>
+                      <Badge variant="outline">المستوى {student.level}</Badge>
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className={`text-sm font-bold ${student.gpa < 2 ? "text-red-600" : "text-yellow-600"}`}>
                         GPA: {student.gpa}
                       </span>
                       <span className="text-sm text-muted-foreground">•</span>
-                      <span className="text-sm text-muted-foreground">{student.creditHours} ساعة</span>
+                      <span className="text-sm text-muted-foreground">{student.studentCode}</span>
+                      <span className="text-sm text-muted-foreground">•</span>
+                      <span className="text-sm text-muted-foreground">{student.department}</span>
                     </div>
-                    <Badge className="mt-1 bg-red-100 text-red-700">{student.issue}</Badge>
+                    {student.activeWarnings > 0 && (
+                      <Badge className="mt-1 bg-red-100 text-red-700">إنذارات نشطة: {student.activeWarnings}</Badge>
+                    )}
                   </div>
                   <Button variant="outline" size="sm">
                     <MessageSquare className="w-4 h-4 ml-1" />
@@ -128,29 +167,16 @@ export default function AdvisingPage() {
             <CardDescription>جلسات الإرشاد المجدولة</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {upcomingSessions.map((session, index) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="flex items-center gap-4 p-3 rounded-lg bg-muted/50"
-                >
-                  <div className="w-12 h-12 rounded-lg bg-institute-blue flex items-center justify-center">
-                    <Clock className="w-6 h-6 text-institute-blue" />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-medium">{session.student}</h4>
-                    <p className="text-sm text-muted-foreground">{session.type}</p>
-                  </div>
-                  <div className="text-left">
-                    <p className="font-medium">{session.date}</p>
-                    <p className="text-sm text-muted-foreground">{session.time}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+            {upcomingSessions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Clock className="w-10 h-10 text-muted-foreground mb-3" />
+                <p className="text-muted-foreground">لا توجد جلسات مجدولة</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* No session model yet — list intentionally empty until backend provides sessions */}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

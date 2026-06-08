@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { BookOpen, Search, Users, Clock, Calendar, FileText, Video, ClipboardCheck, Eye, BarChart } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -8,57 +8,66 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-const coursesData = [
-  { 
-    code: "CS101", 
-    name: "مقدمة في البرمجة", 
-    students: 45, 
-    hours: 3, 
-    schedule: "أحد/ثلاثاء 9-10:30",
-    progress: 65,
-    assignments: 5,
-    pendingGrades: 15,
-    nextClass: "غداً 9:00 ص"
-  },
-  { 
-    code: "CS201", 
-    name: "هياكل البيانات", 
-    students: 35, 
-    hours: 3, 
-    schedule: "إثنين/أربعاء 11-12:30",
-    progress: 45,
-    assignments: 4,
-    pendingGrades: 0,
-    nextClass: "بعد غد 11:00 ص"
-  },
-  { 
-    code: "CS301", 
-    name: "قواعد البيانات", 
-    students: 25, 
-    hours: 3, 
-    schedule: "أحد/ثلاثاء 2-3:30",
-    progress: 30,
-    assignments: 3,
-    pendingGrades: 8,
-    nextClass: "غداً 2:00 م"
-  },
-  { 
-    code: "CS401", 
-    name: "الذكاء الاصطناعي", 
-    students: 15, 
-    hours: 3, 
-    schedule: "إثنين/أربعاء 3-4:30",
-    progress: 20,
-    assignments: 2,
-    pendingGrades: 0,
-    nextClass: "بعد غد 3:00 م"
-  },
-]
+// --- API response shapes (served by /api/faculty/courses) ---
+interface FacultyCourse {
+  id: string
+  code: string
+  name: string
+  hours: number
+  students: number
+  assignments: number
+  schedule: string
+  progress: number
+  pendingGrades: number
+  nextClass: string
+}
 
 export default function FacultyCoursesPage() {
   const [searchTerm, setSearchTerm] = useState("")
+  const [coursesData, setCoursesData] = useState<FacultyCourse[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/faculty/courses`)
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error || "فشل في جلب المقررات")
+        }
+        const json = await res.json()
+        if (!cancelled) {
+          setCoursesData(
+            (json.courses ?? []).map((c: { id: string; code: string; nameAr: string; creditHours: number; students: number; assignments: number }) => ({
+              id: c.id,
+              code: c.code,
+              name: c.nameAr,
+              hours: c.creditHours,
+              students: c.students,
+              assignments: c.assignments,
+              schedule: "—",
+              progress: 0,
+              pendingGrades: 0,
+              nextClass: "—",
+            }))
+          )
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -72,6 +81,9 @@ export default function FacultyCoursesPage() {
           <p className="text-gray-500 mt-1">إدارة المقررات والمحتوى التعليمي</p>
         </div>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-gray-500">جارٍ تحميل المقررات...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

@@ -1,22 +1,25 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { BookOpen, Search, Plus, Download, Calendar, Clock, Users, Eye, Edit, Play } from "lucide-react"
+import { BookOpen, Search, Plus, Calendar, Clock, Users, Eye, Edit, Play } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
-const coursesData = [
-  { id: "CRS001", name: "أساسيات البرمجة", program: "تطوير البرمجيات", trainer: "أ. محمد أحمد", duration: "40 ساعة", trainees: 25, startDate: "2025-01-15", status: "active" },
-  { id: "CRS002", name: "تصميم الجرافيك", program: "التصميم الرقمي", trainer: "أ. سارة علي", duration: "30 ساعة", trainees: 20, startDate: "2025-01-20", status: "scheduled" },
-  { id: "CRS003", name: "إدارة المشاريع", program: "إدارة الأعمال", trainer: "أ. أحمد محمود", duration: "25 ساعة", trainees: 30, startDate: "2024-12-01", status: "completed" },
-  { id: "CRS004", name: "الأمن السيبراني", program: "تقنية المعلومات", trainer: "أ. خالد عمر", duration: "50 ساعة", trainees: 15, startDate: "2025-02-01", status: "scheduled" },
-]
+interface CourseRow {
+  id: string
+  name: string
+  program: string
+  trainer: string
+  duration: string
+  trainees: number
+  startDate: string
+  status: keyof typeof statusConfig
+}
 
 const statusConfig = {
   active: { label: "جارية", color: "bg-institute-blue text-green-700" },
@@ -26,6 +29,45 @@ const statusConfig = {
 
 export default function InstitueCoursesPage() {
   const [searchTerm, setSearchTerm] = useState("")
+  const [coursesData, setCoursesData] = useState<CourseRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/courses`)
+        if (!res.ok) throw new Error("فشل في جلب المقررات")
+        const json = await res.json()
+        const rows: CourseRow[] = (json.courses ?? []).map(
+          (c: { id: string; code: string; name: string; department: string; creditHours: number; instructor: string; students: number }) => ({
+            id: c.code,
+            name: c.name,
+            program: c.department,
+            trainer: c.instructor,
+            duration: `${c.creditHours} ساعة معتمدة`,
+            trainees: c.students,
+            startDate: "—",
+            status: "active",
+          })
+        )
+        if (!cancelled) setCoursesData(rows)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const filteredCourses = coursesData.filter(
+    (c) => !searchTerm || c.name.includes(searchTerm) || c.id.includes(searchTerm)
+  )
 
   return (
     <div className="p-6 space-y-6">
@@ -42,6 +84,9 @@ export default function InstitueCoursesPage() {
           دورة جديدة
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-gray-500">جارٍ تحميل المقررات...</CardContent></Card>}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
@@ -110,7 +155,7 @@ export default function InstitueCoursesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {coursesData.map((course) => (
+              {filteredCourses.map((course) => (
                 <TableRow key={course.id}>
                   <TableCell>
                     <div>
@@ -124,8 +169,8 @@ export default function InstitueCoursesPage() {
                   <TableCell className="text-center"><Badge variant="outline" className="gap-1"><Users className="w-3 h-3" />{course.trainees}</Badge></TableCell>
                   <TableCell className="text-center">{course.startDate}</TableCell>
                   <TableCell className="text-center">
-                    <Badge className={statusConfig[course.status as keyof typeof statusConfig].color}>
-                      {statusConfig[course.status as keyof typeof statusConfig].label}
+                    <Badge className={statusConfig[course.status].color}>
+                      {statusConfig[course.status].label}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-center">

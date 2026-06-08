@@ -1,35 +1,126 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { motion } from "framer-motion"
-import { ClipboardCheck, Search, Upload, Download, Save, Users, BarChart, CheckCircle, Clock, FileText } from "lucide-react"
+import { ClipboardCheck, Search, Save, Users, BarChart } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-const gradesData = [
-  { id: "20240001", name: "أحمد محمد علي", quiz1: 18, quiz2: 17, midterm: 28, assignments: 9, total: 72 },
-  { id: "20240002", name: "سارة أحمد حسن", quiz1: 20, quiz2: 19, midterm: 30, assignments: 10, total: 79 },
-  { id: "20240003", name: "محمود عبدالله", quiz1: 15, quiz2: 16, midterm: 25, assignments: 8, total: 64 },
-  { id: "20240004", name: "فاطمة السيد", quiz1: 12, quiz2: 10, midterm: 20, assignments: 6, total: 48 },
-  { id: "20240005", name: "عمر خالد", quiz1: 19, quiz2: 18, midterm: 27, assignments: 9, total: 73 },
-]
-
-const courseGradeStatus = [
-  { course: "CS101", total: 45, graded: 45, status: "completed" },
-  { course: "CS201", total: 35, graded: 20, status: "in_progress" },
-  { course: "CS301", total: 25, graded: 0, status: "pending" },
-  { course: "CS401", total: 15, graded: 15, status: "completed" },
-]
+// --- API shapes ---
+interface FacultyCourseLite { id: string; code: string; name: string; students: number }
+interface CourseMax { id: string; code: string; nameAr: string; midtermMax: number; finalMax: number; practicalMax: number; homeworkMax: number }
+interface RosterRow {
+  enrollmentId: string
+  studentCode: string
+  name: string
+  midterm: number | null
+  final: number | null
+  practical: number | null
+  homework: number | null
+  letterGrade: string | null
+}
+type Component = "midterm" | "final" | "practical" | "homework"
+type Edits = Record<string, Partial<Record<Component, number>>>
 
 export default function FacultyGradesPage() {
-  const [selectedCourse, setSelectedCourse] = useState("CS101")
+  const [courses, setCourses] = useState<FacultyCourseLite[]>([])
+  const [selectedCourseId, setSelectedCourseId] = useState("")
+  const [course, setCourse] = useState<CourseMax | null>(null)
+  const [roster, setRoster] = useState<RosterRow[]>([])
+  const [edits, setEdits] = useState<Edits>({})
   const [searchTerm, setSearchTerm] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [savedNote, setSavedNote] = useState("")
+
+  // Load the instructor's courses once, then select the first.
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const res = await fetch(`/api/faculty/courses`)
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "فشل في جلب المقررات")
+        const json = await res.json()
+        if (cancelled) return
+        setCourses(json.courses ?? [])
+        if (json.courses?.[0]) setSelectedCourseId(json.courses[0].id)
+        else setLoading(false)
+      } catch (e) {
+        if (!cancelled) { setError((e as Error).message); setLoading(false) }
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  // Load the roster whenever the selected course changes.
+  const loadRoster = useCallback(async (courseId: string) => {
+    setLoading(true)
+    setError(null)
+    setEdits({})
+    try {
+      const res = await fetch(`/api/faculty/grades?courseId=${courseId}`)
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "فشل في جلب الدرجات")
+      const json = await res.json()
+      setCourse(json.course)
+      setRoster(json.roster ?? [])
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (selectedCourseId) loadRoster(selectedCourseId)
+  }, [selectedCourseId, loadRoster])
+
+  const valueOf = (row: RosterRow, c: Component): number =>
+    edits[row.enrollmentId]?.[c] ?? (row[c] ?? 0)
+
+  const setEdit = (enrollmentId: string, c: Component, raw: string) => {
+    const n = Math.max(0, Number(raw) || 0)
+    setEdits((prev) => ({ ...prev, [enrollmentId]: { ...prev[enrollmentId], [c]: n } }))
+  }
+
+  const rowTotal = (row: RosterRow) =>
+    valueOf(row, "midterm") + valueOf(row, "final") + valueOf(row, "practical") + valueOf(row, "homework")
+  const courseMaxTotal = course
+    ? course.midtermMax + course.finalMax + course.practicalMax + course.homeworkMax
+    : 100
+
+  // Save all edited rows via PATCH — this is what the Student portal then reads.
+  const saveAll = async () => {
+    const ids = Object.keys(edits)
+    if (!ids.length) return
+    setSaving(true)
+    setSavedNote("")
+    try {
+      for (const enrollmentId of ids) {
+        await fetch(`/api/faculty/grades`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enrollmentId, ...edits[enrollmentId] }),
+        })
+      }
+      await loadRoster(selectedCourseId)
+      setSavedNote(`تم حفظ ${ids.length} سجل — ستظهر الدرجات للطلاب فوراً`)
+    } catch {
+      setError("فشل في حفظ الدرجات")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const dirtyCount = Object.keys(edits).length
+  const filtered = roster.filter(
+    (r) => r.name.includes(searchTerm) || r.studentCode.includes(searchTerm)
+  )
 
   return (
     <div className="space-y-6">
@@ -41,34 +132,31 @@ export default function FacultyGradesPage() {
           </h1>
           <p className="text-gray-500 mt-1">رصد درجات الطلاب وإدارة التقييمات</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline"><Upload className="w-4 h-4 ml-2" />استيراد</Button>
-          <Button variant="outline"><Download className="w-4 h-4 ml-2" />تصدير</Button>
-          <Button className="bg-indigo-600 hover:bg-indigo-700"><Save className="w-4 h-4 ml-2" />حفظ</Button>
+        <div className="flex items-center gap-3">
+          {savedNote && <span className="text-sm text-green-600">{savedNote}</span>}
+          <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={saveAll} disabled={saving || dirtyCount === 0}>
+            <Save className="w-4 h-4 ml-2" />
+            {saving ? "جارٍ الحفظ..." : `حفظ${dirtyCount ? ` (${dirtyCount})` : ""}`}
+          </Button>
         </div>
       </div>
 
-      {/* Course Status Cards */}
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+
+      {/* Course selector cards (the instructor's courses) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {courseGradeStatus.map((course, i) => (
-          <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
-            <Card className={`cursor-pointer transition-all ${selectedCourse === course.course ? 'ring-2 ring-indigo-500' : 'hover:shadow-md'}`}
-              onClick={() => setSelectedCourse(course.course)}>
+        {courses.map((c, i) => (
+          <motion.div key={c.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+            <Card
+              className={`cursor-pointer transition-all ${selectedCourseId === c.id ? "ring-2 ring-indigo-500" : "hover:shadow-md"}`}
+              onClick={() => setSelectedCourseId(c.id)}
+            >
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <Badge variant="outline">{course.course}</Badge>
-                  {course.status === "completed" ? (
-                    <CheckCircle className="w-5 h-5 text-green-500" />
-                  ) : course.status === "in_progress" ? (
-                    <Clock className="w-5 h-5 text-yellow-500" />
-                  ) : (
-                    <FileText className="w-5 h-5 text-gray-400" />
-                  )}
+                  <Badge variant="outline">{c.code}</Badge>
+                  <span className="text-xs text-gray-500 flex items-center gap-1"><Users className="w-4 h-4" />{c.students}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Progress value={(course.graded / course.total) * 100} className="flex-1 h-2" />
-                  <span className="text-xs font-medium">{course.graded}/{course.total}</span>
-                </div>
+                <p className="text-sm font-medium truncate">{c.name}</p>
               </CardContent>
             </Card>
           </motion.div>
@@ -78,7 +166,6 @@ export default function FacultyGradesPage() {
       <Tabs defaultValue="grades">
         <TabsList>
           <TabsTrigger value="grades">رصد الدرجات</TabsTrigger>
-          <TabsTrigger value="assignments">الواجبات</TabsTrigger>
           <TabsTrigger value="reports">التقارير</TabsTrigger>
         </TabsList>
 
@@ -87,8 +174,12 @@ export default function FacultyGradesPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>رصد درجات - {selectedCourse}</CardTitle>
-                  <CardDescription>أعمال السنة: 50 درجة | النهائي: 50 درجة</CardDescription>
+                  <CardTitle>رصد درجات — {course?.nameAr ?? ""}</CardTitle>
+                  <CardDescription>
+                    {course
+                      ? `أعمال الفصل: ${course.midtermMax} | النهائي: ${course.finalMax} | عملي: ${course.practicalMax} | أعمال السنة: ${course.homeworkMax}`
+                      : ""}
+                  </CardDescription>
                 </div>
                 <div className="relative w-64">
                   <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -97,53 +188,66 @@ export default function FacultyGradesPage() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-right">الطالب</TableHead>
-                    <TableHead className="text-center">اختبار 1 (20)</TableHead>
-                    <TableHead className="text-center">اختبار 2 (20)</TableHead>
-                    <TableHead className="text-center">منتصف الفصل (30)</TableHead>
-                    <TableHead className="text-center">الواجبات (10)</TableHead>
-                    <TableHead className="text-center">المجموع (100)</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {gradesData.map((student) => (
-                    <TableRow key={student.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{student.name}</p>
-                          <p className="text-xs text-gray-500">{student.id}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Input type="number" className="w-16 h-8 text-center mx-auto" defaultValue={student.quiz1} max={20} />
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Input type="number" className="w-16 h-8 text-center mx-auto" defaultValue={student.quiz2} max={20} />
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Input type="number" className="w-16 h-8 text-center mx-auto" defaultValue={student.midterm} max={30} />
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Input type="number" className="w-16 h-8 text-center mx-auto" defaultValue={student.assignments} max={10} />
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Badge className={student.total >= 60 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
-                          {student.total}%
-                        </Badge>
-                      </TableCell>
+              {loading ? (
+                <div className="p-12 text-center text-gray-500">جارٍ تحميل القائمة...</div>
+              ) : filtered.length === 0 ? (
+                <div className="p-12 text-center text-gray-500">لا يوجد طلاب مسجلون في هذا المقرر</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-right">الطالب</TableHead>
+                      <TableHead className="text-center">أعمال الفصل ({course?.midtermMax})</TableHead>
+                      <TableHead className="text-center">النهائي ({course?.finalMax})</TableHead>
+                      <TableHead className="text-center">عملي ({course?.practicalMax})</TableHead>
+                      <TableHead className="text-center">أعمال السنة ({course?.homeworkMax})</TableHead>
+                      <TableHead className="text-center">المجموع ({courseMaxTotal})</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.map((row) => {
+                      const total = rowTotal(row)
+                      const pct = courseMaxTotal > 0 ? (total / courseMaxTotal) * 100 : 0
+                      const cols: { c: Component; max: number }[] = [
+                        { c: "midterm", max: course?.midtermMax ?? 0 },
+                        { c: "final", max: course?.finalMax ?? 0 },
+                        { c: "practical", max: course?.practicalMax ?? 0 },
+                        { c: "homework", max: course?.homeworkMax ?? 0 },
+                      ]
+                      return (
+                        <TableRow key={row.enrollmentId}>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{row.name}</p>
+                              <p className="text-xs text-gray-500">{row.studentCode}</p>
+                            </div>
+                          </TableCell>
+                          {cols.map(({ c, max }) => (
+                            <TableCell key={c} className="text-center">
+                              <Input
+                                type="number"
+                                className="w-16 h-8 text-center mx-auto"
+                                value={valueOf(row, c)}
+                                max={max}
+                                min={0}
+                                disabled={max === 0}
+                                onChange={(e) => setEdit(row.enrollmentId, c, e.target.value)}
+                              />
+                            </TableCell>
+                          ))}
+                          <TableCell className="text-center">
+                            <Badge className={pct >= 60 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
+                              {total}/{courseMaxTotal}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="assignments">
-          <Card><CardContent className="p-6 text-center text-gray-500"><FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />قائمة الواجبات والتصحيح</CardContent></Card>
         </TabsContent>
 
         <TabsContent value="reports">

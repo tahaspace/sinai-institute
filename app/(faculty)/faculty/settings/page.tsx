@@ -1,8 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { motion } from "framer-motion"
-import { Settings, User, Bell, Lock, Palette, Globe, Save, Camera, Mail, Phone, Building, GraduationCap } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Settings, User, Bell, Lock, Palette, Save, Camera, Mail, Phone } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,6 +22,54 @@ export default function FacultySettingsPage() {
     scheduleChanges: true,
     researchUpdates: false,
   })
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const res = await fetch("/api/settings?key=faculty.preferences")
+        if (!res.ok) return
+        const json = await res.json()
+        const value = json?.value
+        if (cancelled || !value || typeof value !== "object" || Array.isArray(value)) return
+        if (value.notifications && typeof value.notifications === "object") {
+          setNotifications((prev) => ({ ...prev, ...value.notifications }))
+        }
+      } catch {
+        // network/parse errors: keep existing defaults
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function handleSave() {
+    setSaving(true)
+    setSaveError(null)
+    setSaved(false)
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: "faculty.preferences",
+          value: { notifications },
+        }),
+      })
+      if (!res.ok) throw new Error("فشل في حفظ الإعدادات")
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e) {
+      setSaveError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -34,10 +81,14 @@ export default function FacultySettingsPage() {
           </h1>
           <p className="text-gray-500 mt-1">إدارة حسابك وتفضيلاتك</p>
         </div>
-        <Button className="bg-indigo-600 hover:bg-indigo-700">
-          <Save className="w-4 h-4 ml-2" />
-          حفظ التغييرات
-        </Button>
+        <div className="flex items-center gap-3">
+          {saved && <span className="text-sm text-green-600">تم الحفظ</span>}
+          {saveError && <span className="text-sm text-red-600">{saveError}</span>}
+          <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={handleSave} disabled={saving}>
+            <Save className="w-4 h-4 ml-2" />
+            {saving ? "جارٍ الحفظ..." : "حفظ التغييرات"}
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">

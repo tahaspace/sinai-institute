@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,39 +15,87 @@ import {
 } from "@/components/ui/table"
 import { FileText, Plus, Eye, CheckCircle, XCircle, Clock, BookOpen } from "lucide-react"
 
+interface EquivalenceRequest {
+  id: string
+  student: string
+  originalCourse: string
+  originalInstitute: string
+  requestedCourse: string
+  creditHours: number
+  date: string
+  status: string
+}
+
+interface EquivalenceStats {
+  total: number
+  approved: number
+  pending: number
+  approvedHours: number
+}
+
 export default function EquivalencePage() {
-  const equivalenceRequests = [
-    {
-      id: 1,
-      student: "أحمد محمد",
-      originalCourse: "CS101 - مقدمة في البرمجة",
-      originalInstitute: "جامعة القاهرة",
-      requestedCourse: "CS101 - أساسيات البرمجة",
-      creditHours: 3,
-      date: "2024-12-20",
-      status: "approved",
-    },
-    {
-      id: 2,
-      student: "سارة علي",
-      originalCourse: "MATH101 - حساب التفاضل",
-      originalInstitute: "جامعة عين شمس",
-      requestedCourse: "MATH101 - رياضيات (1)",
-      creditHours: 3,
-      date: "2024-12-18",
-      status: "pending",
-    },
-    {
-      id: 3,
-      student: "محمد حسن",
-      originalCourse: "ENG101 - English Language",
-      originalInstitute: "معهد أخر",
-      requestedCourse: "ENG101 - اللغة الإنجليزية",
-      creditHours: 2,
-      date: "2024-12-15",
-      status: "rejected",
-    },
-  ]
+  const [equivalenceRequests, setEquivalenceRequests] = useState<EquivalenceRequest[]>([])
+  const [stats, setStats] = useState<EquivalenceStats>({ total: 0, approved: 0, pending: 0, approvedHours: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/admission/equivalence")
+        if (!res.ok) throw new Error("فشل تحميل البيانات")
+        const json = await res.json()
+        if (!cancelled) {
+          setEquivalenceRequests(json.requests ?? [])
+          setStats(json.stats ?? { total: 0, approved: 0, pending: 0, approvedHours: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const updateStatus = async (id: string, status: "APPROVED" | "REJECTED") => {
+    try {
+      const res = await fetch("/api/institute/admission/equivalence", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      })
+      if (!res.ok) throw new Error("فشل تحديث الطلب")
+      const lower = status.toLowerCase()
+      setEquivalenceRequests((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status: lower } : r))
+      )
+      setStats((prev) => {
+        const target = equivalenceRequests.find((r) => r.id === id)
+        const hours = target?.creditHours ?? 0
+        const wasApproved = target?.status === "approved"
+        const isApproved = lower === "approved"
+        return {
+          ...prev,
+          pending: target?.status === "pending" ? Math.max(0, prev.pending - 1) : prev.pending,
+          approved: isApproved ? prev.approved + 1 : wasApproved ? Math.max(0, prev.approved - 1) : prev.approved,
+          approvedHours: isApproved
+            ? prev.approvedHours + hours
+            : wasApproved
+            ? Math.max(0, prev.approvedHours - hours)
+            : prev.approvedHours,
+        }
+      })
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -80,10 +129,10 @@ export default function EquivalencePage() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "إجمالي الطلبات", value: "45", icon: FileText, color: "text-institute-blue" },
-          { label: "معتمدة", value: "32", icon: CheckCircle, color: "text-institute-blue" },
-          { label: "قيد المراجعة", value: "8", icon: Clock, color: "text-yellow-600" },
-          { label: "ساعات معادلة", value: "128", icon: BookOpen, color: "text-institute-gold" },
+          { label: "إجمالي الطلبات", value: String(stats.total), icon: FileText, color: "text-institute-blue" },
+          { label: "معتمدة", value: String(stats.approved), icon: CheckCircle, color: "text-institute-blue" },
+          { label: "قيد المراجعة", value: String(stats.pending), icon: Clock, color: "text-yellow-600" },
+          { label: "ساعات معادلة", value: String(stats.approvedHours), icon: BookOpen, color: "text-institute-gold" },
         ].map((stat, index) => (
           <motion.div
             key={index}
@@ -113,6 +162,13 @@ export default function EquivalencePage() {
           <CardDescription>قائمة طلبات معادلة المقررات</CardDescription>
         </CardHeader>
         <CardContent>
+          {loading && <p className="text-sm text-muted-foreground py-4">جارٍ التحميل...</p>}
+          {error && !loading && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+          {!loading && !error && (
           <Table>
             <TableHeader>
               <TableRow>
@@ -143,10 +199,20 @@ export default function EquivalencePage() {
                       </Button>
                       {request.status === "pending" && (
                         <>
-                          <Button variant="ghost" size="icon" className="text-institute-blue">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-institute-blue"
+                            onClick={() => updateStatus(request.id, "APPROVED")}
+                          >
                             <CheckCircle className="w-4 h-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="text-red-600">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-red-600"
+                            onClick={() => updateStatus(request.id, "REJECTED")}
+                          >
                             <XCircle className="w-4 h-4" />
                           </Button>
                         </>
@@ -157,6 +223,7 @@ export default function EquivalencePage() {
               ))}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
     </div>

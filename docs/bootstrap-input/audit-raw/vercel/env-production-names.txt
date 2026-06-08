@@ -1,0 +1,10 @@
+
+ name                               value               environments        created    
+ DATABASE_URL                       Encrypted           ]8;;https://vercel.com/tahaspaces-projects/sinai-institute/settings/environments/ProductionProduction]8;;          47d ago    
+ SUPABASE_SERVICE_ROLE_KEY          Encrypted           ]8;;https://vercel.com/tahaspaces-projects/sinai-institute/settings/environments/ProductionProduction]8;;          47d ago    
+ NEXT_PUBLIC_SUPABASE_ANON_KEY      Encrypted           ]8;;https://vercel.com/tahaspaces-projects/sinai-institute/settings/environments/ProductionProduction]8;;          47d ago    
+ NEXT_PUBLIC_SUPABASE_URL           Encrypted           ]8;;https://vercel.com/tahaspaces-projects/sinai-institute/settings/environments/ProductionProduction]8;;          47d ago    
+ CLOUDINARY_API_SECRET              Encrypted           ]8;;https://vercel.com/tahaspaces-projects/sinai-institute/settings/environments/ProductionProduction]8;;          52d ago    
+ CLOUDINARY_API_KEY                 Encrypted           ]8;;https://vercel.com/tahaspaces-projects/sinai-institute/settings/environments/ProductionProduction]8;;          52d ago    
+ CLOUDINARY_CLOUD_NAME              Encrypted           ]8;;https://vercel.com/tahaspaces-projects/sinai-institute/settings/environments/ProductionProduction]8;;          52d ago    
+

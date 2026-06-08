@@ -1,14 +1,14 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
-  Users,
   GraduationCap,
   ClipboardCheck,
   CreditCard,
   Bell,
   ChevronLeft,
-  TrendingUp,
+  AlertTriangle,
   Calendar,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,44 +18,71 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 
-// Children Data
-const children = [
-  {
-    id: 1,
-    name: "أحمد محمد علي",
-    grade: "الصف الثالث الثانوي",
-    class: "3/1",
-    attendance: 95,
-    gpa: 3.8,
-    avatar: "أ",
-    recentGrade: { subject: "الرياضيات", grade: 48, total: 50 },
-  },
-  {
-    id: 2,
-    name: "سارة محمد علي",
-    grade: "الصف الأول الإعدادي",
-    class: "1/2",
-    attendance: 98,
-    gpa: 3.9,
-    avatar: "س",
-    recentGrade: { subject: "العلوم", grade: 45, total: 50 },
-  },
-]
-
-// Notifications
-const notifications = [
-  { id: 1, type: "grade", message: "تم رصد درجة أحمد في الرياضيات", time: "منذ ساعة" },
-  { id: 2, type: "attendance", message: "سارة حضرت اليوم", time: "منذ 3 ساعات" },
-  { id: 3, type: "fee", message: "موعد سداد القسط الثالث", time: "أمس" },
-]
-
-// Fees Summary
-const feesSummary = {
-  ahmed: { total: 25000, paid: 20000, remaining: 5000 },
-  sara: { total: 18000, paid: 18000, remaining: 0 },
+// --- API response shapes (served by /api/parent/dashboard) ---
+interface ChildFees {
+  total: number
+  paid: number
+  remaining: number
+}
+interface Child {
+  id: string
+  name: string
+  studentCode: string
+  gpa: number
+  attendance: number
+  activeWarnings: number
+  fees: ChildFees
+}
+interface FeesSummary {
+  totalDue: number
+  totalPaid: number
+  remaining: number
+}
+interface DashboardNotification {
+  id: string
+  type: string
+  message: string
+  time: string
+}
+interface DashboardResponse {
+  children: Child[]
+  feesSummary: FeesSummary
+  notifications: DashboardNotification[]
 }
 
 export default function ParentDashboard() {
+  const [data, setData] = useState<DashboardResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/parent/dashboard`)
+        if (!res.ok) {
+          throw new Error("فشل في جلب لوحة التحكم")
+        }
+        const json = (await res.json()) as DashboardResponse
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const children = data?.children ?? []
+  const notifications = data?.notifications ?? []
+  const feesSummary = data?.feesSummary
+
   return (
     <div className="space-y-6">
       {/* Welcome Header */}
@@ -70,6 +97,19 @@ export default function ParentDashboard() {
         </Badge>
       </div>
 
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل لوحة التحكم...</CardContent>
+        </Card>
+      )}
+
+      {!loading && !error && data && (
+      <>
       {/* Children Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {children.map((child) => (
@@ -78,35 +118,42 @@ export default function ParentDashboard() {
               <div className="flex items-start gap-4 mb-4">
                 <Avatar className="w-16 h-16">
                   <AvatarFallback className="text-2xl bg-pink-100 text-pink-600">
-                    {child.avatar}
+                    {child.name?.charAt(0) || "—"}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
                   <h3 className="font-bold text-lg">{child.name}</h3>
-                  <p className="text-muted-foreground">{child.grade}</p>
-                  <Badge variant="outline" className="mt-1">الفصل {child.class}</Badge>
+                  <p className="text-muted-foreground">{child.studentCode}</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-3 gap-4 mb-4">
                 <div className="p-3 rounded-lg bg-green-50 dark:bg-green-950/20 text-center">
                   <ClipboardCheck className="w-6 h-6 mx-auto text-green-600 mb-1" />
-                  <p className="text-xl font-bold text-green-600">{child.attendance}%</p>
+                  <p className="text-xl font-bold text-green-600">{child.attendance ?? 0}%</p>
                   <p className="text-xs text-muted-foreground">الحضور</p>
                 </div>
                 <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 text-center">
                   <GraduationCap className="w-6 h-6 mx-auto text-blue-600 mb-1" />
-                  <p className="text-xl font-bold text-blue-600">{child.gpa}</p>
+                  <p className="text-xl font-bold text-blue-600">{child.gpa ?? 0}</p>
                   <p className="text-xs text-muted-foreground">المعدل</p>
+                </div>
+                <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-950/20 text-center">
+                  <AlertTriangle className="w-6 h-6 mx-auto text-orange-600 mb-1" />
+                  <p className="text-xl font-bold text-orange-600">{child.activeWarnings ?? 0}</p>
+                  <p className="text-xs text-muted-foreground">الإنذارات</p>
                 </div>
               </div>
 
               <div className="p-3 rounded-lg bg-muted/50 mb-4">
-                <p className="text-sm text-muted-foreground">آخر درجة</p>
+                <p className="text-sm text-muted-foreground">المصروفات المتبقية</p>
                 <div className="flex items-center justify-between mt-1">
-                  <span className="font-medium">{child.recentGrade.subject}</span>
-                  <span className="font-bold text-green-600">
-                    {child.recentGrade.grade}/{child.recentGrade.total}
+                  <span className="font-medium">المتبقي</span>
+                  <span className={cn(
+                    "font-bold",
+                    (child.fees?.remaining ?? 0) === 0 ? "text-green-600" : "text-orange-600"
+                  )}>
+                    {(child.fees?.remaining ?? 0).toLocaleString()} ج.م
                   </span>
                 </div>
               </div>
@@ -134,25 +181,33 @@ export default function ParentDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {children.map((child) => {
-                const fees = child.name.includes("أحمد") ? feesSummary.ahmed : feesSummary.sara
-                const progress = (fees.paid / fees.total) * 100
-
-                return (
-                  <div key={child.id} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{child.name}</span>
-                      <span className={cn(
-                        "font-bold",
-                        fees.remaining === 0 ? "text-green-600" : "text-orange-600"
-                      )}>
-                        {fees.remaining === 0 ? "مكتمل" : `${fees.remaining.toLocaleString()} ج.م متبقي`}
-                      </span>
-                    </div>
-                    <Progress value={progress} className="h-2" />
-                  </div>
-                )
-              })}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground">الإجمالي المستحق</p>
+                  <p className="text-lg font-bold">{(feesSummary?.totalDue ?? 0).toLocaleString()} ج.م</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground">المدفوع</p>
+                  <p className="text-lg font-bold text-green-600">{(feesSummary?.totalPaid ?? 0).toLocaleString()} ج.م</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground">المتبقي</p>
+                  <p className={cn(
+                    "text-lg font-bold",
+                    (feesSummary?.remaining ?? 0) === 0 ? "text-green-600" : "text-orange-600"
+                  )}>
+                    {(feesSummary?.remaining ?? 0).toLocaleString()} ج.م
+                  </p>
+                </div>
+              </div>
+              <Progress
+                value={
+                  (feesSummary?.totalDue ?? 0) > 0
+                    ? ((feesSummary?.totalPaid ?? 0) / (feesSummary?.totalDue ?? 1)) * 100
+                    : 0
+                }
+                className="h-2"
+              />
             </div>
             <Button variant="outline" className="w-full mt-4" asChild>
               <Link href="/parent/fees">
@@ -195,6 +250,8 @@ export default function ParentDashboard() {
           </CardContent>
         </Card>
       </div>
+      </>
+      )}
     </div>
   )
 }

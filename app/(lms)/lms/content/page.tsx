@@ -1,9 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   BookOpen,
-  Plus,
   Video,
   FileText,
   Image,
@@ -17,9 +16,8 @@ import {
   Search,
   Grid,
   List,
-  Filter,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -42,33 +40,26 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-// Content Items
-const contentItems = [
-  { id: 1, title: "شرح التفاضل والتكامل", type: "video", subject: "الرياضيات", size: "250 MB", views: 156, date: "2024-12-24", duration: "45:30" },
-  { id: 2, title: "ملخص الباب الثالث", type: "pdf", subject: "الرياضيات", size: "2.5 MB", views: 89, date: "2024-12-23", pages: 15 },
-  { id: 3, title: "قوانين نيوتن", type: "video", subject: "الفيزياء", size: "180 MB", views: 124, date: "2024-12-22", duration: "35:20" },
-  { id: 4, title: "تمارين محلولة", type: "pdf", subject: "الفيزياء", size: "1.8 MB", views: 95, date: "2024-12-21", pages: 25 },
-  { id: 5, title: "شرح التفاعلات الكيميائية", type: "video", subject: "الكيمياء", size: "200 MB", views: 78, date: "2024-12-20", duration: "40:15" },
-  { id: 6, title: "صور المعادلات", type: "image", subject: "الكيمياء", size: "5 MB", views: 45, date: "2024-12-19" },
-]
+interface ContentRow {
+  id: string
+  title: string
+  unit: string
+  type: string
+  url: string
+  sizeMb: number
+  views: number
+}
 
-// Units/Modules
-const units = [
-  { id: 1, name: "الباب الأول - المقدمة", items: 8, subject: "الرياضيات" },
-  { id: 2, name: "الباب الثاني - التفاضل", items: 12, subject: "الرياضيات" },
-  { id: 3, name: "الباب الثالث - التكامل", items: 10, subject: "الرياضيات" },
-  { id: 4, name: "الوحدة الأولى - الميكانيكا", items: 15, subject: "الفيزياء" },
-]
+interface UnitRow {
+  name: string
+  count: number
+}
 
-// Stats
-const stats = {
-  totalContent: 156,
-  videos: 45,
-  pdfs: 89,
-  images: 22,
-  totalViews: 12500,
-  storageUsed: "15.2 GB",
-  storageTotal: "50 GB",
+interface ApiStats {
+  total: number
+  videos: number
+  pdfs: number
+  totalViews: number
 }
 
 const typeConfig = {
@@ -78,9 +69,59 @@ const typeConfig = {
   audio: { icon: Music, color: "bg-purple-100 text-purple-600", label: "صوت" },
 }
 
+const neutralConfig = { icon: Folder, color: "bg-gray-100 text-gray-600", label: "ملف" }
+
+function getTypeConfig(type: string) {
+  return type in typeConfig ? typeConfig[type as keyof typeof typeConfig] : neutralConfig
+}
+
 export default function ContentPage() {
   const [showUpload, setShowUpload] = useState(false)
   const [viewMode, setViewMode] = useState<"grid" | "list">("list")
+  const [searchQuery, setSearchQuery] = useState("")
+  const [contentItems, setContentItems] = useState<ContentRow[]>([])
+  const [units, setUnits] = useState<UnitRow[]>([])
+  const [apiStats, setApiStats] = useState<ApiStats>({ total: 0, videos: 0, pdfs: 0, totalViews: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/lms/content`)
+        if (!res.ok) throw new Error("فشل في جلب المحتوى")
+        const json = await res.json()
+        if (!cancelled) {
+          setContentItems(json.contentItems ?? [])
+          setUnits(json.units ?? [])
+          setApiStats(json.stats ?? { total: 0, videos: 0, pdfs: 0, totalViews: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const filteredItems = contentItems.filter(
+    (item) =>
+      !searchQuery ||
+      item.title.includes(searchQuery) ||
+      item.unit.includes(searchQuery)
+  )
+
+  const stats = {
+    totalContent: apiStats.total,
+    videos: apiStats.videos,
+    pdfs: apiStats.pdfs,
+    totalViews: apiStats.totalViews,
+  }
 
   return (
     <div className="space-y-6">
@@ -95,6 +136,9 @@ export default function ContentPage() {
           رفع محتوى
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل المحتوى...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -149,7 +193,7 @@ export default function ContentPage() {
         <CardContent className="p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-muted-foreground">مساحة التخزين المستخدمة</span>
-            <span className="font-medium">{stats.storageUsed} / {stats.storageTotal}</span>
+            <span className="font-medium">—</span>
           </div>
           <Progress value={30} className="h-2" />
         </CardContent>
@@ -188,7 +232,7 @@ export default function ContentPage() {
                   </SelectTrigger>
                   <SelectContent>
                     {units.map((unit) => (
-                      <SelectItem key={unit.id} value={unit.id.toString()}>
+                      <SelectItem key={unit.name} value={unit.name}>
                         {unit.name}
                       </SelectItem>
                     ))}
@@ -247,7 +291,12 @@ export default function ContentPage() {
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="بحث..." className="pr-10 w-64" />
+              <Input
+                placeholder="بحث..."
+                className="pr-10 w-64"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
             </div>
             <Button
               variant={viewMode === "grid" ? "default" : "outline"}
@@ -270,8 +319,8 @@ export default function ContentPage() {
         <TabsContent value="all" className="mt-6">
           {viewMode === "list" ? (
             <div className="space-y-4">
-              {contentItems.map((item) => {
-                const config = typeConfig[item.type as keyof typeof typeConfig]
+              {filteredItems.map((item) => {
+                const config = getTypeConfig(item.type)
                 const Icon = config.icon
 
                 return (
@@ -285,7 +334,7 @@ export default function ContentPage() {
                           <div>
                             <h4 className="font-medium">{item.title}</h4>
                             <p className="text-sm text-muted-foreground">
-                              {item.subject} • {item.size} • {item.views} مشاهدة
+                              {item.unit} • {item.sizeMb} MB • {item.views} مشاهدة
                             </p>
                           </div>
                         </div>
@@ -322,8 +371,8 @@ export default function ContentPage() {
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {contentItems.map((item) => {
-                const config = typeConfig[item.type as keyof typeof typeConfig]
+              {filteredItems.map((item) => {
+                const config = getTypeConfig(item.type)
                 const Icon = config.icon
 
                 return (
@@ -345,7 +394,7 @@ export default function ContentPage() {
         {/* Videos Tab */}
         <TabsContent value="videos" className="mt-6">
           <div className="space-y-4">
-            {contentItems.filter(i => i.type === "video").map((item) => (
+            {filteredItems.filter(i => i.type === "video").map((item) => (
               <Card key={item.id}>
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
@@ -356,7 +405,7 @@ export default function ContentPage() {
                       <div>
                         <h4 className="font-medium">{item.title}</h4>
                         <p className="text-sm text-muted-foreground">
-                          {item.subject} • {item.duration} • {item.views} مشاهدة
+                          {item.unit} • {item.sizeMb} MB • {item.views} مشاهدة
                         </p>
                       </div>
                     </div>
@@ -374,8 +423,8 @@ export default function ContentPage() {
         {/* Files Tab */}
         <TabsContent value="files" className="mt-6">
           <div className="space-y-4">
-            {contentItems.filter(i => i.type !== "video").map((item) => {
-              const config = typeConfig[item.type as keyof typeof typeConfig]
+            {filteredItems.filter(i => i.type !== "video").map((item) => {
+              const config = getTypeConfig(item.type)
               const Icon = config.icon
 
               return (
@@ -389,7 +438,7 @@ export default function ContentPage() {
                         <div>
                           <h4 className="font-medium">{item.title}</h4>
                           <p className="text-sm text-muted-foreground">
-                            {item.subject} • {item.size}
+                            {item.unit} • {item.sizeMb} MB
                           </p>
                         </div>
                       </div>
@@ -409,7 +458,7 @@ export default function ContentPage() {
         <TabsContent value="units" className="mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {units.map((unit) => (
-              <Card key={unit.id} className="hover:shadow-lg transition-shadow cursor-pointer">
+              <Card key={unit.name} className="hover:shadow-lg transition-shadow cursor-pointer">
                 <CardContent className="p-6">
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-xl bg-violet-100 flex items-center justify-center">
@@ -418,7 +467,7 @@ export default function ContentPage() {
                     <div>
                       <h4 className="font-bold">{unit.name}</h4>
                       <p className="text-sm text-muted-foreground">
-                        {unit.subject} • {unit.items} عنصر
+                        {unit.count} عنصر
                       </p>
                     </div>
                   </div>

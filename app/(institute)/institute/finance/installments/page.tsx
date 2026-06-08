@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -7,18 +8,60 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Calendar, Clock, CheckCircle, AlertTriangle, Plus } from "lucide-react"
 
-export default function InstallmentsPage() {
-  const stats = [
-    { label: "إجمالي الأقساط", value: "850", icon: Calendar, color: "text-institute-blue" },
-    { label: "مدفوعة", value: "620", icon: CheckCircle, color: "text-institute-blue" },
-    { label: "قادمة", value: "180", icon: Clock, color: "text-yellow-600" },
-    { label: "متأخرة", value: "50", icon: AlertTriangle, color: "text-red-600" },
-  ]
+interface InstallmentPlan {
+  id: string
+  student: string
+  studentCode: string
+  totalFees: number
+  installments: number
+  paidInstallments: number
+  paid: number
+  remaining: number
+  nextDueDate: string | null
+  status: string
+}
 
-  const installmentPlans = [
-    { student: "أحمد محمد", total: 30000, paid: 20000, remaining: 10000, nextDue: "2025-01-15", installments: 3, paidInstallments: 2 },
-    { student: "سارة علي", total: 25000, paid: 12500, remaining: 12500, nextDue: "2025-01-20", installments: 2, paidInstallments: 1 },
-    { student: "محمد حسن", total: 30000, paid: 10000, remaining: 20000, nextDue: "2025-01-10", installments: 3, paidInstallments: 1 },
+interface InstallmentStats {
+  total: number
+  completed: number
+  active: number
+  outstanding: number
+}
+
+export default function InstallmentsPage() {
+  const [plans, setPlans] = useState<InstallmentPlan[]>([])
+  const [apiStats, setApiStats] = useState<InstallmentStats>({ total: 0, completed: 0, active: 0, outstanding: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/finance/installments`)
+        if (!res.ok) throw new Error("فشل في جلب الأقساط")
+        const json = await res.json()
+        if (!cancelled) {
+          setPlans(json.plans ?? [])
+          setApiStats(json.stats ?? { total: 0, completed: 0, active: 0, outstanding: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const stats = [
+    { label: "إجمالي الأقساط", value: String(apiStats.total), icon: Calendar, color: "text-institute-blue" },
+    { label: "مدفوعة", value: String(apiStats.completed), icon: CheckCircle, color: "text-institute-blue" },
+    { label: "قادمة", value: String(apiStats.active), icon: Clock, color: "text-yellow-600" },
+    { label: "متأخرة", value: apiStats.outstanding.toLocaleString(), icon: AlertTriangle, color: "text-red-600" },
   ]
 
   return (
@@ -36,6 +79,9 @@ export default function InstallmentsPage() {
           خطة تقسيط جديدة
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الأقساط...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -69,13 +115,13 @@ export default function InstallmentsPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {installmentPlans.map((plan, index) => {
-              const percentage = (plan.paid / plan.total) * 100
-              const isOverdue = new Date(plan.nextDue) < new Date()
-              
+            {plans.map((plan, index) => {
+              const percentage = plan.totalFees > 0 ? (plan.paid / plan.totalFees) * 100 : 0
+              const isOverdue = plan.nextDueDate !== null && new Date(plan.nextDueDate) < new Date()
+
               return (
                 <motion.div
-                  key={index}
+                  key={plan.id}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.1 }}
@@ -85,15 +131,15 @@ export default function InstallmentsPage() {
                     <div>
                       <h4 className="font-medium">{plan.student}</h4>
                       <p className="text-sm text-muted-foreground">
-                        {plan.paidInstallments}/{plan.installments} أقساط مدفوعة
+                        {plan.paidInstallments} / {plan.installments} أقساط مدفوعة
                       </p>
                     </div>
                     <div className="text-left">
-                      <p className="font-bold">{plan.total.toLocaleString()} ج.م</p>
+                      <p className="font-bold">{plan.totalFees.toLocaleString()} ج.م</p>
                       <div className="flex items-center gap-1">
                         <span className="text-sm text-muted-foreground">القسط القادم:</span>
                         <Badge className={isOverdue ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"}>
-                          {plan.nextDue}
+                          {plan.nextDueDate ?? "—"}
                         </Badge>
                       </div>
                     </div>

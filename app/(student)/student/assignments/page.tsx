@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   FileText,
   Upload,
@@ -11,10 +11,9 @@ import {
   Eye,
   Download,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import {
   Select,
   SelectContent,
@@ -22,81 +21,31 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-// Assignments Data
-const assignments = [
-  {
-    id: 1,
-    title: "حل تمارين الباب الثالث",
-    subject: "الرياضيات",
-    teacher: "أ. محمد أحمد",
-    dueDate: "2024-12-26",
-    status: "pending",
-    grade: null,
-    maxGrade: 20,
-  },
-  {
-    id: 2,
-    title: "تقرير عن قوانين نيوتن",
-    subject: "الفيزياء",
-    teacher: "أ. أحمد علي",
-    dueDate: "2024-12-27",
-    status: "pending",
-    grade: null,
-    maxGrade: 20,
-  },
-  {
-    id: 3,
-    title: "إنشاء عن حب الوطن",
-    subject: "اللغة العربية",
-    teacher: "أ. سارة خالد",
-    dueDate: "2024-12-28",
-    status: "pending",
-    grade: null,
-    maxGrade: 20,
-  },
-  {
-    id: 4,
-    title: "حل تمارين التفاضل",
-    subject: "الرياضيات",
-    teacher: "أ. محمد أحمد",
-    dueDate: "2024-12-20",
-    status: "submitted",
-    grade: 18,
-    maxGrade: 20,
-  },
-  {
-    id: 5,
-    title: "تجربة معملية",
-    subject: "الكيمياء",
-    teacher: "أ. خالد سعيد",
-    dueDate: "2024-12-18",
-    status: "graded",
-    grade: 17,
-    maxGrade: 20,
-  },
-  {
-    id: 6,
-    title: "ترجمة نص",
-    subject: "اللغة الإنجليزية",
-    teacher: "أ. نورا محمد",
-    dueDate: "2024-12-15",
-    status: "late",
-    grade: 12,
-    maxGrade: 20,
-  },
-]
-
-// Stats
-const stats = {
-  total: 28,
-  pending: 3,
-  submitted: 1,
-  graded: 20,
-  late: 4,
-  averageGrade: 85,
+// --- API response shapes (served by /api/student/assignments) ---
+interface Assignment {
+  id: string
+  title: string
+  subject: string
+  teacher: string
+  dueDate: string
+  status: string
+  grade: number | null
+  maxGrade: number
+}
+interface AssignmentStats {
+  total: number
+  pending: number
+  submitted: number
+  graded: number
+  late: number
+  averageGrade: number
+}
+interface AssignmentsResponse {
+  student: { id: string; studentCode: string; name: string }
+  assignments: Assignment[]
+  stats: AssignmentStats
 }
 
 const statusConfig = {
@@ -109,6 +58,37 @@ const statusConfig = {
 export default function StudentAssignmentsPage() {
   const [filter, setFilter] = useState("all")
   const [subjectFilter, setSubjectFilter] = useState("all")
+  const [data, setData] = useState<AssignmentsResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/student/assignments`)
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error || "فشل في جلب الواجبات")
+        }
+        const json = (await res.json()) as AssignmentsResponse
+        if (!cancelled) setData(json)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const assignments = data?.assignments ?? []
+  const stats = data?.stats
 
   const filteredAssignments = assignments.filter((assignment) => {
     const matchesStatus = filter === "all" || assignment.status === filter
@@ -133,6 +113,19 @@ export default function StudentAssignmentsPage() {
         </div>
       </div>
 
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+      {loading && (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل الواجبات...</CardContent>
+        </Card>
+      )}
+
+      {!loading && !error && stats && (
+      <>
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
@@ -292,6 +285,8 @@ export default function StudentAssignmentsPage() {
           )
         })}
       </div>
+      </>
+      )}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -7,21 +8,48 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { ShieldCheck, FileText, Target, CheckCircle, AlertTriangle, Download } from "lucide-react"
 
-export default function QualityPage() {
-  const stats = [
-    { label: "المعايير المحققة", value: "85%", icon: Target, color: "text-institute-blue" },
-    { label: "التقارير المعتمدة", value: "12", icon: FileText, color: "text-institute-blue" },
-    { label: "التوصيات المنفذة", value: "28", icon: CheckCircle, color: "text-institute-gold" },
-    { label: "نقاط التحسين", value: "8", icon: AlertTriangle, color: "text-yellow-600" },
-  ]
+type QualityIndicator = { id: string; name: string; score: number; target: number }
+type QualityStats = { achievedPct: number; belowTarget: number; avgScore: number; total: number }
+type QualityResponse = { qualityIndicators: QualityIndicator[]; stats: QualityStats }
 
-  const qualityIndicators = [
-    { name: "جودة المخرجات التعليمية", score: 88, target: 90 },
-    { name: "كفاءة أعضاء هيئة التدريس", score: 92, target: 85 },
-    { name: "البنية التحتية والمرافق", score: 78, target: 80 },
-    { name: "رضا الطلاب", score: 85, target: 85 },
-    { name: "الشراكات المجتمعية", score: 72, target: 75 },
-    { name: "البحث العلمي", score: 68, target: 70 },
+export default function QualityPage() {
+  const [qualityIndicators, setQualityIndicators] = useState<QualityIndicator[]>([])
+  const [stats, setStats] = useState<QualityStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/quality")
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}))
+          throw new Error(b.error || "فشل في جلب البيانات")
+        }
+        const json: QualityResponse = await res.json()
+        if (!cancelled) {
+          setQualityIndicators(json.qualityIndicators)
+          setStats(json.stats)
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const statCards = [
+    { label: "المعايير المحققة", value: stats ? `${stats.achievedPct}%` : "—", icon: Target, color: "text-institute-blue" },
+    { label: "التقارير المعتمدة", value: "—", icon: FileText, color: "text-institute-blue" },
+    { label: "التوصيات المنفذة", value: "—", icon: CheckCircle, color: "text-institute-gold" },
+    { label: "نقاط التحسين", value: stats ? String(stats.belowTarget) : "—", icon: AlertTriangle, color: "text-yellow-600" },
   ]
 
   return (
@@ -40,9 +68,20 @@ export default function QualityPage() {
         </Button>
       </div>
 
+      {loading && (
+        <Card>
+          <CardContent className="p-4 text-sm text-muted-foreground">جارٍ التحميل...</CardContent>
+        </Card>
+      )}
+      {error && (
+        <Card>
+          <CardContent className="p-4 text-sm text-red-600">{error}</CardContent>
+        </Card>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {stats.map((stat, index) => (
+        {statCards.map((stat, index) => (
           <motion.div
             key={index}
             initial={{ opacity: 0, y: 20 }}

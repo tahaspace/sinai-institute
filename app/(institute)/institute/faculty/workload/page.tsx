@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -8,20 +9,57 @@ import { Progress } from "@/components/ui/progress"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { BookOpen, Clock, Users, Download, BarChart3 } from "lucide-react"
 
-export default function WorkloadPage() {
-  const workloadStats = [
-    { label: "إجمالي الساعات", value: "1,240", icon: Clock, color: "text-institute-blue" },
-    { label: "متوسط العبء", value: "10", icon: BookOpen, color: "text-institute-blue" },
-    { label: "أعضاء متفرغين", value: "85", icon: Users, color: "text-institute-gold" },
-    { label: "نسبة التغطية", value: "94%", icon: BarChart3, color: "text-institute-gold" },
-  ]
+interface FacultyWorkloadRow {
+  name: string
+  title: string
+  department: string
+  courses: number
+  creditHours: number
+  maxHours: number
+  students: number
+}
 
-  const facultyWorkload = [
-    { name: "أ.د. أحمد محمد", title: "أستاذ", courses: 2, creditHours: 9, maxHours: 12, department: "الهندسة" },
-    { name: "أ.د. سارة علي", title: "أستاذ", courses: 2, creditHours: 6, maxHours: 12, department: "الحاسبات" },
-    { name: "د. محمد حسن", title: "أستاذ مساعد", courses: 3, creditHours: 12, maxHours: 14, department: "إدارة الأعمال" },
-    { name: "د. نورا سعيد", title: "مدرس", courses: 4, creditHours: 15, maxHours: 16, department: "المحاسبة" },
-    { name: "م. يوسف أحمد", title: "معيد", courses: 2, creditHours: 6, maxHours: 8, department: "الهندسة" },
+interface WorkloadStats {
+  totalHours: number
+  avgLoad: number
+  facultyCount: number
+  coveragePct: number
+}
+
+export default function WorkloadPage() {
+  const [facultyWorkload, setFacultyWorkload] = useState<FacultyWorkloadRow[]>([])
+  const [apiStats, setApiStats] = useState<WorkloadStats>({ totalHours: 0, avgLoad: 0, facultyCount: 0, coveragePct: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/faculty/workload`)
+        if (!res.ok) throw new Error("فشل في جلب العبء التدريسي")
+        const json = await res.json()
+        if (!cancelled) {
+          setFacultyWorkload(json.facultyWorkload ?? [])
+          setApiStats(json.stats ?? { totalHours: 0, avgLoad: 0, facultyCount: 0, coveragePct: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const workloadStats = [
+    { label: "إجمالي الساعات", value: apiStats.totalHours.toLocaleString("en-US"), icon: Clock, color: "text-institute-blue" },
+    { label: "متوسط العبء", value: String(apiStats.avgLoad), icon: BookOpen, color: "text-institute-blue" },
+    { label: `أعضاء (${apiStats.facultyCount})`, value: String(apiStats.facultyCount), icon: Users, color: "text-institute-gold" },
+    { label: "نسبة التغطية", value: `${apiStats.coveragePct}%`, icon: BarChart3, color: "text-institute-gold" },
   ]
 
   return (
@@ -39,6 +77,9 @@ export default function WorkloadPage() {
           تصدير التقرير
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل العبء التدريسي...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -73,7 +114,7 @@ export default function WorkloadPage() {
         <CardContent>
           <div className="space-y-4">
             {facultyWorkload.map((faculty, index) => {
-              const percentage = (faculty.creditHours / faculty.maxHours) * 100
+              const percentage = faculty.maxHours > 0 ? (faculty.creditHours / faculty.maxHours) * 100 : 0
               return (
                 <motion.div
                   key={index}
@@ -100,7 +141,7 @@ export default function WorkloadPage() {
                       </span>
                     </div>
                     <p className="text-sm text-muted-foreground mt-1">
-                      {faculty.courses} مقررات
+                      {faculty.courses} مقررات · {faculty.students} طالب
                     </p>
                   </div>
                 </motion.div>

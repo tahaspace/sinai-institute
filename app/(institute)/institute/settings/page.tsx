@@ -1,14 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   Settings,
   Building2,
-  Users,
   Shield,
   Bell,
   Globe,
-  Mail,
   Save,
   Plus,
   Edit,
@@ -39,7 +37,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { cn } from "@/lib/utils"
 
 // Admin Users
 const adminUsers = [
@@ -62,6 +59,64 @@ export default function SettingsPage() {
   const [email, setEmail] = useState("info@tech-institute.com")
   const [phone, setPhone] = useState("01012345678")
   const [address, setAddress] = useState("القاهرة، مصر الجديدة، شارع الثورة")
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  // Hydrate the general-info fields from the persisted settings blob on mount.
+  // Only fields the API actually returns get applied; everything else keeps its default.
+  useEffect(() => {
+    let cancelled = false
+    const setters: Record<string, (v: string) => void> = {
+      instituteName: setInstituteName,
+      instituteNameEn: setInstituteNameEn,
+      email: setEmail,
+      phone: setPhone,
+      address: setAddress,
+    }
+    async function loadSettings() {
+      try {
+        const res = await fetch("/api/settings?key=institute.general")
+        if (!res.ok) return
+        const data = await res.json()
+        const value = data?.value
+        if (cancelled || !value || typeof value !== "object" || Array.isArray(value)) return
+        for (const [field, setter] of Object.entries(setters)) {
+          const incoming = (value as Record<string, unknown>)[field]
+          if (typeof incoming === "string") setter(incoming)
+        }
+      } catch {
+        // Non-fatal: fall back to the in-page defaults if the fetch fails.
+      }
+    }
+    loadSettings()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function handleSave() {
+    setSaving(true)
+    setSaved(false)
+    setSaveError(null)
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: "institute.general",
+          value: { instituteName, instituteNameEn, email, phone, address },
+        }),
+      })
+      if (!res.ok) throw new Error("save failed")
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch {
+      setSaveError("فشل الحفظ، حاول مرة أخرى")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -136,10 +191,16 @@ export default function SettingsPage() {
                     onChange={(e) => setAddress(e.target.value)}
                   />
                 </div>
-                <Button className="w-full">
+                <Button className="w-full" onClick={handleSave} disabled={saving}>
                   <Save className="w-4 h-4 ml-2" />
-                  حفظ التغييرات
+                  {saving ? "جاري الحفظ..." : "حفظ التغييرات"}
                 </Button>
+                {saved && (
+                  <p className="text-sm text-center text-green-600">تم الحفظ</p>
+                )}
+                {saveError && (
+                  <p className="text-sm text-center text-red-600">{saveError}</p>
+                )}
               </CardContent>
             </Card>
 

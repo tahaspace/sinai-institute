@@ -1,12 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
   BookOpen,
   Search,
   Plus,
-  Filter,
   MoreVertical,
   Eye,
   Edit,
@@ -19,11 +18,10 @@ import {
   FileText,
   ChevronLeft,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
 import {
   DropdownMenu,
@@ -41,61 +39,20 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-// Programs Data
-const programs = [
-  {
-    id: "PRG001",
-    name: "تطوير تطبيقات الويب الشامل",
-    category: "البرمجة",
-    duration: "3 أشهر",
-    hours: 120,
-    price: 5000,
-    trainees: 35,
-    sessions: 24,
-    status: "active",
-    rating: 4.8,
-    image: "🌐",
-  },
-  {
-    id: "PRG002",
-    name: "إدارة المشاريع الاحترافية PMP",
-    category: "الإدارة",
-    duration: "شهرين",
-    hours: 60,
-    price: 4500,
-    trainees: 28,
-    sessions: 16,
-    status: "active",
-    rating: 4.9,
-    image: "📊",
-  },
-  {
-    id: "PRG003",
-    name: "التسويق الرقمي المتكامل",
-    category: "التسويق",
-    duration: "شهرين",
-    hours: 48,
-    price: 3500,
-    trainees: 42,
-    sessions: 12,
-    status: "active",
-    rating: 4.7,
-    image: "📱",
-  },
-  {
-    id: "PRG004",
-    name: "تحليل البيانات باستخدام Python",
-    category: "البرمجة",
-    duration: "شهرين",
-    hours: 60,
-    price: 4000,
-    trainees: 0,
-    sessions: 15,
-    status: "upcoming",
-    rating: 0,
-    image: "📈",
-  },
-]
+// Programs Data (fetched from /api/institute/programs)
+interface ProgramRow {
+  id: string
+  nameAr: string
+  nameEn: string
+  department: string
+  departmentId: string | null
+  degree: string
+  years: number
+  totalCreditHours: number
+  description: string
+  isActive: boolean
+  students: number
+}
 
 // Courses (Active Sessions)
 const courses = [
@@ -139,21 +96,44 @@ const statusConfig = {
   completed: { label: "مكتمل", color: "bg-gray-100 text-gray-700" },
 }
 
-// Stats
-const stats = {
-  totalPrograms: programs.length,
-  activePrograms: programs.filter(p => p.status === "active").length,
-  totalTrainees: programs.reduce((a, b) => a + b.trainees, 0),
-  totalHours: programs.reduce((a, b) => a + b.hours, 0),
-}
-
 export default function ProgramsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
+  const [programs, setPrograms] = useState<ProgramRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/programs`)
+        if (!res.ok) throw new Error("فشل في جلب البرامج")
+        const json = await res.json()
+        if (!cancelled) setPrograms(json.programs ?? [])
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  // Stats derived from fetched programs
+  const stats = {
+    totalPrograms: programs.length,
+    activePrograms: programs.filter((p) => p.isActive).length,
+    totalTrainees: programs.reduce((a, b) => a + b.students, 0),
+    totalHours: programs.reduce((a, b) => a + b.totalCreditHours, 0),
+  }
 
   const filteredPrograms = programs.filter((program) => {
-    const matchesSearch = program.name.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesCategory = categoryFilter === "all" || program.category === categoryFilter
+    const matchesSearch = program.nameAr.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesCategory = categoryFilter === "all" || program.department === categoryFilter
     return matchesSearch && matchesCategory
   })
 
@@ -170,6 +150,19 @@ export default function ProgramsPage() {
           برنامج جديد
         </Button>
       </div>
+
+      {loading && (
+        <Card>
+          <CardContent className="p-6 text-center text-muted-foreground">
+            جارٍ تحميل البرامج...
+          </CardContent>
+        </Card>
+      )}
+      {error && (
+        <Card>
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -244,7 +237,10 @@ export default function ProgramsPage() {
           {/* Programs Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredPrograms.map((program) => {
-              const status = statusConfig[program.status as keyof typeof statusConfig]
+              const statusKey = program.isActive ? "active" : "inactive"
+              const status = statusKey in statusConfig
+                ? statusConfig[statusKey as keyof typeof statusConfig]
+                : { label: program.isActive ? "نشط" : "غير نشط", color: "bg-gray-100 text-gray-700" }
 
               return (
                 <Card key={program.id} className="hover:shadow-lg transition-shadow overflow-hidden">
@@ -252,10 +248,10 @@ export default function ProgramsPage() {
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex items-center gap-3">
-                        <div className="text-4xl">{program.image}</div>
+                        <div className="text-4xl">📚</div>
                         <div>
-                          <h3 className="font-bold">{program.name}</h3>
-                          <Badge variant="outline" className="mt-1">{program.category}</Badge>
+                          <h3 className="font-bold">{program.nameAr}</h3>
+                          <Badge variant="outline" className="mt-1">{program.department}</Badge>
                         </div>
                       </div>
                       <DropdownMenu>
@@ -280,27 +276,24 @@ export default function ProgramsPage() {
                     <div className="grid grid-cols-2 gap-3 mb-4">
                       <div className="flex items-center gap-2 text-sm">
                         <Clock className="w-4 h-4 text-muted-foreground" />
-                        <span>{program.duration}</span>
+                        <span>{program.years} سنوات</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <Calendar className="w-4 h-4 text-muted-foreground" />
-                        <span>{program.hours} ساعة</span>
+                        <span>{program.totalCreditHours} ساعة</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <Users className="w-4 h-4 text-muted-foreground" />
-                        <span>{program.trainees} متدرب</span>
+                        <span>{program.students} متدرب</span>
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <DollarSign className="w-4 h-4 text-muted-foreground" />
-                        <span>{program.price.toLocaleString()} ج.م</span>
+                        <span>—</span>
                       </div>
                     </div>
 
                     <div className="flex items-center justify-between pt-4 border-t">
                       <Badge className={status.color}>{status.label}</Badge>
-                      {program.rating > 0 && (
-                        <span className="text-sm">⭐ {program.rating}</span>
-                      )}
                       <Button variant="ghost" size="sm" asChild>
                         <Link href={`/institute/programs/${program.id}`}>
                           تفاصيل

@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import {
   Wallet,
@@ -25,34 +26,62 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 
 // إحصائيات الرواتب للمعهد
-const payrollStats = {
-  totalEmployees: 320,
-  totalPayroll: 8500000,
-  netPayroll: 7400000,
-  deductions: 1100000,
-  facultyCount: 120,
-  facultySalary: 5500000,
-  staffCount: 200,
-  staffSalary: 3000000,
+interface PayrollStats {
+  totalEmployees: number
+  totalPayroll: number
+  netPayroll: number
+  deductions: number
+  facultyCount: number
+  facultySalary: number
+  staffCount: number
+  staffSalary: number
 }
 
 // حالة مسير الرواتب
-const payrollStatus = [
-  { month: "نوفمبر 2024", status: "completed", amount: 8500000, date: "2024-11-25" },
-  { month: "أكتوبر 2024", status: "completed", amount: 8300000, date: "2024-10-25" },
-  { month: "سبتمبر 2024", status: "completed", amount: 8200000, date: "2024-09-25" },
-  { month: "ديسمبر 2024", status: "pending", amount: 8600000, date: "-" },
-]
+interface PayrollStatusRow {
+  month: string
+  status: "completed" | "pending"
+  amount: number
+}
 
 // ملخص الخصومات
-const deductionsSummary = [
-  { type: "التأمينات الاجتماعية", amount: 580000, percentage: 52.7 },
-  { type: "ضريبة كسب العمل", amount: 350000, percentage: 31.8 },
-  { type: "سلف وقروض", amount: 120000, percentage: 10.9 },
-  { type: "خصومات أخرى", amount: 50000, percentage: 4.6 },
-]
+interface DeductionsSummaryRow {
+  type: string
+  amount: number
+  percentage: number
+}
 
 export default function InstitutePayrollDashboardPage() {
+  const [payrollStats, setPayrollStats] = useState<PayrollStats | null>(null)
+  const [payrollStatus, setPayrollStatus] = useState<PayrollStatusRow[]>([])
+  const [deductionsSummary, setDeductionsSummary] = useState<DeductionsSummaryRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/payroll`)
+        if (!res.ok) throw new Error("فشل في جلب مسير الرواتب")
+        const json = await res.json()
+        if (!cancelled) {
+          setPayrollStats(json.payrollStats ?? null)
+          setPayrollStatus(json.payrollStatus ?? [])
+          setDeductionsSummary(json.deductionsSummary ?? [])
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("ar-EG", {
       style: "currency",
@@ -111,6 +140,11 @@ export default function InstitutePayrollDashboardPage() {
         </div>
       </div>
 
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل مسير الرواتب...</CardContent></Card>}
+
+      {payrollStats && (
+      <>
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="bg-gradient-to-br from-institute-blue to-institute-blue dark:from-institute-blue/20 dark:to-institute-blue/20">
@@ -266,7 +300,7 @@ export default function InstitutePayrollDashboardPage() {
                 <div>
                   <p className="font-semibold">{item.month}</p>
                   <p className="text-sm text-muted-foreground">
-                    {item.date !== "-" ? `تم الصرف: ${item.date}` : "لم يتم الصرف بعد"}
+                    {item.status === "completed" ? "تم الصرف" : "لم يتم الصرف بعد"}
                   </p>
                 </div>
                 <div className="text-left">
@@ -280,6 +314,8 @@ export default function InstitutePayrollDashboardPage() {
           </div>
         </CardContent>
       </Card>
+      </>
+      )}
     </motion.div>
   )
 }

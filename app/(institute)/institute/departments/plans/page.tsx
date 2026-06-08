@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -7,61 +8,39 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ClipboardList, Download, Plus, BookOpen, GraduationCap } from "lucide-react"
 
+type Course = { code: string; name: string; hours: number }
+type Semester = { name: string; courses: Course[] }
+type Year = { year: string; semesters: Semester[] }
+type StudyPlan = { program: string; totalHours: number; years: Year[] }
+
 export default function PlansPage() {
-  const studyPlan = {
-    program: "هندسة الحاسبات",
-    totalHours: 160,
-    years: [
-      {
-        year: "السنة الأولى",
-        semesters: [
-          {
-            name: "الفصل الأول",
-            courses: [
-              { code: "MATH101", name: "رياضيات (1)", hours: 3 },
-              { code: "PHYS101", name: "فيزياء", hours: 3 },
-              { code: "CS101", name: "مقدمة في البرمجة", hours: 3 },
-              { code: "ENG101", name: "لغة إنجليزية", hours: 2 },
-              { code: "ARAB101", name: "لغة عربية", hours: 2 },
-            ],
-          },
-          {
-            name: "الفصل الثاني",
-            courses: [
-              { code: "MATH102", name: "رياضيات (2)", hours: 3 },
-              { code: "PHYS102", name: "فيزياء (2)", hours: 3 },
-              { code: "CS102", name: "برمجة متقدمة", hours: 3 },
-              { code: "ENG102", name: "لغة إنجليزية (2)", hours: 2 },
-              { code: "ELEC101", name: "دوائر كهربية", hours: 3 },
-            ],
-          },
-        ],
-      },
-      {
-        year: "السنة الثانية",
-        semesters: [
-          {
-            name: "الفصل الأول",
-            courses: [
-              { code: "CS201", name: "هياكل البيانات", hours: 3 },
-              { code: "CS202", name: "معمارية الحاسب", hours: 3 },
-              { code: "MATH201", name: "رياضيات متقطعة", hours: 3 },
-              { code: "ELEC201", name: "إلكترونيات", hours: 3 },
-            ],
-          },
-          {
-            name: "الفصل الثاني",
-            courses: [
-              { code: "CS203", name: "خوارزميات", hours: 3 },
-              { code: "CS204", name: "نظم تشغيل", hours: 3 },
-              { code: "CS205", name: "قواعد بيانات", hours: 3 },
-              { code: "ELEC202", name: "نظم رقمية", hours: 3 },
-            ],
-          },
-        ],
-      },
-    ],
-  }
+  const [studyPlan, setStudyPlan] = useState<StudyPlan>({ program: "", totalHours: 0, years: [] })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/study-plan")
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}))
+          throw new Error(b.error || "فشل في جلب البيانات")
+        }
+        const json = await res.json()
+        if (!cancelled) setStudyPlan(json.studyPlan)
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -84,6 +63,18 @@ export default function PlansPage() {
           </Button>
         </div>
       </div>
+
+      {loading && (
+        <Card>
+          <CardContent className="py-6 text-center text-muted-foreground">جارٍ التحميل...</CardContent>
+        </Card>
+      )}
+
+      {error && (
+        <Card>
+          <CardContent className="py-6 text-center text-destructive">{error}</CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

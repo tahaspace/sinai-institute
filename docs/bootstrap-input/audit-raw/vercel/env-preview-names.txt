@@ -1,0 +1,4 @@
+
+ name               value               environments    created    
+ DATABASE_URL       Encrypted           ]8;;https://vercel.com/tahaspaces-projects/sinai-institute/settings/environments/PreviewPreview]8;;         47d ago    
+

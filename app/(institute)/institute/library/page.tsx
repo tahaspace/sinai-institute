@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -7,19 +8,54 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Library, Search, BookOpen, Users, Clock, Plus, Download } from "lucide-react"
 
-export default function LibraryPage() {
-  const stats = [
-    { label: "إجمالي الكتب", value: "12,500", icon: BookOpen, color: "text-institute-blue" },
-    { label: "كتب إلكترونية", value: "3,200", icon: Download, color: "text-institute-blue" },
-    { label: "إعارات نشطة", value: "450", icon: Clock, color: "text-yellow-600" },
-    { label: "أعضاء المكتبة", value: "2,100", icon: Users, color: "text-institute-gold" },
-  ]
+interface BookRow {
+  title: string
+  author: string
+  category: string
+  available: number
+}
 
-  const recentBooks = [
-    { title: "هياكل البيانات والخوارزميات", author: "د. أحمد محمد", category: "حاسبات", available: 5 },
-    { title: "مبادئ المحاسبة المالية", author: "د. سارة علي", category: "محاسبة", available: 3 },
-    { title: "إدارة الموارد البشرية", author: "د. محمد حسن", category: "إدارة", available: 8 },
-    { title: "الرياضيات الهندسية", author: "د. نورا سعيد", category: "هندسة", available: 2 },
+interface LibraryStats {
+  titles: number
+  totalCopies: number
+  available: number
+  activeBorrowings: number
+}
+
+export default function LibraryPage() {
+  const [recentBooks, setRecentBooks] = useState<BookRow[]>([])
+  const [apiStats, setApiStats] = useState<LibraryStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/library`)
+        if (!res.ok) throw new Error("فشل في جلب بيانات المكتبة")
+        const json = await res.json()
+        if (!cancelled) {
+          setRecentBooks(json.recentBooks ?? [])
+          setApiStats(json.stats ?? null)
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const stats = [
+    { label: "إجمالي الكتب", value: apiStats ? apiStats.totalCopies.toLocaleString() : "—", icon: BookOpen, color: "text-institute-blue" },
+    { label: "كتب إلكترونية", value: "—", icon: Download, color: "text-institute-blue" },
+    { label: "إعارات نشطة", value: apiStats ? apiStats.activeBorrowings.toLocaleString() : "—", icon: Clock, color: "text-yellow-600" },
+    { label: "كتب متاحة", value: apiStats ? apiStats.available.toLocaleString() : "—", icon: Users, color: "text-institute-gold" },
   ]
 
   return (
@@ -37,6 +73,9 @@ export default function LibraryPage() {
           إضافة كتاب
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل بيانات المكتبة...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

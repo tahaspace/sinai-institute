@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -15,16 +16,66 @@ import {
 } from "@/components/ui/table"
 import { Building2, ArrowLeftRight, Plus, Eye, CheckCircle, XCircle, Clock } from "lucide-react"
 
-export default function TransfersPage() {
-  const incomingTransfers = [
-    { id: 1, name: "أحمد محمد", from: "جامعة القاهرة", department: "الهندسة", date: "2024-12-20", status: "pending" },
-    { id: 2, name: "سارة علي", from: "جامعة عين شمس", department: "الحاسبات", date: "2024-12-18", status: "approved" },
-    { id: 3, name: "محمد حسن", from: "معهد أخر", department: "إدارة الأعمال", date: "2024-12-15", status: "rejected" },
-  ]
+// --- API response shapes (served by /api/institute/admission/transfers) ---
+interface TransferRow {
+  id: string
+  name: string
+  from?: string
+  to?: string
+  department: string
+  date: string
+  status: string
+}
+interface TransferStats {
+  incoming: number
+  outgoing: number
+  pending: number
+  completed: number
+}
+interface TransfersResponse {
+  incoming: TransferRow[]
+  outgoing: TransferRow[]
+  stats: TransferStats
+}
 
-  const outgoingTransfers = [
-    { id: 1, name: "نور سعيد", to: "جامعة الإسكندرية", department: "المحاسبة", date: "2024-12-22", status: "pending" },
-    { id: 2, name: "يوسف أحمد", to: "جامعة المنصورة", department: "الهندسة", date: "2024-12-19", status: "approved" },
+export default function TransfersPage() {
+  const [incomingTransfers, setIncomingTransfers] = useState<TransferRow[]>([])
+  const [outgoingTransfers, setOutgoingTransfers] = useState<TransferRow[]>([])
+  const [stats, setStats] = useState<TransferStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/admission/transfers")
+        if (!res.ok) throw new Error("فشل تحميل البيانات")
+        const json = (await res.json()) as TransfersResponse
+        if (!cancelled) {
+          setIncomingTransfers(json.incoming ?? [])
+          setOutgoingTransfers(json.outgoing ?? [])
+          setStats(json.stats ?? null)
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const statCards = [
+    { label: "طلبات واردة", value: stats?.incoming ?? 0, color: "text-institute-blue" },
+    { label: "طلبات صادرة", value: stats?.outgoing ?? 0, color: "text-institute-blue" },
+    { label: "في الانتظار", value: stats?.pending ?? 0, color: "text-yellow-600" },
+    { label: "مكتملة", value: stats?.completed ?? 0, color: "text-institute-gold" },
   ]
 
   const getStatusBadge = (status: string) => {
@@ -56,14 +107,19 @@ export default function TransfersPage() {
         </Button>
       </div>
 
+      {error && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-4 text-center text-red-700">{error}</CardContent>
+        </Card>
+      )}
+
+      {loading && (
+        <p className="text-sm text-muted-foreground">جارٍ التحميل...</p>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: "طلبات واردة", value: "15", color: "text-institute-blue" },
-          { label: "طلبات صادرة", value: "8", color: "text-institute-blue" },
-          { label: "في الانتظار", value: "5", color: "text-yellow-600" },
-          { label: "مكتملة", value: "18", color: "text-institute-gold" },
-        ].map((stat, index) => (
+        {statCards.map((stat, index) => (
           <motion.div
             key={index}
             initial={{ opacity: 0, y: 20 }}

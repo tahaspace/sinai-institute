@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
   Users,
@@ -12,8 +12,6 @@ import {
   Edit,
   Award,
   Calendar,
-  Phone,
-  Mail,
   CheckCircle2,
   Clock,
   XCircle,
@@ -51,61 +49,26 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-// Trainees Data
-const trainees = [
-  {
-    id: "TRN001",
-    name: "أحمد محمد علي",
-    phone: "01012345678",
-    email: "ahmed@example.com",
-    program: "تطوير الويب",
-    batch: "الدفعة 15",
-    progress: 65,
-    attendance: 92,
-    status: "active",
-    joinDate: "2024-12-01",
-    certificates: 0,
-  },
-  {
-    id: "TRN002",
-    name: "سارة خالد أحمد",
-    phone: "01123456789",
-    email: "sara@example.com",
-    program: "التسويق الرقمي",
-    batch: "الدفعة 10",
-    progress: 85,
-    attendance: 98,
-    status: "active",
-    joinDate: "2024-11-01",
-    certificates: 1,
-  },
-  {
-    id: "TRN003",
-    name: "محمد سعيد حسن",
-    phone: "01234567890",
-    email: "mohamed@example.com",
-    program: "إدارة المشاريع",
-    batch: "الدفعة 8",
-    progress: 40,
-    attendance: 75,
-    status: "warning",
-    joinDate: "2024-12-15",
-    certificates: 0,
-  },
-  {
-    id: "TRN004",
-    name: "فاطمة علي محمود",
-    phone: "01098765432",
-    email: "fatma@example.com",
-    program: "تطوير الويب",
-    batch: "الدفعة 14",
-    progress: 100,
-    attendance: 95,
-    status: "completed",
-    joinDate: "2024-09-01",
-    certificates: 1,
-  },
-]
+type Trainee = {
+  id: string
+  name: string
+  phone: string
+  email: string
+  program: string
+  batch: string
+  progress: number
+  attendance: number
+  status: string
+  joinDate: string
+  certificates: number
+}
+
+type TraineeStats = {
+  total: number
+  active: number
+  avgProgress: number
+  avgAttendance: number
+}
 
 const statusConfig = {
   active: { label: "نشط", color: "bg-institute-blue text-green-700", icon: CheckCircle2 },
@@ -114,18 +77,46 @@ const statusConfig = {
   dropped: { label: "منسحب", color: "bg-red-100 text-red-700", icon: XCircle },
 }
 
-// Stats
-const stats = {
-  total: 1250,
-  active: 1100,
-  completed: 120,
-  dropped: 30,
-}
-
 export default function TraineesPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [programFilter, setProgramFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
+  const [trainees, setTrainees] = useState<Trainee[]>([])
+  const [stats, setStats] = useState<TraineeStats>({
+    total: 0,
+    active: 0,
+    avgProgress: 0,
+    avgAttendance: 0,
+  })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch("/api/institute/trainees")
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}))
+          throw new Error(b.error || "فشل في جلب البيانات")
+        }
+        const json = await res.json()
+        if (!cancelled) {
+          setTrainees(json.trainees ?? [])
+          setStats(json.stats ?? { total: 0, active: 0, avgProgress: 0, avgAttendance: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filteredTrainees = trainees.filter((trainee) => {
     const matchesSearch =
@@ -156,6 +147,18 @@ export default function TraineesPage() {
         </div>
       </div>
 
+      {/* Loading / Error */}
+      {loading && (
+        <Card>
+          <CardContent className="p-4 text-center text-muted-foreground">جارٍ التحميل...</CardContent>
+        </Card>
+      )}
+      {error && (
+        <Card>
+          <CardContent className="p-4 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
@@ -175,15 +178,15 @@ export default function TraineesPage() {
         <Card>
           <CardContent className="p-4 text-center">
             <Award className="w-8 h-8 mx-auto text-blue-500 mb-2" />
-            <p className="text-2xl font-bold text-institute-blue">{stats.completed}</p>
-            <p className="text-sm text-muted-foreground">أتموا التدريب</p>
+            <p className="text-2xl font-bold text-institute-blue">{stats.avgProgress}%</p>
+            <p className="text-sm text-muted-foreground">متوسط التقدم</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <XCircle className="w-8 h-8 mx-auto text-red-500 mb-2" />
-            <p className="text-2xl font-bold text-red-600">{stats.dropped}</p>
-            <p className="text-sm text-muted-foreground">منسحب</p>
+            <Clock className="w-8 h-8 mx-auto text-blue-500 mb-2" />
+            <p className="text-2xl font-bold text-institute-blue">{stats.avgAttendance}%</p>
+            <p className="text-sm text-muted-foreground">متوسط الحضور</p>
           </CardContent>
         </Card>
       </div>

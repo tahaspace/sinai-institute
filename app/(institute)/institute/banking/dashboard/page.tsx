@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import {
   Building2,
@@ -31,69 +32,63 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-// الحسابات البنكية للمعهد
-const bankAccounts = [
-  {
-    id: 1,
-    bankName: "البنك الأهلي المصري",
-    accountNo: "9876543210123",
-    accountType: "حساب جاري",
-    balance: 8500000,
-    lastUpdated: "2024-11-20",
-    logo: "🏦",
-  },
-  {
-    id: 2,
-    bankName: "بنك مصر",
-    accountNo: "1234567890987",
-    accountType: "حساب توفير",
-    balance: 4200000,
-    lastUpdated: "2024-11-20",
-    logo: "🏛️",
-  },
-]
+interface BankAccount {
+  id: string
+  bankName: string
+  accountNo: string
+  accountType: string
+  balance: number
+  lastUpdated: string
+}
 
-// آخر الحركات
-const recentTransactions = [
-  {
-    id: 1,
-    date: "2024-11-20",
-    description: "تحصيل رسوم طلاب - قسم الهندسة",
-    type: "credit",
-    amount: 125000,
-    bank: "البنك الأهلي المصري",
-    reference: "TRX-00542",
-  },
-  {
-    id: 2,
-    date: "2024-11-20",
-    description: "تحويل رواتب الموظفين",
-    type: "debit",
-    amount: 850000,
-    bank: "بنك مصر",
-    reference: "TRX-00541",
-  },
-  {
-    id: 3,
-    date: "2024-11-19",
-    description: "تحصيل رسوم - قسم الحاسبات",
-    type: "credit",
-    amount: 95000,
-    bank: "البنك الأهلي المصري",
-    reference: "TRX-00540",
-  },
-  {
-    id: 4,
-    date: "2024-11-19",
-    description: "سداد فاتورة كهرباء",
-    type: "debit",
-    amount: 45000,
-    bank: "البنك الأهلي المصري",
-    reference: "TRX-00539",
-  },
-]
+interface BankTransaction {
+  id: string
+  date: string
+  description: string
+  type: "credit" | "debit"
+  amount: number
+  bank: string
+  reference: string
+}
+
+interface BankingStats {
+  totalBalance: number
+  accounts: number
+  credits: number
+  debits: number
+}
 
 export default function InstituteBankingDashboardPage() {
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
+  const [recentTransactions, setRecentTransactions] = useState<BankTransaction[]>([])
+  const [apiStats, setApiStats] = useState<BankingStats>({ totalBalance: 0, accounts: 0, credits: 0, debits: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/institute/banking`)
+        if (!res.ok) throw new Error("فشل في جلب البيانات البنكية")
+        const json = await res.json()
+        if (!cancelled) {
+          setBankAccounts(json.bankAccounts ?? [])
+          setRecentTransactions(json.recentTransactions ?? [])
+          setApiStats(json.stats ?? { totalBalance: 0, accounts: 0, credits: 0, debits: 0 })
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("ar-EG", {
       style: "currency",
@@ -106,13 +101,9 @@ export default function InstituteBankingDashboardPage() {
     return new Date(date).toLocaleDateString("ar-EG")
   }
 
-  const totalBalance = bankAccounts.reduce((sum, acc) => sum + acc.balance, 0)
-  const todayCredits = recentTransactions
-    .filter(t => t.type === "credit" && t.date === "2024-11-20")
-    .reduce((sum, t) => sum + t.amount, 0)
-  const todayDebits = recentTransactions
-    .filter(t => t.type === "debit" && t.date === "2024-11-20")
-    .reduce((sum, t) => sum + t.amount, 0)
+  const totalBalance = apiStats.totalBalance
+  const todayCredits = apiStats.credits
+  const todayDebits = apiStats.debits
 
   return (
     <motion.div
@@ -142,6 +133,9 @@ export default function InstituteBankingDashboardPage() {
           </Button>
         </div>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل البيانات البنكية...</CardContent></Card>}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -192,7 +186,7 @@ export default function InstituteBankingDashboardPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">عدد الحسابات</p>
-                <p className="text-2xl font-bold text-blue-700">{bankAccounts.length}</p>
+                <p className="text-2xl font-bold text-blue-700">{apiStats.accounts}</p>
               </div>
               <CreditCard className="h-8 w-8 text-institute-blue" />
             </div>
@@ -207,7 +201,7 @@ export default function InstituteBankingDashboardPage() {
             <CardContent className="p-4">
               <div className="flex items-center gap-3 mb-4">
                 <div className="h-12 w-12 rounded-xl bg-institute-blue dark:bg-institute-blue/30 flex items-center justify-center text-2xl">
-                  {account.logo}
+                  🏦
                 </div>
                 <div>
                   <p className="font-semibold">{account.bankName}</p>

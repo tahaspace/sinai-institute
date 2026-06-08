@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,31 +15,96 @@ import {
 } from "@/components/ui/table"
 import { AlertTriangle, Eye, CheckCircle, XCircle, Clock, FileText, Plus } from "lucide-react"
 
+type AppealStatus = "PENDING" | "APPROVED" | "REJECTED"
+
+interface AppealRow {
+  id: string
+  student: string
+  studentCode: string
+  course: string
+  courseCode: string
+  reason: string
+  status: AppealStatus
+  statusLabel: string
+  response: string
+  date: string
+}
+
+interface AppealStats {
+  total: number
+  pending: number
+  approved: number
+  rejected: number
+}
+
 export default function AppealsPage() {
+  const [appeals, setAppeals] = useState<AppealRow[]>([])
+  const [apiStats, setApiStats] = useState<AppealStats>({ total: 0, pending: 0, approved: 0, rejected: 0 })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [actioning, setActioning] = useState<string | null>(null)
+
+  async function load(signal?: { cancelled: boolean }) {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/institute/exams/appeals`)
+      if (!res.ok) throw new Error("فشل في جلب التظلمات")
+      const json = await res.json()
+      if (!signal?.cancelled) {
+        setAppeals(json.appeals ?? [])
+        setApiStats(json.stats ?? { total: 0, pending: 0, approved: 0, rejected: 0 })
+      }
+    } catch (e) {
+      if (!signal?.cancelled) setError((e as Error).message)
+    } finally {
+      if (!signal?.cancelled) setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const signal = { cancelled: false }
+    load(signal)
+    return () => { signal.cancelled = true }
+  }, [])
+
+  async function reload() {
+    await load()
+  }
+
+  async function updateStatus(id: string, status: AppealStatus) {
+    setActioning(id)
+    try {
+      await fetch(`/api/institute/exams/appeals`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      })
+      await reload()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setActioning(null)
+    }
+  }
+
   const stats = [
-    { label: "إجمالي التظلمات", value: "28", icon: FileText, color: "text-institute-blue" },
-    { label: "قيد المراجعة", value: "12", icon: Clock, color: "text-yellow-600" },
-    { label: "مقبول", value: "8", icon: CheckCircle, color: "text-institute-blue" },
-    { label: "مرفوض", value: "8", icon: XCircle, color: "text-red-600" },
+    { label: "إجمالي التظلمات", value: String(apiStats.total), icon: FileText, color: "text-institute-blue" },
+    { label: "قيد المراجعة", value: String(apiStats.pending), icon: Clock, color: "text-yellow-600" },
+    { label: "مقبول", value: String(apiStats.approved), icon: CheckCircle, color: "text-institute-blue" },
+    { label: "مرفوض", value: String(apiStats.rejected), icon: XCircle, color: "text-red-600" },
   ]
 
-  const appeals = [
-    { id: 1, student: "أحمد محمد", studentId: "STU2024001", course: "CS301", oldGrade: 55, requestedAction: "إعادة تصحيح", date: "2024-12-20", status: "pending" },
-    { id: 2, student: "سارة علي", studentId: "STU2024002", course: "MATH301", oldGrade: 48, requestedAction: "مراجعة الجمع", date: "2024-12-19", status: "approved" },
-    { id: 3, student: "محمد حسن", studentId: "STU2024003", course: "BUS101", oldGrade: 42, requestedAction: "إعادة تصحيح", date: "2024-12-18", status: "rejected" },
-    { id: 4, student: "نور سعيد", studentId: "STU2024004", course: "ACC201", oldGrade: 58, requestedAction: "مراجعة الجمع", date: "2024-12-21", status: "pending" },
-  ]
-
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: AppealStatus, statusLabel: string) => {
     switch (status) {
-      case "pending":
-        return <Badge className="bg-yellow-100 text-yellow-700"><Clock className="w-3 h-3 ml-1" />قيد المراجعة</Badge>
-      case "approved":
-        return <Badge className="bg-institute-blue text-green-700"><CheckCircle className="w-3 h-3 ml-1" />مقبول</Badge>
-      case "rejected":
-        return <Badge className="bg-red-100 text-red-700"><XCircle className="w-3 h-3 ml-1" />مرفوض</Badge>
+      case "PENDING":
+        return <Badge className="bg-yellow-100 text-yellow-700"><Clock className="w-3 h-3 ml-1" />{statusLabel}</Badge>
+      case "APPROVED":
+        return <Badge className="bg-institute-blue text-green-700"><CheckCircle className="w-3 h-3 ml-1" />{statusLabel}</Badge>
+      case "REJECTED":
+        return <Badge className="bg-red-100 text-red-700"><XCircle className="w-3 h-3 ml-1" />{statusLabel}</Badge>
       default:
-        return <Badge variant="secondary">{status}</Badge>
+        return <Badge variant="secondary">{statusLabel}</Badge>
     }
   }
 
@@ -57,6 +123,9 @@ export default function AppealsPage() {
           تقديم تظلم
         </Button>
       </div>
+
+      {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
+      {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل التظلمات...</CardContent></Card>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -94,8 +163,7 @@ export default function AppealsPage() {
               <TableRow>
                 <TableHead>الطالب</TableHead>
                 <TableHead>المقرر</TableHead>
-                <TableHead>الدرجة</TableHead>
-                <TableHead>الطلب</TableHead>
+                <TableHead>السبب</TableHead>
                 <TableHead>التاريخ</TableHead>
                 <TableHead>الحالة</TableHead>
                 <TableHead></TableHead>
@@ -107,29 +175,38 @@ export default function AppealsPage() {
                   <TableCell>
                     <div>
                       <p className="font-medium">{appeal.student}</p>
-                      <p className="text-xs text-muted-foreground">{appeal.studentId}</p>
+                      <p className="text-xs text-muted-foreground">{appeal.studentCode}</p>
                     </div>
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline">{appeal.course}</Badge>
                   </TableCell>
-                  <TableCell>
-                    <span className="font-bold text-red-600">{appeal.oldGrade}</span>
-                  </TableCell>
-                  <TableCell>{appeal.requestedAction}</TableCell>
+                  <TableCell>{appeal.reason}</TableCell>
                   <TableCell>{appeal.date}</TableCell>
-                  <TableCell>{getStatusBadge(appeal.status)}</TableCell>
+                  <TableCell>{getStatusBadge(appeal.status, appeal.statusLabel)}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
                       <Button variant="ghost" size="icon">
                         <Eye className="w-4 h-4" />
                       </Button>
-                      {appeal.status === "pending" && (
+                      {appeal.status === "PENDING" && (
                         <>
-                          <Button variant="ghost" size="icon" className="text-institute-blue">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-institute-blue"
+                            disabled={actioning === appeal.id}
+                            onClick={() => updateStatus(appeal.id, "APPROVED")}
+                          >
                             <CheckCircle className="w-4 h-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="text-red-600">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-red-600"
+                            disabled={actioning === appeal.id}
+                            onClick={() => updateStatus(appeal.id, "REJECTED")}
+                          >
                             <XCircle className="w-4 h-4" />
                           </Button>
                         </>
