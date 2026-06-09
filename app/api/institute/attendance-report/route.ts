@@ -6,8 +6,9 @@ import { setEnrollmentResult } from '@/lib/gpa';
 
 const DEFAULT_TERM = { academicYear: '2024-2025', semester: 'first' };
 
-// GET /api/institute/attendance-report?courseId=&academicYear=&semester=
-// Per-course attendance roster with the 3-stage warning + ban flags.
+// GET /api/institute/attendance-report?courseId=&academicYear=&semester=&lowOnly=true
+// Per-course attendance roster with the 3-stage warning + ban flags. `lowOnly=true`
+// returns only students at/below the warn threshold (the bylaw's حصر / filtered roster).
 export async function GET(request: NextRequest) {
   try {
     const guard = await requirePermission('attendance.view');
@@ -17,12 +18,13 @@ export async function GET(request: NextRequest) {
     let courseId = searchParams.get('courseId');
     const academicYear = searchParams.get('academicYear') || DEFAULT_TERM.academicYear;
     const semester = searchParams.get('semester') || DEFAULT_TERM.semester;
+    const lowOnly = searchParams.get('lowOnly') === 'true';
 
     const courses = await prisma.course.findMany({ orderBy: { code: 'asc' }, select: { id: true, code: true, nameAr: true } });
     if (!courseId) courseId = courses[0]?.id ?? null;
     if (!courseId) return NextResponse.json({ courses: [], report: null });
 
-    const report = await courseAttendance(courseId, academicYear, semester);
+    const report = await courseAttendance(courseId, academicYear, semester, { lowOnly });
     return NextResponse.json({ courses, selectedCourseId: courseId, term: { academicYear, semester }, report });
   } catch (error) {
     console.error('Error building attendance report:', error);

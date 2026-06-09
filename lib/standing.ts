@@ -9,6 +9,10 @@ import { getRegulations, type Regulations } from '@/lib/regulations';
 const SEM_RANK: Record<string, number> = { first: 1, second: 2, summer: 3 };
 const isSummer = (sem: string) => sem.toLowerCase().includes('summer') || sem === 'صيفي';
 
+// Fallback "last level" when a student has no program attached (Program.years is the
+// source of truth). The bylaw caps the undergraduate track at 4 academic years.
+const FALLBACK_MAX_LEVEL = 4;
+
 function termSortKey(academicYear: string, semester: string): number {
   const startYear = parseInt(academicYear.split('-')[0], 10) || 0;
   return startYear * 10 + (SEM_RANK[semester] ?? 9);
@@ -34,14 +38,24 @@ export type AcademicStanding = {
   canPromote: boolean;
   // graduation
   graduationEligible: boolean;
+  graduationHours: number; // per-program requirement (or reg default) used for this student
   remainingHours: number;
+  passedGraduationProject: boolean; // مشروع التخرج passed?
+  atLastLevel: boolean; // reached the program's final academic year?
   failedMandatory: { code: string; name: string }[];
   // human-readable Arabic flags (UI badges / report lines)
   flags: string[];
 };
 
 type Loaded = {
-  student: { id: string; level: number };
+  student: {
+    id: string;
+    level: number;
+    // Program context — drives the per-program graduation hour requirement and the
+    // "last level" gate. Both null when the student has no Program attached.
+    programYears: number | null;
+    programTotalCreditHours: number | null;
+  };
   enrollments: {
     courseId: string;
     academicYear: string;
@@ -51,6 +65,7 @@ type Loaded = {
     requirementType: string;
     code: string;
     nameAr: string;
+    isGraduationProject: boolean;
     points: number | null;
     affectsGpa: boolean;
     isPass: boolean;
@@ -59,14 +74,26 @@ type Loaded = {
 
 async function load(studentId: string): Promise<Loaded | null> {
   const [student, rows, statuses] = await Promise.all([
-    prisma.student.findUnique({ where: { id: studentId }, select: { id: true, level: true } }),
+    prisma.student.findUnique({
+      where: { id: studentId },
+      select: { id: true, level: true, program: { select: { years: true, totalCreditHours: true } } },
+    }),
     prisma.enrollment.findMany({ where: { studentId }, include: { course: true } }),
     prisma.gradeStatus.findMany(),
   ]);
   if (!student) return null;
   const byCode = new Map(statuses.map((s) => [s.code, s]));
   return {
-    student,
+    student: {
+      id: student.id,
+      level: student.level,
+      programYears: student.program?.years ?? null,
+      // Program.totalCreditHours defaults to 0 in schema; treat 0 as "unset" so we
+      // fall back to the regulation default rather than letting everyone graduate.
+      programTotalCreditHours: student.program && student.program.totalCreditHours > 0
+        ? student.program.totalCreditHours
+        : null,
+    },
     enrollments: rows.map((e) => {
       const st = e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : undefined;
       return {
@@ -78,6 +105,7 @@ async function load(studentId: string): Promise<Loaded | null> {
         requirementType: e.course.requirementType,
         code: e.course.code,
         nameAr: e.course.nameAr,
+        isGraduationProject: e.course.isGraduationProject,
         points: st?.points ?? null,
         affectsGpa: st?.affectsGpa ?? false,
         isPass: st?.isPass ?? false,
@@ -151,9 +179,15 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
   // per-course best outcome: passed if any attempt passed; track failed mandatory
   const passedCourse = new Set<string>();
   const mandatoryCourses = new Map<string, { code: string; name: string }>();
+  // مشروع التخرج — graduation is gated on a PASSED graduation-project course, so we
+  // only need to know whether at least one such course was actually passed.
+  let passedGraduationProject = false;
   for (const e of enrollments) {
     if (e.requirementType === 'mandatory') mandatoryCourses.set(e.courseId, { code: e.code, name: e.nameAr });
-    if (e.isPass) passedCourse.add(e.courseId);
+    if (e.isPass) {
+      passedCourse.add(e.courseId);
+      if (e.isGraduationProject) passedGraduationProject = true;
+    }
   }
   const failedMandatory = [...mandatoryCourses.entries()]
     .filter(([id]) => !passedCourse.has(id))
@@ -174,8 +208,19 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
   const canPromote = qualifiedLevel > student.level;
 
   // ---- graduation ----
-  const remainingHours = Math.max(0, reg.graduationHours - earnedHours);
-  const graduationEligible = earnedHours >= reg.graduationHours && failedMandatory.length === 0;
+  // Per-program credit-hour requirement wins over the institute-wide default
+  // (e.g. a 130 CH program vs a 160 CH program); fall back to reg.graduationHours.
+  const graduationHours = student.programTotalCreditHours ?? reg.graduationHours;
+  // "Last level": the student must have reached the final academic year of the
+  // program (Program.years) — fall back to the bylaw max when there's no program.
+  const lastLevel = student.programYears ?? FALLBACK_MAX_LEVEL;
+  const atLastLevel = student.level >= lastLevel;
+  const remainingHours = Math.max(0, graduationHours - earnedHours);
+  const graduationEligible =
+    earnedHours >= graduationHours &&
+    failedMandatory.length === 0 &&
+    passedGraduationProject && // مشروع التخرج must be passed
+    atLastLevel;
 
   // ---- Arabic flags ----
   const flags: string[] = [];
@@ -186,7 +231,13 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
   if (termHonor) flags.push('قائمة الشرف (فصلي)');
   if (canPromote) flags.push(`مؤهل للترقية إلى المستوى ${qualifiedLevel}`);
   if (graduationEligible) flags.push('مستوفٍ لشروط التخرج');
-  else if (remainingHours > 0 && earnedHours > 0) flags.push(`متبقٍ للتخرج ${remainingHours} ساعة`);
+  else if (earnedHours > 0) {
+    if (remainingHours > 0) flags.push(`متبقٍ للتخرج ${remainingHours} ساعة`);
+    // Surface the non-hour graduation blockers so the gate is auditable in the UI.
+    if (remainingHours === 0 && !passedGraduationProject) flags.push('متبقٍ: مشروع التخرج');
+    if (remainingHours === 0 && passedGraduationProject && !atLastLevel)
+      flags.push(`متبقٍ: بلوغ المستوى الأخير (${lastLevel})`);
+  }
 
   return {
     studentId: student.id,
@@ -204,7 +255,10 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
     qualifiedLevel,
     canPromote,
     graduationEligible,
+    graduationHours,
     remainingHours,
+    passedGraduationProject,
+    atLastLevel,
     failedMandatory,
     flags,
   };

@@ -121,6 +121,9 @@ export async function setEnrollmentResult(
 }> {
   const e = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: { course: true } });
   if (!e) throw new Error('enrollment-not-found');
+  // Once a course result is approved & locked (اعتماد وغلق) the bylaw forbids any
+  // further mutation of the grade — callers must reopen (unlock) first.
+  if (e.resultLocked) throw new Error('النتيجة معتمدة ومغلقة');
 
   const c: GradeComponents = {
     midterm: opts.components?.midterm ?? e.midterm ?? 0,

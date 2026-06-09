@@ -719,6 +719,7 @@ model Course {
   finalMax     Int          @default(100)
   practicalMax Int          @default(0)
   homeworkMax  Int          @default(20)
+  isGraduationProject Boolean @default(false) // مشروع التخرج — gates graduation eligibility
   universityId String?
   facultyId    String?
   createdAt    DateTime     @default(now())
@@ -829,6 +830,8 @@ model Enrollment {
   gradeStatusCode String? // result-state code (A/B+/.../W/E/I/NE/FW/BL/DN/DS) → GradeStatus
   points       Float? // GPA points earned for this course
   status       String   @default("ENROLLED")
+  resultLocked Boolean  @default(false) // true once the result is approved & locked (اعتماد وغلق) — no further edits
+  approvedAt   DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)

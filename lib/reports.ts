@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma';
-import { computeStandingForStudents } from '@/lib/standing';
+import { computeStandingForStudents, computeAcademicStanding } from '@/lib/standing';
+import { getRegulations } from '@/lib/regulations';
 
 // Registrar reports engine. All reports are aggregations over Enrollment + the
 // configurable GradeStatus table, so pass/fail/withdrawn classification stays
@@ -160,4 +161,234 @@ export async function ministryPrep(courseId: string, f: TermFilter) {
       graduationEligible: st.graduationEligible,
     }));
   return { course: { code: course.code, name: course.nameAr }, rows, count: rows.length };
+}
+
+// (1) كشف نجاح ورسوب — NAMED roster of a single course's students with their
+// pass/fail/withdrawn/incomplete outcome (not aggregate counts). Same classify()
+// rule as courseResults so the headline counts and the named rows always agree.
+export async function passFailRoster(courseId: string, f: TermFilter) {
+  const [course, enrollments, statuses] = await Promise.all([
+    prisma.course.findUnique({ where: { id: courseId }, include: { department: { select: { nameAr: true } } } }),
+    prisma.enrollment.findMany({
+      where: { courseId, ...termWhere(f) },
+      include: { student: { select: { studentCode: true, nameAr: true, level: true } } },
+      orderBy: { student: { studentCode: 'asc' } },
+    }),
+    prisma.gradeStatus.findMany(),
+  ]);
+  if (!course) return null;
+  const nameByCode = new Map(statuses.map((s) => [s.code, s.name]));
+  const byCode = new Map(statuses.map((s) => [s.code, s]));
+
+  const counts = { pass: 0, fail: 0, withdrawn: 0, incomplete: 0, ungraded: 0 };
+  const rows = enrollments.map((e) => {
+    const outcome = classify(e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null);
+    counts[outcome] += 1;
+    return {
+      studentCode: e.student.studentCode,
+      name: e.student.nameAr,
+      level: e.student.level,
+      statusCode: e.gradeStatusCode,
+      statusName: e.gradeStatusCode ? nameByCode.get(e.gradeStatusCode) ?? null : null,
+      points: e.points,
+      outcome,
+    };
+  });
+
+  const graded = counts.pass + counts.fail;
+  return {
+    course: { code: course.code, name: course.nameAr, department: course.department?.nameAr ?? '' },
+    rows,
+    counts,
+    enrolled: rows.length,
+    passRate: graded ? Math.round((counts.pass / graded) * 100) : 0,
+  };
+}
+
+// (2) بيان حالة طالب — a single-student status statement: identity, CGPA, earned vs
+// required hours, the standing flags (probation/honor/escalation), the latest-term
+// registration status, and any active warnings. Reuses computeAcademicStanding so the
+// numbers match the dashboard exactly.
+export async function studentStatus(studentCode: string) {
+  const student = await prisma.student.findUnique({
+    where: { studentCode },
+    select: {
+      id: true,
+      studentCode: true,
+      nameAr: true,
+      level: true,
+      status: true,
+      department: { select: { nameAr: true } },
+      program: { select: { nameAr: true, years: true, totalCreditHours: true } },
+    },
+  });
+  if (!student) return { error: 'الطالب غير موجود' };
+
+  const [standing, reg, warnings, lastReg] = await Promise.all([
+    computeAcademicStanding(student.id),
+    getRegulations(),
+    prisma.studentWarning.findMany({
+      where: { studentId: student.id, status: 'ACTIVE' },
+      orderBy: { issuedAt: 'desc' },
+      select: { type: true, reason: true, gpa: true, issuedAt: true },
+    }),
+    prisma.registrationRequest.findFirst({
+      where: { studentId: student.id },
+      orderBy: [{ academicYear: 'desc' }, { semester: 'desc' }],
+      select: { academicYear: true, semester: true, status: true },
+    }),
+  ]);
+
+  // required hours: prefer the program's own total, else the bylaw graduation hours
+  const requiredHours = student.program?.totalCreditHours && student.program.totalCreditHours > 0
+    ? student.program.totalCreditHours
+    : reg.graduationHours;
+
+  return {
+    student: {
+      studentCode: student.studentCode,
+      name: student.nameAr,
+      level: student.level,
+      status: student.status,
+      department: student.department?.nameAr ?? '',
+      program: student.program?.nameAr ?? '',
+    },
+    standing: standing
+      ? {
+          cgpa: standing.cgpa,
+          earnedHours: standing.earnedHours,
+          requiredHours,
+          remainingHours: Math.max(0, requiredHours - standing.earnedHours),
+          onProbation: standing.onProbation,
+          escalation: standing.escalation,
+          termHonor: standing.termHonor,
+          cumulativeHonor: standing.cumulativeHonor,
+          graduationEligible: standing.graduationEligible,
+          flags: standing.flags,
+        }
+      : null,
+    registration: lastReg ? { academicYear: lastReg.academicYear, semester: lastReg.semester, status: lastReg.status } : null,
+    warnings: warnings.map((w) => ({ type: w.type, reason: w.reason, gpa: w.gpa, issuedAt: w.issuedAt })),
+  };
+}
+
+// (3) كشوف الوزارة — three distinct exam-board sheets, selected by `stage`:
+//   transitional → students NOT in the final level (currentLevel < program years)
+//   final        → final-level / graduation-eligible candidates
+//   deprived      → المحرومون/الغائبون: students whose term enrollments carry a
+//                   deprivation/absence status (DN/NE/E). These are independent of
+//                   level — a student denied entry to the exam is listed regardless.
+export type MinistryStage = 'transitional' | 'final' | 'deprived';
+const DEPRIVED_CODES = new Set(['DN', 'NE', 'E']);
+const PROGRAM_YEARS_FALLBACK = 4;
+
+export async function ministrySheet(stage: MinistryStage, f: TermFilter) {
+  const students = await prisma.student.findMany({
+    where: { status: { notIn: ['GRADUATED', 'WITHDRAWN', 'DISMISSED'] } },
+    select: {
+      id: true,
+      studentCode: true,
+      nameAr: true,
+      level: true,
+      department: { select: { nameAr: true } },
+      program: { select: { years: true } },
+    },
+    orderBy: { studentCode: 'asc' },
+  });
+
+  if (stage === 'deprived') {
+    // students with any DN/NE/E enrollment in the selected term — list the courses
+    const deprivedEnr = await prisma.enrollment.findMany({
+      where: { ...termWhere(f), gradeStatusCode: { in: [...DEPRIVED_CODES] } },
+      include: { course: { select: { code: true, nameAr: true } }, student: { select: { id: true, studentCode: true, nameAr: true, level: true, department: { select: { nameAr: true } } } } },
+      orderBy: { student: { studentCode: 'asc' } },
+    });
+    const byStudent = new Map<string, { studentCode: string; name: string; level: number; department: string; courses: { code: string; name: string; statusCode: string }[] }>();
+    for (const e of deprivedEnr) {
+      const row = byStudent.get(e.student.id) ?? {
+        studentCode: e.student.studentCode,
+        name: e.student.nameAr,
+        level: e.student.level,
+        department: e.student.department?.nameAr ?? '',
+        courses: [],
+      };
+      row.courses.push({ code: e.course.code, name: e.course.nameAr, statusCode: e.gradeStatusCode as string });
+      byStudent.set(e.student.id, row);
+    }
+    const rows = [...byStudent.values()];
+    return { stage, rows, count: rows.length };
+  }
+
+  // transitional / final → driven by the standing engine (level + graduation)
+  const standings = await computeStandingForStudents(students.map((s) => s.id));
+  const rows = students
+    .map((s) => ({ s, st: standings.get(s.id)! }))
+    .filter(({ s, st }) => {
+      if (!st) return false;
+      const finalLevel = s.program?.years ?? PROGRAM_YEARS_FALLBACK;
+      const isFinal = st.currentLevel >= finalLevel || st.graduationEligible;
+      return stage === 'final' ? isFinal : !isFinal;
+    })
+    .map(({ s, st }) => ({
+      studentCode: s.studentCode,
+      name: s.nameAr,
+      department: s.department?.nameAr ?? '',
+      level: st.currentLevel,
+      cgpa: st.cgpa,
+      earnedHours: st.earnedHours,
+      graduationEligible: st.graduationEligible,
+    }));
+  return { stage, rows, count: rows.length };
+}
+
+// (4) إحصائيات النجاح — institute-wide pass-rate summary for the term, plus a
+// breakdown by level and by department. Pass/fail are course-attempt outcomes
+// (same classify() rule), so a student appears once per registered course.
+export async function successStats(f: TermFilter) {
+  const [enrollments, statuses] = await Promise.all([
+    prisma.enrollment.findMany({
+      where: termWhere(f),
+      include: {
+        student: { select: { level: true, department: { select: { nameAr: true } } } },
+      },
+    }),
+    prisma.gradeStatus.findMany(),
+  ]);
+  const byCode = new Map(statuses.map((s) => [s.code, s]));
+
+  type Bucket = { enrolled: number; pass: number; fail: number; withdrawn: number; incomplete: number };
+  const fresh = (): Bucket => ({ enrolled: 0, pass: 0, fail: 0, withdrawn: 0, incomplete: 0 });
+  const overall = fresh();
+  const byLevel = new Map<number, Bucket>();
+  const byDept = new Map<string, Bucket>();
+
+  const tally = (b: Bucket, cls: StatusClass) => {
+    b.enrolled += 1;
+    if (cls === 'pass') b.pass += 1;
+    else if (cls === 'fail') b.fail += 1;
+    else if (cls === 'withdrawn') b.withdrawn += 1;
+    else if (cls === 'incomplete') b.incomplete += 1;
+  };
+
+  for (const e of enrollments) {
+    const cls = classify(e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null);
+    tally(overall, cls);
+    const lvl = e.student.level;
+    const lb = byLevel.get(lvl) ?? fresh();
+    tally(lb, cls);
+    byLevel.set(lvl, lb);
+    const dept = e.student.department?.nameAr ?? 'غير محدد';
+    const db = byDept.get(dept) ?? fresh();
+    tally(db, cls);
+    byDept.set(dept, db);
+  }
+
+  const rate = (b: Bucket) => (b.pass + b.fail ? Math.round((b.pass / (b.pass + b.fail)) * 100) : 0);
+  const decorate = <K,>(entries: [K, Bucket][]) => entries.map(([key, b]) => ({ key, ...b, passRate: rate(b) }));
+
+  return {
+    overall: { ...overall, passRate: rate(overall) },
+    byLevel: decorate([...byLevel.entries()].sort((a, b) => a[0] - b[0])),
+    byDepartment: decorate([...byDept.entries()].sort((a, b) => b[1].enrolled - a[1].enrolled)),
+  };
 }

@@ -1,9 +1,22 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { toast } from "react-hot-toast"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import {
   Table,
   TableBody,
@@ -56,29 +69,51 @@ export default function AcademicStandingPage() {
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>("all")
   const [search, setSearch] = useState("")
+  const [applying, setApplying] = useState<null | "promote" | "escalate">(null)
+
+  // Reusable loader so the apply actions can refetch after a write-back.
+  const load = useCallback(async (signal?: () => boolean) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/institute/academic-standing`)
+      if (!res.ok) throw new Error("فشل في حساب الحالة الأكاديمية")
+      const json = await res.json()
+      if (!signal || !signal()) {
+        setRows(json.rows ?? [])
+        setStats(json.stats ?? null)
+      }
+    } catch (e) {
+      if (!signal || !signal()) setError((e as Error).message)
+    } finally {
+      if (!signal || !signal()) setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
-    async function load() {
-      setLoading(true)
-      setError(null)
-      try {
-        const res = await fetch(`/api/institute/academic-standing`)
-        if (!res.ok) throw new Error("فشل في حساب الحالة الأكاديمية")
-        const json = await res.json()
-        if (!cancelled) {
-          setRows(json.rows ?? [])
-          setStats(json.stats ?? null)
-        }
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    load()
+    load(() => cancelled)
     return () => { cancelled = true }
-  }, [])
+  }, [load])
+
+  async function applyAction(action: "promote" | "escalate") {
+    setApplying(action)
+    try {
+      const res = await fetch(`/api/institute/academic-standing/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error || "فشل في تطبيق الإجراء")
+      toast.success(json?.message ?? "تم تطبيق الإجراء")
+      await load()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setApplying(null)
+    }
+  }
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -104,12 +139,73 @@ export default function AcademicStandingPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Award className="w-7 h-7 text-institute-gold" />
-          الحالة الأكاديمية للطلاب
-        </h1>
-        <p className="text-muted-foreground">الإنذارات الأكاديمية وقائمة الشرف والترقية وشروط التخرج — وفق لائحة المعهد</p>
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Award className="w-7 h-7 text-institute-gold" />
+            الحالة الأكاديمية للطلاب
+          </h1>
+          <p className="text-muted-foreground">الإنذارات الأكاديمية وقائمة الشرف والترقية وشروط التخرج — وفق لائحة المعهد</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {/* Promote — bulk write Student.level := qualifiedLevel for all promotable students. */}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                className="gap-2"
+                disabled={loading || applying !== null || !stats || stats.promotable === 0}
+              >
+                <TrendingUp className="w-4 h-4" />
+                {applying === "promote" ? "جارٍ الترقية..." : `ترقية المستوى${stats?.promotable ? ` (${stats.promotable})` : ""}`}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent dir="rtl">
+              <AlertDialogHeader>
+                <AlertDialogTitle>ترقية المستوى</AlertDialogTitle>
+                <AlertDialogDescription>
+                  سيتم ترقية كل طالب مستوفٍ لساعات الترقية إلى المستوى المؤهَّل له
+                  {stats?.promotable ? ` (${stats.promotable} طالب)` : ""}. هل تريد المتابعة؟
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>إلغاء</AlertDialogCancel>
+                <AlertDialogAction onClick={() => applyAction("promote")}>تأكيد الترقية</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {/* Escalate — record ACADEMIC warning + set status DISMISSED for final-warning students. */}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="destructive"
+                className="gap-2"
+                disabled={loading || applying !== null || !stats || stats.finalWarnings === 0}
+              >
+                <ShieldAlert className="w-4 h-4" />
+                {applying === "escalate" ? "جارٍ التطبيق..." : `تطبيق الإنذارات/الفصل${stats?.finalWarnings ? ` (${stats.finalWarnings})` : ""}`}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent dir="rtl">
+              <AlertDialogHeader>
+                <AlertDialogTitle>تطبيق الإنذار النهائي / الفصل</AlertDialogTitle>
+                <AlertDialogDescription>
+                  سيتم تسجيل إنذار أكاديمي نهائي وتغيير حالة الطلاب الذين بلغوا حدّ الفصل إلى «مفصول»
+                  {stats?.finalWarnings ? ` (${stats.finalWarnings} طالب)` : ""}. هذا الإجراء يُسجَّل في سجل التدقيق ولا يمكن التراجع عنه تلقائيًا.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>إلغاء</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => applyAction("escalate")}
+                  className="bg-red-600 hover:bg-red-700"
+                >
+                  تأكيد التطبيق
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
       </div>
 
       {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}

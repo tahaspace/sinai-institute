@@ -18,7 +18,7 @@ import { PrismaClient } from '@prisma/client';
 import { hash } from 'bcryptjs';
 
 const url = process.env.DATABASE_URL || '';
-if (!/(@(127\.0\.0\.1|localhost))[:/]/.test(url)) {
+if (!/(@(127\.0\.0\.1|localhost))[:/]/.test(url) && process.env.ALLOW_REMOTE_SEED !== '1') {
   console.error(
     '\nRefusing to seed: DATABASE_URL is not a local host.\n' +
       'This script is test-only. Set DATABASE_URL to the local sinai_test DB first.\n'
@@ -132,7 +132,7 @@ async function main() {
   for (const c of courseDefs) {
     const course = await prisma.course.upsert({
       where: { code: c.code },
-      update: { practicalMax: c.practicalMax, departmentId: dept.id, instructorId: instructor.id, creditHours: c.credit },
+      update: { practicalMax: c.practicalMax, departmentId: dept.id, instructorId: instructor.id, creditHours: c.credit, isGraduationProject: c.code === 'CS204' },
       create: {
         code: c.code,
         nameAr: c.nameAr,
@@ -144,6 +144,7 @@ async function main() {
         finalMax: 100,
         practicalMax: c.practicalMax,
         homeworkMax: 20,
+        isGraduationProject: c.code === 'CS204',
       },
     });
     courses[c.code] = course;

@@ -7,7 +7,10 @@ import prisma from '@/lib/prisma';
 // spoofing, no demo fallback. The seeded-demo / studentCode-param convenience is
 // gated to non-production so the test build stays usable without real logins.
 export const DEMO_STUDENT_CODE = '2024-105';
-const DEV_FALLBACK = process.env.NODE_ENV !== 'production';
+// Strict in real production (session-linked profile only). A demo/staging deploy
+// can opt into the seeded-demo fallback (so an admin can preview every portal)
+// by setting ALLOW_DEMO_FALLBACK=1 — never set that on a real production tenant.
+const DEV_FALLBACK = process.env.NODE_ENV !== 'production' || process.env.ALLOW_DEMO_FALLBACK === '1';
 
 export async function resolveStudent(studentCodeParam?: string | null) {
   const session = await getServerSession(authOptions);

@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ClipboardList, Save, Upload, Download, Search } from "lucide-react"
+import { ClipboardList, Save, Upload, Download, Search, Lock, Unlock } from "lucide-react"
 
 // --- API shapes ---
 interface CourseLite { id: string; code: string; nameAr: string }
@@ -45,6 +45,9 @@ interface RosterRow {
   letterGrade: string | null
   gradeStatusCode: string | null
   statusName: string | null
+  resultLocked: boolean
+  academicYear: string
+  semester: string
 }
 interface StatusOption { code: string; name: string }
 type Component = "midterm" | "final" | "practical" | "homework"
@@ -181,7 +184,46 @@ export default function GradesPage() {
     }
   }
 
+  // Approve & lock (or reopen) the whole course's results for the term shown in the roster.
+  // The term comes from the roster rows (all rows of one course share course/term here).
+  const approveLock = async (lock: boolean) => {
+    if (!selectedCourseId) return
+    setSaving(true)
+    setError(null)
+    try {
+      const term = roster[0]
+      const res = await fetch(`/api/institute/exams/grades`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: lock ? "approve" : "unlock",
+          courseId: selectedCourseId,
+          academicYear: term?.academicYear,
+          semester: term?.semester,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || (lock ? "فشل في اعتماد النتائج" : "فشل في إعادة الفتح"))
+      }
+      await loadCourse(selectedCourseId)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const specialCodes = new Set(statuses.map((s) => s.code))
+
+  // A row is eligible for a verbal control grade only when the written/final mark is
+  // still missing (final == null) OR the student is already flagged deprived (DN, حرمان
+  // due to exceeded absence). For fully-marked rows the letter is derived from the scores.
+  const canSetVerbal = (row: RosterRow) => row.final == null || row.gradeStatusCode === "DN"
+
+  // Term-level lock state for the loaded roster (all rows share the course/term here).
+  const anyLocked = roster.some((r) => r.resultLocked)
+  const allLocked = roster.length > 0 && roster.every((r) => r.resultLocked)
 
   const filtered = roster.filter(
     (r) => r.name.includes(searchTerm) || r.studentCode.includes(searchTerm)
@@ -206,10 +248,21 @@ export default function GradesPage() {
             <Download className="w-4 h-4 ml-2" />
             تصدير
           </Button>
-          <Button onClick={saveAll} disabled={saving || dirtyCount === 0}>
+          <Button onClick={saveAll} disabled={saving || dirtyCount === 0 || allLocked}>
             <Save className="w-4 h-4 ml-2" />
             {saving ? "جارٍ الحفظ..." : `حفظ${dirtyCount ? ` (${dirtyCount})` : ""}`}
           </Button>
+          {allLocked ? (
+            <Button variant="outline" onClick={() => approveLock(false)} disabled={saving || roster.length === 0}>
+              <Unlock className="w-4 h-4 ml-2" />
+              إعادة فتح
+            </Button>
+          ) : (
+            <Button onClick={() => approveLock(true)} disabled={saving || roster.length === 0 || dirtyCount > 0}>
+              <Lock className="w-4 h-4 ml-2" />
+              اعتماد وغلق النتائج
+            </Button>
+          )}
         </div>
       </div>
 
@@ -251,7 +304,15 @@ export default function GradesPage() {
       {/* Grades Table */}
       <Card>
         <CardHeader>
-          <CardTitle>درجات الطلاب</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            درجات الطلاب
+            {anyLocked && (
+              <Badge variant="outline" className="gap-1 text-green-700 border-green-600">
+                <Lock className="w-3 h-3" />
+                {allLocked ? "النتائج معتمدة ومغلقة" : "بعض النتائج معتمدة"}
+              </Badge>
+            )}
+          </CardTitle>
           <CardDescription>
             {course
               ? `${course.code} - ${course.nameAr} | أعمال الفصل: ${course.midtermMax} | النهائي: ${course.finalMax} | عملي: ${course.practicalMax} | أعمال السنة: ${course.homeworkMax}`
@@ -299,7 +360,7 @@ export default function GradesPage() {
                             value={valueOf(row, c)}
                             max={max}
                             min={0}
-                            disabled={max === 0}
+                            disabled={max === 0 || row.resultLocked}
                             onChange={(e) => setEdit(row.enrollmentId, c, e.target.value)}
                           />
                         </TableCell>
@@ -310,13 +371,21 @@ export default function GradesPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-center">
-                        <Badge variant="secondary">{row.letterGrade ?? "-"}</Badge>
+                        <div className="flex items-center justify-center gap-1">
+                          <Badge variant="secondary">{row.letterGrade ?? "-"}</Badge>
+                          {row.resultLocked && (
+                            <Badge variant="outline" className="gap-1 text-green-700 border-green-600">
+                              <Lock className="w-3 h-3" />
+                              معتمد
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-center">
                         <Select
                           value={row.gradeStatusCode && specialCodes.has(row.gradeStatusCode) ? row.gradeStatusCode : "__auto"}
                           onValueChange={(v) => setStatus(row, v)}
-                          disabled={saving}
+                          disabled={saving || row.resultLocked || !canSetVerbal(row)}
                         >
                           <SelectTrigger className="w-36 mx-auto">
                             <SelectValue />

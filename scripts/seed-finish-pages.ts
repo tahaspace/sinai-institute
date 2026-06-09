@@ -17,7 +17,7 @@
 import { PrismaClient } from '@prisma/client';
 
 const url = process.env.DATABASE_URL || '';
-if (!/(@(127\.0\.0\.1|localhost))[:/]/.test(url)) {
+if (!/(@(127\.0\.0\.1|localhost))[:/]/.test(url) && process.env.ALLOW_REMOTE_SEED !== '1') {
   console.error('\nRefusing to seed: DATABASE_URL is not a local host. Test-only script.\n');
   process.exit(1);
 }

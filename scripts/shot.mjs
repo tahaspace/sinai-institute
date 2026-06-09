@@ -1,0 +1,13 @@
+import { chromium } from 'playwright-core';
+const BASE='http://localhost:3000';
+const b=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+const p=await (await b.newContext({viewport:{width:1280,height:800}})).newPage();
+await p.goto(BASE+'/login',{waitUntil:'networkidle'});
+await p.fill('#email','admin@sainaiinstitute.com'); await p.fill('#password','admin123');
+await p.click('button[type="submit"]'); await p.waitForTimeout(2500);
+await p.goto(BASE+'/admin/universities',{waitUntil:'networkidle'}); await p.waitForTimeout(1500);
+await p.screenshot({path:'/tmp/admin-universities.png',fullPage:true});
+await p.goto(BASE+'/admin/users',{waitUntil:'networkidle'}); await p.waitForTimeout(1500);
+await p.screenshot({path:'/tmp/admin-users.png',fullPage:true});
+console.log('screenshots saved');
+await b.close();

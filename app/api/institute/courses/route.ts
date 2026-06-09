@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
         countsInGpa: c.countsInGpa,
         requirementType: c.requirementType,
         availableInSummer: c.availableInSummer,
+        isGraduationProject: c.isGraduationProject,
         gradeSplit: { midterm: c.midtermMax, final: c.finalMax, practical: c.practicalMax, homework: c.homeworkMax },
       })),
       stats: {
@@ -66,8 +67,35 @@ export async function POST(request: NextRequest) {
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
     const body = await request.json();
-    const { code, nameAr, nameEn, creditHours, departmentId, instructorId } = body ?? {};
+    const {
+      code,
+      nameAr,
+      nameEn,
+      creditHours,
+      departmentId,
+      instructorId,
+      countsInGpa,
+      requirementType,
+      availableInSummer,
+      isGraduationProject,
+      midtermMax,
+      finalMax,
+      practicalMax,
+      homeworkMax,
+    } = body ?? {};
     if (!code || !nameAr) return NextResponse.json({ error: 'الكود والاسم مطلوبان' }, { status: 400 });
+
+    // requirementType is a closed set (إجباري/اختياري) — reject anything else early.
+    if (typeof requirementType !== 'undefined' && !['mandatory', 'elective'].includes(requirementType)) {
+      return NextResponse.json({ error: 'نوع المقرر غير صالح' }, { status: 400 });
+    }
+
+    // grade-component caps (midterm/final/practical/homework) — coerce to int and default per schema.
+    const cap = (v: unknown, fallback: number) => {
+      if (typeof v === 'undefined' || v === null || v === '') return fallback;
+      const n = parseInt(String(v), 10);
+      return Number.isFinite(n) ? n : fallback;
+    };
 
     const course = await prisma.course.create({
       data: {
@@ -77,6 +105,14 @@ export async function POST(request: NextRequest) {
         creditHours: creditHours ? parseInt(String(creditHours), 10) : 3,
         departmentId: departmentId || null,
         instructorId: instructorId || null,
+        countsInGpa: typeof countsInGpa === 'boolean' ? countsInGpa : true,
+        requirementType: requirementType || 'mandatory',
+        availableInSummer: typeof availableInSummer === 'boolean' ? availableInSummer : true,
+        isGraduationProject: typeof isGraduationProject === 'boolean' ? isGraduationProject : false,
+        midtermMax: cap(midtermMax, 50),
+        finalMax: cap(finalMax, 100),
+        practicalMax: cap(practicalMax, 0),
+        homeworkMax: cap(homeworkMax, 20),
       },
     });
     return NextResponse.json(course, { status: 201 });
@@ -95,7 +131,22 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const { id, ...data } = body ?? {};
     if (!id) return NextResponse.json({ error: 'المعرف مطلوب' }, { status: 400 });
-    if (typeof data.creditHours !== 'undefined') data.creditHours = parseInt(String(data.creditHours), 10);
+
+    if (typeof data.requirementType !== 'undefined' && !['mandatory', 'elective'].includes(data.requirementType)) {
+      return NextResponse.json({ error: 'نوع المقرر غير صالح' }, { status: 400 });
+    }
+
+    // coerce numeric fields (credit hours + grade-component caps) to Int when present.
+    for (const k of ['creditHours', 'midtermMax', 'finalMax', 'practicalMax', 'homeworkMax']) {
+      if (typeof data[k] !== 'undefined' && data[k] !== null && data[k] !== '') {
+        data[k] = parseInt(String(data[k]), 10);
+      } else if (k in data) {
+        delete data[k]; // don't blank out a column with an empty string
+      }
+    }
+    // normalize empty relation ids to null
+    if (data.departmentId === '') data.departmentId = null;
+    if (data.instructorId === '') data.instructorId = null;
 
     const course = await prisma.course.update({ where: { id }, data });
     return NextResponse.json(course);

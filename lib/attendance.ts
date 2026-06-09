@@ -19,7 +19,12 @@ export type AttendanceRow = {
   gradeStatusCode: string | null;
 };
 
-export async function courseAttendance(courseId: string, academicYear: string, semester: string) {
+export async function courseAttendance(
+  courseId: string,
+  academicYear: string,
+  semester: string,
+  opts: { lowOnly?: boolean } = {},
+) {
   const reg = await getRegulations();
   const course = await prisma.course.findUnique({ where: { id: courseId } });
   if (!course) return null;
@@ -44,7 +49,7 @@ export async function courseAttendance(courseId: string, academicYear: string, s
   // three escalating warning points at 40/60/80% of the ban threshold
   const warnPoints = [0.4, 0.6, 0.8].map((k) => reg.absenceBanPercent * k);
 
-  const rows: AttendanceRow[] = enrollments.map((e) => {
+  const allRows: AttendanceRow[] = enrollments.map((e) => {
     const g = byStudent.get(e.studentId) ?? { sessions: 0, attended: 0, absent: 0 };
     const absencePct = g.sessions ? (g.absent / g.sessions) * 100 : 0;
     const attendancePct = g.sessions ? (g.attended / g.sessions) * 100 : 100;
@@ -64,14 +69,25 @@ export async function courseAttendance(courseId: string, academicYear: string, s
     };
   });
 
+  // Low-attendance = at/below the configurable warn threshold. This is the bylaw's
+  // حصر (filtered roster) the registrar acts on; rounded attendance is compared so
+  // the UI highlight and this filter use the same value.
+  const isLow = (r: AttendanceRow) => r.attendancePct <= reg.attendanceWarnThreshold;
+  // Summary always reflects the full roster so the cards stay stable when filtering.
+  const summary = {
+    total: allRows.length,
+    warned: allRows.filter((r) => r.warningStage > 0 && !r.banned).length,
+    banned: allRows.filter((r) => r.banned).length,
+    low: allRows.filter(isLow).length,
+  };
+
+  const rows = opts.lowOnly ? allRows.filter(isLow) : allRows;
+
   return {
     course: { code: course.code, name: course.nameAr },
     thresholds: { warnAt: reg.attendanceWarnThreshold, banAbsenceAbove: reg.absenceBanPercent },
+    lowOnly: !!opts.lowOnly,
     rows,
-    summary: {
-      total: rows.length,
-      warned: rows.filter((r) => r.warningStage > 0 && !r.banned).length,
-      banned: rows.filter((r) => r.banned).length,
-    },
+    summary,
   };
 }

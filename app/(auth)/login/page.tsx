@@ -12,6 +12,43 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LogIn, Mail, Lock, AlertCircle } from 'lucide-react';
 
+// Post-login landing by role (kept in sync with middleware.ts LANDING).
+const LANDING: Array<[string, string]> = [
+  ['INSTITUTE_ADMIN', '/institute/dashboard'],
+  ['FACULTY_ADMIN', '/institute/dashboard'],
+  ['DEPARTMENT_HEAD', '/institute/dashboard'],
+  ['CFO', '/institute/finance/cfo-dashboard'],
+  ['FINANCE', '/institute/accounting/dashboard'],
+  ['ACCOUNTANT', '/accountant/dashboard'],
+  ['REGISTRAR', '/student-affairs/dashboard'],
+  ['ADMISSIONS', '/institute/admission'],
+  ['EXAMS_CONTROL', '/institute/exams'],
+  ['LIBRARIAN', '/library-admin/dashboard'],
+  ['QUALITY', '/institute/quality'],
+  ['HR', '/institute/faculty'],
+  ['MARKETING', '/institute/marketing'],
+  ['PROFESSOR', '/faculty/dashboard'],
+  ['TEACHING_ASSISTANT', '/assistant/dashboard'],
+  ['CMS_EDITOR', '/cms/dashboard'],
+  ['STUDENT', '/student/dashboard'],
+  ['PARENT', '/parent/dashboard'],
+];
+
+function resolveLanding(
+  u: { roleKeys?: string[]; isPlatformAdmin?: boolean; role?: string } | undefined
+): string {
+  if (u?.isPlatformAdmin) return '/admin/dashboard';
+  const keys = u?.roleKeys ?? [];
+  for (const [key, path] of LANDING) if (keys.includes(key)) return path;
+  // legacy fallback by the old role string
+  const legacy: Record<string, string> = {
+    STUDENT: '/student/dashboard',
+    FACULTY: '/faculty/dashboard',
+    PARENT: '/parent/dashboard',
+  };
+  return (u?.role && legacy[u.role]) || '/cms/dashboard';
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -34,15 +71,12 @@ export default function LoginPage() {
       if (result?.error) {
         setError(result.error);
       } else if (result?.ok) {
-        // Route by role: each portal has its own home; staff land in the CMS.
+        // Route to the landing for the user's RBAC role (mirrors middleware.ts).
         const session = await getSession();
-        const role = (session?.user as { role?: string } | undefined)?.role;
-        const homeByRole: Record<string, string> = {
-          STUDENT: '/student/dashboard',
-          FACULTY: '/faculty/dashboard',
-          PARENT: '/parent/dashboard',
-        };
-        router.push((role && homeByRole[role]) || '/cms/dashboard');
+        const u = session?.user as
+          | { roleKeys?: string[]; isPlatformAdmin?: boolean; role?: string }
+          | undefined;
+        router.push(resolveLanding(u));
         router.refresh();
       }
     } catch {
