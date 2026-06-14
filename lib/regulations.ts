@@ -18,7 +18,8 @@ export const DEFAULT_REGULATIONS = {
   attendanceWarnThreshold: 75, // attendance at/below this % → warning report
   withdrawWeek: 12, // last week a student may withdraw (W)
   writtenMinPercent: 30, // min % on the written exam; below → board fail (BL) even if total passes
-  incompleteCourseworkPercent: 60, // min coursework % to qualify for Incomplete (I)
+  incompleteCourseworkPercent: 60, // min coursework % to qualify for Incomplete (I/INC)
+  makeupDeadlineWeeks: 2, // INC/AB makeup must be completed within N weeks of the next term (الأسبوع الأول/الثاني)
   graduationHours: 132, // total credit hours required to graduate (per program bylaw)
   // minimum EARNED credit hours to be promoted INTO each level
   levelMinHours: { 1: 0, 2: 30, 3: 66, 4: 99 } as Record<string, number>,

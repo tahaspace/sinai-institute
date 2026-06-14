@@ -101,15 +101,28 @@ export async function deriveGradeCode(
   return { code: await letterForPercent(totalPct), totalPct, finalPct };
 }
 
+// Default result-reason auto-attached for system-derived non-pass codes so the
+// reason reports (عدد الراسبين بسبب التحريري / الغياب …) have data even when the
+// operator doesn't pick one. Kept local to avoid an import cycle with course-result.ts.
+const DEFAULT_REASON_BY_CODE: Record<string, string> = {
+  BL: 'WrittenFail',
+  DN: 'AttendanceShortage',
+  DS: 'DisciplinaryAction',
+  NE: 'AttendanceShortage',
+  FW: 'WithdrawalRequest',
+  W: 'WithdrawalRequest',
+};
+
 // The single write path for grade entry, shared by the faculty and institute
 // (control) endpoints. An explicit `code` (control-head verbal grade: I/E/W/NE/
 // DN/FW/DS/BL/TR) overrides the derived letter; otherwise the letter is derived
 // from the recorded components (with the board-fail rule). letterGrade/points are
-// taken from the GradeStatus row so the config table stays authoritative, and the
-// student's CGPA is recomputed in the same call.
+// taken from the GradeStatus row so the config table stays authoritative, the
+// result-state's attempt ordinal + reason are recorded, and the student's CGPA is
+// recomputed in the same call.
 export async function setEnrollmentResult(
   enrollmentId: string,
-  opts: { code?: string; components?: Partial<GradeComponents> },
+  opts: { code?: string; components?: Partial<GradeComponents>; reasonCode?: string | null },
 ): Promise<{
   id: string;
   studentId: string;
@@ -117,6 +130,8 @@ export async function setEnrollmentResult(
   letterGrade: string;
   points: number | null;
   statusName: string;
+  attemptNo: number;
+  reasonCode: string | null;
   cgpa: number;
 }> {
   const e = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: { course: true } });
@@ -136,6 +151,16 @@ export async function setEnrollmentResult(
   const st = await prisma.gradeStatus.findFirst({ where: { code } });
   if (!st) throw new Error(`unknown-grade-status:${code}`);
 
+  // Attempt ordinal: 1-based position among this student's prior counts-as-attempt
+  // outcomes for the course (this row included when its own status counts as an attempt).
+  const priorCounted = await prisma.enrollment.count({
+    where: { studentId: e.studentId, courseId: e.courseId, id: { not: enrollmentId }, gradeStatusCode: { in: await countingCodes() } },
+  });
+  const attemptNo = Math.max(priorCounted + (st.countsAttempt ? 1 : 0), 1);
+
+  const reasonCode =
+    opts.reasonCode !== undefined ? opts.reasonCode : (st.isPass ? null : DEFAULT_REASON_BY_CODE[code] ?? null);
+
   const updated = await prisma.enrollment.update({
     where: { id: enrollmentId },
     data: {
@@ -146,6 +171,10 @@ export async function setEnrollmentResult(
       gradeStatusCode: code,
       letterGrade: code, // displayed token: A / B+ / W / I / BL …
       points: st.points, // null for non-GPA statuses (W/E/I/FW/TR/P/NP)
+      attemptNo,
+      reasonCode,
+      // a scored result settles the course — clear any held/pending exceptional state.
+      resultPending: false,
       status: 'COMPLETED',
     },
   });
@@ -158,6 +187,14 @@ export async function setEnrollmentResult(
     letterGrade: code,
     points: st.points,
     statusName: st.name,
+    attemptNo,
+    reasonCode,
     cgpa,
   };
+}
+
+// Codes whose outcome counts as a registration attempt at the course (countsAttempt=true).
+async function countingCodes(): Promise<string[]> {
+  const rows = await prisma.gradeStatus.findMany({ where: { countsAttempt: true }, select: { code: true } });
+  return rows.map((r) => r.code);
 }

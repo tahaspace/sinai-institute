@@ -627,10 +627,39 @@ model GradeStatus {
   name         String // Arabic label
   points       Float? // GPA points; null for non-graded statuses (W/E/I)
   affectsGpa   Boolean @default(true) // included in CGPA when true
-  isPass       Boolean @default(false) // counts toward earned/completed hours
+  isPass       Boolean @default(false) // counts toward earned/completed hours (= "Earn Credit")
   isLetter     Boolean @default(false) // true for A/B/C… letter grades (vs special statuses)
   minPercent   Int? // letter grades: lower %% bound used to map a numeric total → this letter
+  // --- ClientR2: per-status policy properties (the "rules table") ---
+  // The result engine reads these flags off the status row instead of hardcoding
+  // behaviour per screen ("السيستم يقرأ خصائص الحالة ويقرر"). All configurable per institute.
+  countsAttempt Boolean @default(true)  // does this outcome count as a registration attempt at the course
+  needsAction   Boolean @default(false) // result is PENDING until a follow-up action is completed (AB/INC/DEFER)
+  nextAction    String? @default("NONE") // follow-up action code: MAKEUP_EXAM | COMPLETE_ASSESSMENT | REPEAT | NONE (canonical "no action" = "NONE", never null)
+  isException   Boolean @default(false) // control-managed exceptional state (AB/ABS/INC/W/FW/DN/DEFER) vs system letter
+  isFinal       Boolean @default(true)  // false for non-terminal states that must resolve (INC/DEFER) before the result is settled
   order        Int     @default(0)
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+// ClientR2: configurable reason catalogue — the "why" behind a result state, so the
+// control/registrar can report "عدد الراسبين بسبب التحريري" vs "بسبب الغياب", and
+// absence/withdrawal breakdowns. Referenced softly by Enrollment.reasonCode (mirrors
+// the gradeStatusCode soft-reference pattern — no hard FK, keeps tenant config swappable).
+model CourseResultReason {
+  id           String   @id @default(cuid())
+  universityId String?
+  code         String // WrittenFail | AttendanceShortage | MedicalExcuse | WithdrawalRequest | DisciplinaryAction | Accident | ForceMajeure | Cheating …
+  nameAr       String
+  nameEn       String?
+  category     String   @default("FAIL") // FAIL | ABSENCE | WITHDRAWAL | DISCIPLINARY | INCOMPLETE | OTHER
+  appliesTo    String? // optional CSV of status codes this reason is valid for (e.g. "F,BL,DN"); null = any
+  order        Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([universityId, code])
   @@index([universityId])
@@ -832,6 +861,17 @@ model Enrollment {
   status       String   @default("ENROLLED")
   resultLocked Boolean  @default(false) // true once the result is approved & locked (اعتماد وغلق) — no further edits
   approvedAt   DateTime?
+  // --- ClientR2: exceptional-case state machine (status → reason → action) ---
+  reasonCode          String?   // → CourseResultReason.code: WHY this state (WrittenFail/AttendanceShortage/MedicalExcuse…)
+  attemptNo           Int       @default(1)     // which attempt at this course (only countsAttempt outcomes increment it)
+  resultPending       Boolean   @default(false) // a needsAction status not yet resolved → excluded from final GPA/credit calc
+  actionType          String?   // pending follow-up: MAKEUP_EXAM | COMPLETE_ASSESSMENT
+  actionDueDate       DateTime? // bylaw deadline for the follow-up (الأسبوع الأول/الثاني من الترم التالي)
+  actionResolvedAt    DateTime? // when the follow-up (makeup exam / completed assessment) was recorded
+  statusSetBy         String?   // userId of the executor (control) who set the exceptional status
+  statusApprovalState String?   // null | PENDING | APPROVED | REJECTED — two-step approval for exceptional states
+  statusApprovedBy    String?   // userId of the approver (control head / student affairs)
+  statusApprovedAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -840,6 +880,8 @@ model Enrollment {
   @@unique([studentId, courseId, academicYear, semester])
   @@index([studentId])
   @@index([courseId])
+  @@index([resultPending]) // ClientR2: open-action queue + report scans
+  @@index([statusApprovalState]) // ClientR2: pending-approval queue scans
 }
 
 model Attendance {

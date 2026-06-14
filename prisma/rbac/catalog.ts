@@ -33,6 +33,8 @@ export const PERMISSION_KEYS: string[] = [
   'exam.schedule.view', 'exam.schedule.edit', 'exam.questionbank.view', 'exam.questionbank.edit',
   'exam.grade.view', 'exam.grade.edit', 'exam.control.view', 'exam.control.edit',
   'exam.result.view', 'exam.result.publish', 'exam.appeal.view', 'exam.appeal.resolve',
+  // ClientR2 — exceptional-case state workflow (executor = control; approver = control head / student affairs)
+  'exam.exception.view', 'exam.exception.set', 'exam.exception.approve',
   'onlineexam.view', 'onlineexam.manage', 'onlineexam.grade',
   // Finance
   'finance.view', 'finance.tuition.view', 'finance.tuition.edit',
@@ -93,7 +95,7 @@ export const SYSTEM_ROLES: RoleDef[] = [
   { key: 'CFO', nameAr: 'المدير المالي', nameEn: 'CFO', permissions: ['finance.*', 'payroll.*', 'banking.*', 'accounting.*', 'institute.dashboard.view', 'reports.view', 'reports.export'] },
   { key: 'FINANCE', nameAr: 'موظف مالية', nameEn: 'Finance', permissions: ['finance.view', 'finance.tuition.*', 'finance.collection.*', 'finance.installment.*', 'finance.scholarship.view', 'finance.report.view', 'accounting.view', 'reports.view'] },
   { key: 'ACCOUNTANT', nameAr: 'محاسب', nameEn: 'Accountant', permissions: ['accounting.*', 'finance.view', 'finance.collection.*', 'finance.tuition.view', 'banking.view', 'finance.report.view', 'reports.view'] },
-  { key: 'REGISTRAR', nameAr: 'شؤون الطلاب / المسجل', nameEn: 'Registrar / Student Affairs', permissions: ['student.*', 'advising.*', 'warning.*', 'attendance.*', 'graduation.*', 'certificate.*', 'admission.registration.*', 'transfer.*', 'equivalence.*', 'cms.result.edit', 'cms.schedule.edit', 'reports.view'] },
+  { key: 'REGISTRAR', nameAr: 'شؤون الطلاب / المسجل', nameEn: 'Registrar / Student Affairs', permissions: ['student.*', 'advising.*', 'warning.*', 'attendance.*', 'graduation.*', 'certificate.*', 'admission.registration.*', 'transfer.*', 'equivalence.*', 'cms.result.edit', 'cms.schedule.edit', 'reports.view', 'exam.exception.view', 'exam.exception.approve'] },
   { key: 'ADMISSIONS', nameAr: 'موظف القبول', nameEn: 'Admissions Officer', permissions: ['admission.*', 'student.view', 'student.create', 'cms.application.view', 'reports.view'] },
   { key: 'EXAMS_CONTROL', nameAr: 'الكنترول', nameEn: 'Exams Control', permissions: ['exam.*', 'onlineexam.*', 'cms.result.edit', 'reports.view'] },
   { key: 'LIBRARIAN', nameAr: 'أمين المكتبة', nameEn: 'Librarian', permissions: ['library.*', 'reports.view'] },

@@ -19,11 +19,19 @@ export async function GET() {
         isPass: s.isPass,
         isLetter: s.isLetter,
         minPercent: s.minPercent,
+        // ClientR2 rules-table properties
+        countsAttempt: s.countsAttempt,
+        needsAction: s.needsAction,
+        nextAction: s.nextAction,
+        isException: s.isException,
+        isFinal: s.isFinal,
       })),
       stats: {
         total: statuses.length,
         letters: statuses.filter((s) => s.isLetter).length,
         special: statuses.filter((s) => !s.isLetter).length,
+        exceptions: statuses.filter((s) => s.isException).length,
+        pending: statuses.filter((s) => s.needsAction).length,
       },
     });
   } catch (error) {
@@ -39,7 +47,7 @@ export async function PATCH(request: NextRequest) {
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
     const body = await request.json();
-    const { id, name, points, affectsGpa, isPass, minPercent } = body ?? {};
+    const { id, name, points, affectsGpa, isPass, minPercent, countsAttempt, needsAction, nextAction, isException, isFinal } = body ?? {};
     if (!id) return NextResponse.json({ error: 'المعرف مطلوب' }, { status: 400 });
 
     const data: Record<string, unknown> = {};
@@ -48,6 +56,12 @@ export async function PATCH(request: NextRequest) {
     if (typeof affectsGpa === 'boolean') data.affectsGpa = affectsGpa;
     if (typeof isPass === 'boolean') data.isPass = isPass;
     if (minPercent === null || typeof minPercent === 'number') data.minPercent = minPercent;
+    // ClientR2 rules-table properties
+    if (typeof countsAttempt === 'boolean') data.countsAttempt = countsAttempt;
+    if (typeof needsAction === 'boolean') data.needsAction = needsAction;
+    if (nextAction === null || typeof nextAction === 'string') data.nextAction = nextAction;
+    if (typeof isException === 'boolean') data.isException = isException;
+    if (typeof isFinal === 'boolean') data.isFinal = isFinal;
 
     const updated = await prisma.gradeStatus.update({ where: { id }, data });
     return NextResponse.json(updated);
@@ -76,6 +90,12 @@ export async function POST(request: NextRequest) {
         isPass: body.isPass ?? false,
         isLetter: body.isLetter ?? false,
         minPercent: body.minPercent ?? null,
+        // ClientR2 rules-table properties (sensible defaults for a new custom status)
+        countsAttempt: body.countsAttempt ?? true,
+        needsAction: body.needsAction ?? false,
+        nextAction: body.nextAction ?? 'NONE',
+        isException: body.isException ?? false,
+        isFinal: body.isFinal ?? true,
         order: body.order ?? 50,
       },
     });

@@ -117,6 +117,8 @@ const navItems = [
       { title: "بنك الأسئلة", href: "/institute/exams/question-bank" },
       { title: "إدخال الدرجات", href: "/institute/exams/grades" },
       { title: "الكنترول", href: "/institute/exams/control" },
+      { title: "الحالات الاستثنائية", href: "/institute/exams/exceptions" },
+      { title: "حالات وقواعد النتائج", href: "/institute/exams/result-states" },
       { title: "النتائج", href: "/institute/exams/results" },
       { title: "التظلمات", href: "/institute/exams/appeals" },
     ],

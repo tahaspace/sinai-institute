@@ -82,6 +82,8 @@ export default function ExamsPage() {
     { title: "بنك الأسئلة", href: "/institute/exams/question-bank", icon: BookOpen, color: "text-institute-gold", desc: "إدارة الأسئلة" },
     { title: "إدخال الدرجات", href: "/institute/exams/grades", icon: ClipboardList, color: "text-institute-blue", desc: "رصد الدرجات" },
     { title: "الكنترول", href: "/institute/exams/control", icon: Award, color: "text-institute-gold", desc: "لجان الكنترول" },
+    { title: "الحالات الاستثنائية", href: "/institute/exams/exceptions", icon: AlertTriangle, color: "text-red-600", desc: "غائب بعذر / غير مكتمل / محروم — بسبب وإجراء واعتماد" },
+    { title: "حالات وقواعد النتائج", href: "/institute/exams/result-states", icon: FileText, color: "text-institute-gold", desc: "تهيئة جدول قواعد الحالات والأسباب" },
     { title: "النتائج", href: "/institute/exams/results", icon: BarChart3, color: "text-institute-blue", desc: "إعلان النتائج" },
     { title: "التظلمات", href: "/institute/exams/appeals", icon: AlertTriangle, color: "text-red-600", desc: "طلبات التظلم" },
     { title: "الحالة الأكاديمية", href: "/institute/exams/academic-standing", icon: Award, color: "text-institute-gold", desc: "الإنذارات وقائمة الشرف والتخرج" },

@@ -116,3 +116,21 @@ No `Student`, `Faculty`, `Exam`, `Finance`, or `Course` model exists in `prisma/
 | Analytics | ❌ None | |
 | Cloudinary | ✅ Active | Credentials in prod dashboard (52d old) |
 | DB backups | ⚠️ Unknown | Supabase free tier: daily snapshots only (PITR on Pro) |
+
+---
+
+## ClientR2 — Result Status & Exceptional Cases (local/test only, branch `feat/rbac-multitenant-platform`)
+
+| Feature | Status | Route | Notes |
+|---------|--------|-------|-------|
+| Result-state rules table (config) | ✅ | `/institute/exams/result-states` | per-status props + reason catalogue; PATCH live |
+| Exceptional-case control desk | ✅ | `/institute/exams/exceptions` | set status+reason+makeup deadline; pending-approval queue; resolve |
+| Result reasons CRUD | ✅ | `GET/POST/PATCH/DELETE /api/institute/course-result-reasons` | `exam.grade.edit` |
+| Exceptions workflow API | ✅ | `GET/PATCH /api/institute/exams/exceptions` | set/approve/reject/resolve; audited |
+| Grade-status props expose/edit | ✅ | `/api/institute/grade-statuses` | +countsAttempt/needsAction/nextAction/isException/isFinal |
+| Fail-reasons report | ✅ | `/api/institute/reports?type=fail-reasons` | أسباب الرسوب |
+| Absence-reasons report | ✅ | `/api/institute/reports?type=absence-reasons` | أسباب الغياب |
+| Open-actions report | ✅ | `/api/institute/reports?type=open-actions` | الإجراءات المفتوحة |
+| Permissions | ✅ | RBAC | `exam.exception.view/set/approve`; REGISTRAR=view+approve |
+
+> ✅ = code-complete + `tsc`/ESLint clean. DB push + seed (`scripts/seed-result-states.ts`) pending a local/test DB run; production untouched.

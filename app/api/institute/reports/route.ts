@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requirePermission } from '@/lib/authz';
-import { courseResults, gradeSheet, standingReport, ministryPrep, passFailRoster, studentStatus, ministrySheet, successStats, type MinistryStage } from '@/lib/reports';
+import { courseResults, gradeSheet, standingReport, ministryPrep, passFailRoster, studentStatus, ministrySheet, successStats, failReasons, absenceReasons, openActions, type MinistryStage } from '@/lib/reports';
 import { computeAcademicStanding } from '@/lib/standing';
 
 // GET /api/institute/reports?type=&courseId=&studentCode=&academicYear=&semester=
 // Registrar report suite. type ∈ course-results | grade-sheet | pass-fail | warned |
 // expected-graduates | ministry-prep | ministry-transitional | ministry-final |
-// ministry-deprived | student-status | success-stats | transcript.
+// ministry-deprived | student-status | success-stats | transcript |
+// fail-reasons | absence-reasons | open-actions (ClientR2 reason/action analytics).
 // Returns the course picker list too.
 export async function GET(request: NextRequest) {
   try {
@@ -57,6 +58,15 @@ export async function GET(request: NextRequest) {
       }
       case 'success-stats':
         report = await successStats(f);
+        break;
+      case 'fail-reasons':
+        report = await failReasons(f);
+        break;
+      case 'absence-reasons':
+        report = await absenceReasons(f);
+        break;
+      case 'open-actions':
+        report = await openActions(f);
         break;
       case 'transcript': {
         if (!studentCode) { report = { error: 'studentCode مطلوب' }; break; }

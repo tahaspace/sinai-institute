@@ -20,6 +20,9 @@ const REPORTS = [
   { key: "grade-sheet", label: "كشف رصد الدرجات (لكل مقرر)" },
   { key: "pass-fail", label: "كشف نجاح ورسوب (بالأسماء — لكل مقرر)" },
   { key: "success-stats", label: "إحصائيات النجاح (المعهد / المستوى / القسم)" },
+  { key: "fail-reasons", label: "أسباب الرسوب (تحريري / حضور / غش …)" },
+  { key: "absence-reasons", label: "أسباب الغياب (مرض / حادث / قهري …)" },
+  { key: "open-actions", label: "الإجراءات المفتوحة (تكميلي / استكمال تقييم)" },
   { key: "warned", label: "الطلاب تحت الإنذار" },
   { key: "expected-graduates", label: "الخريجون المتوقعون" },
   { key: "student-status", label: "بيان حالة طالب" },
@@ -30,6 +33,7 @@ const REPORTS = [
   { key: "transcript", label: "السجل الأكاديمي للطالب (كشف درجات)" },
 ]
 const SEM: Record<string, string> = { first: "الأول", second: "الثاني", summer: "الصيفي" }
+const ACTION_LABEL: Record<string, string> = { MAKEUP_EXAM: "امتحان تكميلي", COMPLETE_ASSESSMENT: "استكمال تقييم", REPEAT: "إعادة المقرر", NONE: "—" }
 const OUTCOME: Record<string, { label: string; cls: string }> = {
   pass: { label: "ناجح", cls: "bg-green-100 text-green-700" },
   fail: { label: "راسب", cls: "bg-red-100 text-red-700" },
@@ -465,7 +469,7 @@ export default function ReportsPage() {
         <Card>
           <CardHeader>
             <CardTitle>كشف الوزارة — المحرومون / الغائبون</CardTitle>
-            <CardDescription>{report.count} طالب (حالات DN / NE / E)</CardDescription>
+            <CardDescription>{report.count} طالب (حالات DN / NE / E / ABS / AB)</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
@@ -491,6 +495,77 @@ export default function ReportsPage() {
                 ))}
               </TableBody>
             </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* fail-reasons / absence-reasons — reason breakdown (count per reason) */}
+      {(type === "fail-reasons" || type === "absence-reasons") && report?.rows && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{type === "fail-reasons" ? "أسباب الرسوب" : "أسباب الغياب"}</CardTitle>
+            <CardDescription>الإجمالي {report.total}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {report.rows.length === 0 ? (
+              <p className="text-center text-muted-foreground p-6">لا توجد بيانات للفترة المحددة</p>
+            ) : (
+              <Table>
+                <TableHeader><TableRow>
+                  <TableHead>السبب</TableHead><TableHead className="text-center">الفئة</TableHead><TableHead className="text-center">العدد</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {report.rows.map((r: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+                    <TableRow key={r.code}>
+                      <TableCell className="font-medium">{r.nameAr}</TableCell>
+                      <TableCell className="text-center"><Badge variant="outline">{r.category}</Badge></TableCell>
+                      <TableCell className="text-center font-bold">{r.count}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* open-actions — held results awaiting a follow-up */}
+      {type === "open-actions" && report?.rows && (
+        <Card>
+          <CardHeader>
+            <CardTitle>الإجراءات المفتوحة</CardTitle>
+            <CardDescription>
+              {report.total} إجراء معلّق
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {report.summary?.length ? " · " + report.summary.map((s: any) => `${ACTION_LABEL[s.actionType] ?? s.actionType}: ${s.count}`).join(" · ") : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {report.rows.length === 0 ? (
+              <p className="text-center text-muted-foreground p-6">لا توجد إجراءات مفتوحة</p>
+            ) : (
+              <Table>
+                <TableHeader><TableRow>
+                  <TableHead>الرقم</TableHead><TableHead>الاسم</TableHead><TableHead>القسم</TableHead><TableHead>المقرر</TableHead>
+                  <TableHead className="text-center">الحالة</TableHead><TableHead className="text-center">الإجراء</TableHead>
+                  <TableHead className="text-center">المهلة</TableHead><TableHead className="text-center">الاعتماد</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {report.rows.map((r: any, i: number) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+                    <TableRow key={i}>
+                      <TableCell className="font-mono">{r.studentCode}</TableCell>
+                      <TableCell>{r.name}</TableCell>
+                      <TableCell>{r.department}</TableCell>
+                      <TableCell>{r.courseCode} - {r.course}</TableCell>
+                      <TableCell className="text-center"><Badge variant="outline" className="border-amber-500 text-amber-700">{r.statusCode}</Badge></TableCell>
+                      <TableCell className="text-center text-sm">{ACTION_LABEL[r.actionType] ?? r.actionType}</TableCell>
+                      <TableCell className="text-center text-sm">{r.dueDate ? new Date(r.dueDate).toLocaleDateString("ar-EG") : "-"}</TableCell>
+                      <TableCell className="text-center text-sm">{r.approvalState ?? "-"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       )}

@@ -43,6 +43,9 @@ export type AcademicStanding = {
   passedGraduationProject: boolean; // مشروع التخرج passed?
   atLastLevel: boolean; // reached the program's final academic year?
   failedMandatory: { code: string; name: string }[];
+  // ClientR2: courses failed ≥ maxCourseAttempts times — the bylaw's repeated-failure
+  // trigger (إنذار/حرمان من التسجيل/فصل). Surfaced for the standing UI + control reports.
+  repeatedFailure: { code: string; name: string; fails: number }[];
   // human-readable Arabic flags (UI badges / report lines)
   flags: string[];
 };
@@ -193,6 +196,22 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
     .filter(([id]) => !passedCourse.has(id))
     .map(([, v]) => v);
 
+  // ---- repeated failure (attempt rule) ----
+  // Count graded, non-pass, GPA-affecting outcomes per course (same "fail" definition as
+  // lib/registration.ts) and flag any course at/over the bylaw attempt ceiling. A course
+  // later passed is cleared (the retake succeeded), matching the registration block.
+  const failCountByCourse = new Map<string, { code: string; name: string; fails: number }>();
+  for (const e of enrollments) {
+    const isFail = !e.isPass && e.affectsGpa && e.points != null;
+    if (!isFail) continue;
+    const row = failCountByCourse.get(e.courseId) ?? { code: e.code, name: e.nameAr, fails: 0 };
+    row.fails += 1;
+    failCountByCourse.set(e.courseId, row);
+  }
+  const repeatedFailure = [...failCountByCourse.entries()]
+    .filter(([id, v]) => !passedCourse.has(id) && v.fails >= reg.maxCourseAttempts)
+    .map(([, v]) => v);
+
   const allMandatoryPassed = failedMandatory.length === 0 && mandatoryCourses.size > 0;
   const termHonor = !!latestTerm && !latestTerm.hasFail && latestTermGpa >= reg.honorTermGpa;
   const cumulativeHonor = cgpaHours > 0 && cgpa >= reg.honorCgpa && allMandatoryPassed;
@@ -226,6 +245,7 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
   const flags: string[] = [];
   if (escalation === 'track-change-or-dismissal') flags.push('إنذار نهائي: تحويل مسار أو فصل');
   else if (escalation === 'warning') flags.push(`إنذار أكاديمي (المعدل ${cgpa.toFixed(2)} < ${reg.probationGpa})`);
+  if (repeatedFailure.length) flags.push(`رسوب متكرر (${reg.maxCourseAttempts}+ مرات): ${repeatedFailure.map((r) => r.code).join('، ')}`);
   if (onProbation) flags.push(`تحت الملاحظة — الحد الأقصى للتسجيل ${reg.probationHourCap} ساعة`);
   if (cumulativeHonor) flags.push('قائمة الشرف (تراكمي)');
   if (termHonor) flags.push('قائمة الشرف (فصلي)');
@@ -260,6 +280,7 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
     passedGraduationProject,
     atLastLevel,
     failedMandatory,
+    repeatedFailure,
     flags,
   };
 }

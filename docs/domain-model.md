@@ -237,3 +237,15 @@ prisma/
 ```
 
 All schema changes have been applied with `prisma db push`. No rollback mechanism exists. Before any schema work: take a Supabase manual backup.
+
+---
+
+## ClientR2 — Course Result Status & Exceptional Cases (2026-06-14, local/test only)
+
+**New model `CourseResultReason`** `{ id, universityId?, code, nameAr, nameEn?, category (FAIL|ABSENCE|WITHDRAWAL|DISCIPLINARY|INCOMPLETE|OTHER), appliesTo?, order, isActive }` — `@@unique([universityId, code])`. Soft-referenced by `Enrollment.reasonCode` (no FK, mirrors `gradeStatusCode`).
+
+**`GradeStatus` +5 rules-table props:** `countsAttempt`, `needsAction`, `nextAction`, `isException`, `isFinal`. The GPA/standing/reports engines read these instead of hardcoding behaviour.
+
+**`Enrollment` +10 state-machine cols:** `reasonCode`, `attemptNo`, `resultPending`, `actionType`, `actionDueDate`, `actionResolvedAt`, `statusSetBy`, `statusApprovalState`, `statusApprovedBy`, `statusApprovedAt`.
+
+Engine entry points: `lib/course-result.ts` (`setExceptionStatus`/`approveExceptionStatus`/`resolveAction`/`attemptInfo`). See [`clientr2-implementation.md`](./clientr2-implementation.md). **Schema validated + generated; not pushed to production.**

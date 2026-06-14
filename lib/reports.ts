@@ -14,8 +14,9 @@ export function classify(st: GS | undefined | null): StatusClass {
   if (!st) return 'ungraded';
   if (st.isPass) return 'pass';
   if (st.code === 'W' || st.code === 'FW') return 'withdrawn';
-  if (st.code === 'I' || st.code === 'E') return 'incomplete';
-  // graded, non-pass, counts as 0 toward GPA → fail (F/NE/BL/DN/DS)
+  // held/excused states (legacy I/E + ClientR2 canonical INC/AB/DEFER) — not yet a final outcome
+  if (['I', 'E', 'INC', 'AB', 'DEFER'].includes(st.code)) return 'incomplete';
+  // graded, non-pass, counts as 0 toward GPA → fail (F/NE/ABS/BL/DN/DS)
   if (st.affectsGpa && st.points != null) return 'fail';
   return 'ungraded';
 }
@@ -276,10 +277,11 @@ export async function studentStatus(studentCode: string) {
 //   transitional → students NOT in the final level (currentLevel < program years)
 //   final        → final-level / graduation-eligible candidates
 //   deprived      → المحرومون/الغائبون: students whose term enrollments carry a
-//                   deprivation/absence status (DN/NE/E). These are independent of
+//                   deprivation/absence status (DN/NE/E/ABS/AB). These are independent of
 //                   level — a student denied entry to the exam is listed regardless.
 export type MinistryStage = 'transitional' | 'final' | 'deprived';
-const DEPRIVED_CODES = new Set(['DN', 'NE', 'E']);
+// DN/NE/E (legacy) + ABS/AB (ClientR2 canonical synonyms) — the deprived/absent exam-board set.
+const DEPRIVED_CODES = new Set(['DN', 'NE', 'E', 'ABS', 'AB']);
 const PROGRAM_YEARS_FALLBACK = 4;
 
 export async function ministrySheet(stage: MinistryStage, f: TermFilter) {
@@ -391,4 +393,97 @@ export async function successStats(f: TermFilter) {
     byLevel: decorate([...byLevel.entries()].sort((a, b) => a[0] - b[0])),
     byDepartment: decorate([...byDept.entries()].sort((a, b) => b[1].enrolled - a[1].enrolled)),
   };
+}
+
+// ---- ClientR2: reason & action analytics ---------------------------------
+// The bylaw wants the control/registrar to slice outcomes by their *reason*
+// (Enrollment.reasonCode → CourseResultReason) and to track open follow-ups, e.g.
+// "عدد الراسبين بسبب التحريري" vs "بسبب الغياب", or "الإجراءات المفتوحة: Makeup 35".
+
+// Absence/excuse status codes (system + legacy synonyms) for the absence-reasons sheet.
+const ABSENCE_CODES = new Set(['AB', 'E', 'ABS', 'NE']);
+
+async function reasonLabels(): Promise<Map<string, { nameAr: string; category: string }>> {
+  const reasons = await prisma.courseResultReason.findMany();
+  return new Map(reasons.map((r) => [r.code, { nameAr: r.nameAr, category: r.category }]));
+}
+
+type ReasonBucket = { code: string; nameAr: string; category: string; count: number };
+
+function tallyReasons(
+  enrollments: { reasonCode: string | null }[],
+  labels: Map<string, { nameAr: string; category: string }>,
+): ReasonBucket[] {
+  const counts = new Map<string, number>();
+  for (const e of enrollments) {
+    const key = e.reasonCode ?? '__none__';
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([code, count]) => {
+      if (code === '__none__') return { code, nameAr: 'غير محدد', category: 'OTHER', count };
+      const meta = labels.get(code);
+      return { code, nameAr: meta?.nameAr ?? code, category: meta?.category ?? 'OTHER', count };
+    })
+    .sort((a, b) => b.count - a.count);
+}
+
+// أسباب الرسوب — fail outcomes grouped by their recorded reason (Written/Attendance/Cheating…).
+export async function failReasons(f: TermFilter) {
+  const [enrollments, statuses, labels] = await Promise.all([
+    prisma.enrollment.findMany({ where: termWhere(f), select: { reasonCode: true, gradeStatusCode: true } }),
+    prisma.gradeStatus.findMany(),
+    reasonLabels(),
+  ]);
+  const byCode = new Map(statuses.map((s) => [s.code, s]));
+  const fails = enrollments.filter((e) => classify(e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null) === 'fail');
+  const rows = tallyReasons(fails, labels);
+  return { rows, total: fails.length };
+}
+
+// أسباب الغياب — excused/unexcused absence statuses grouped by their reason (مرض/حادث/قهري…).
+export async function absenceReasons(f: TermFilter) {
+  const [enrollments, labels] = await Promise.all([
+    prisma.enrollment.findMany({
+      where: { ...termWhere(f), gradeStatusCode: { in: [...ABSENCE_CODES] } },
+      select: { reasonCode: true, gradeStatusCode: true },
+    }),
+    reasonLabels(),
+  ]);
+  const rows = tallyReasons(enrollments, labels);
+  return { rows, total: enrollments.length };
+}
+
+// الإجراءات المفتوحة — held results awaiting a follow-up (makeup exam / complete assessment),
+// grouped by action type, plus the named roster with the bylaw deadline + approval state.
+export async function openActions(f: TermFilter) {
+  const enrollments = await prisma.enrollment.findMany({
+    where: { ...termWhere(f), resultPending: true },
+    include: {
+      student: { select: { studentCode: true, nameAr: true, department: { select: { nameAr: true } } } },
+      course: { select: { code: true, nameAr: true } },
+    },
+    orderBy: [{ actionDueDate: 'asc' }, { student: { studentCode: 'asc' } }],
+  });
+
+  const byAction = new Map<string, number>();
+  const rows = enrollments.map((e) => {
+    const action = e.actionType ?? 'NONE';
+    byAction.set(action, (byAction.get(action) ?? 0) + 1);
+    return {
+      studentCode: e.student.studentCode,
+      name: e.student.nameAr,
+      department: e.student.department?.nameAr ?? '',
+      course: e.course.nameAr,
+      courseCode: e.course.code,
+      statusCode: e.gradeStatusCode,
+      reasonCode: e.reasonCode,
+      actionType: action,
+      dueDate: e.actionDueDate,
+      approvalState: e.statusApprovalState,
+    };
+  });
+
+  const summary = [...byAction.entries()].map(([actionType, count]) => ({ actionType, count })).sort((a, b) => b.count - a.count);
+  return { rows, summary, total: rows.length };
 }
