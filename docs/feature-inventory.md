@@ -119,7 +119,7 @@ No `Student`, `Faculty`, `Exam`, `Finance`, or `Course` model exists in `prisma/
 
 ---
 
-## ClientR2 — Result Status & Exceptional Cases (local/test only, branch `feat/rbac-multitenant-platform`)
+## ClientR2 — Result Status & Exceptional Cases (DEPLOYED 2026-06-15 → sinai-rbac, branch `feat/rbac-multitenant-platform`)
 
 | Feature | Status | Route | Notes |
 |---------|--------|-------|-------|
@@ -133,4 +133,4 @@ No `Student`, `Faculty`, `Exam`, `Finance`, or `Course` model exists in `prisma/
 | Open-actions report | ✅ | `/api/institute/reports?type=open-actions` | الإجراءات المفتوحة |
 | Permissions | ✅ | RBAC | `exam.exception.view/set/approve`; REGISTRAR=view+approve |
 
-> ✅ = code-complete + `tsc`/ESLint clean. DB push + seed (`scripts/seed-result-states.ts`) pending a local/test DB run; production untouched.
+> ✅ = code-complete + `tsc`/ESLint clean + **DEPLOYED to production** (`sinai-rbac` Vercel + Neon DB, 2026-06-15): schema pushed + `seed-result-states.ts` run on the Neon deploy DB; live at `sinai-rbac.vercel.app`. (Local `.env` Supabase is the old single-tenant site, not the deploy DB.)

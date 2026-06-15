@@ -6,10 +6,13 @@ the **exceptional-case result engine** on top of the ClientR foundation. The byl
 exceptional event occurs the system **starts from the STATE, not the scores**, and each state's
 configurable properties drive the result.
 
-> All work is on branch `feat/rbac-multitenant-platform`, **local/test only**. Production Supabase is
-> **never touched**: schema is validated + `prisma generate`'d (no DB connection); `prisma db push`
-> and the seed are staged for an isolated local/test DB (the `.env` `DATABASE_URL` here points at
-> production, so no migration was run). Verification = `tsc --noEmit` + ESLint (no `next build`/DB).
+> **Status: DEPLOYED TO PRODUCTION (2026-06-15).** Live on the **`sinai-rbac`** Vercel project
+> (`https://sinai-rbac.vercel.app`, deployment `dpl_5LuqJ9B…` READY), backed by the **Neon** deploy DB
+> (`ep-sweet-cherry-ap6hyt81…neon.tech/neondb`). The incremental schema (1 table + 2 ALTERs + indexes,
+> **0 drops**) was `prisma db push`'d to Neon and the config seeded there; code shipped via `vercel --prod`.
+> ⚠️ Note: the local `.env` `DATABASE_URL` points at the **old** `sinai-institute` Supabase (the original
+> 14-model site) — **not** the deploy DB. Always target the `sinai-rbac` Neon DB for production migrations.
+> Pre-deploy verification: `tsc --noEmit` (0 introduced) + ESLint (0) + a read-only `prisma migrate diff`.
 
 Builds directly on [`clientr-implementation.md`](./clientr-implementation.md) (the `GradeStatus`-driven
 GPA/standing/reports foundation).
@@ -160,13 +163,21 @@ deprived ministry-sheet code set. Regression check (manual): all three `setEnrol
 (Note: several review agents hit the session token limit mid-run; the engine/api/regression dimensions were
 re-checked manually.)
 
-## To deploy to a local/test DB
+## Production deploy (how ClientR2 actually shipped, 2026-06-15)
+
+The live platform is the **`sinai-rbac`** Vercel project on a **Neon** Postgres — *not* the local-`.env`
+Supabase. The valid path (matches `PROJECT_DONE.md` / `QUICK_REFERENCE.md`):
 
 ```bash
-DATABASE_URL="<local-test-db>" npx prisma db push
-DATABASE_URL="<local-test-db>" NODE_ENV=development npx tsx scripts/seed-student-test.ts
-DATABASE_URL="<local-test-db>" NODE_ENV=development npx tsx scripts/seed-result-states.ts
-DATABASE_URL="<local-test-db>" npx tsx scripts/seed-demo-users.ts   # for RBAC role accounts
+# DBURL = sinai-rbac's production DATABASE_URL (Neon ep-sweet-cherry-ap6hyt81…), NOT local .env
+npx prisma migrate diff --from-url "$DBURL" --to-schema-datamodel prisma/schema.prisma --script  # read-only preview
+DATABASE_URL="$DBURL" npx prisma db push                       # incremental, additive (0 drops)
+DATABASE_URL="$DBURL" npx tsx scripts/seed-result-states.ts    # backfill status props + reasons (idempotent)
+vercel --prod --token <token> --yes                            # deploys local working dir to sinai-rbac
 ```
-Production rollout follows the same `prisma db push` + seed, executed against the production `DATABASE_URL`
-only after a Supabase backup (per `CLAUDE.md` Prisma Safety Rules).
+
+Result: schema in sync on Neon; 19 GradeStatus rows backfilled + AB/ABS/INC/DEFER + 10 reasons; deployment
+`READY`; live checks — homepage 200, new pages `307→login`, new APIs `401` (deployed + permission-guarded).
+
+> For an **isolated local test DB** instead, point `DATABASE_URL` at a local Postgres and additionally run
+> `seed-student-test.ts` (base catalogue + demo data) before `seed-result-states.ts`.
