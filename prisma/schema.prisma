@@ -1104,6 +1104,7 @@ model AccountingPeriod {
   closedAt     DateTime?
   createdAt    DateTime   @default(now())
   fiscalYear   FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
+  entries      JournalEntry[]
 
   @@unique([fiscalYearId, code])
   @@index([universityId, status])
@@ -1157,6 +1158,74 @@ model CostCenter {
 
   @@unique([universityId, code])
   @@index([universityId])
+}
+
+// ===== Finance v2 — Phase 1: General Ledger (double-entry) =====
+
+model ChartOfAccount {
+  id           String           @id @default(cuid())
+  universityId String?
+  code         String // "1100"
+  nameAr       String
+  nameEn       String?
+  type         String // ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
+  normalSide   String // DEBIT | CREDIT
+  parentId     String?
+  isPostable   Boolean          @default(true) // leaf accounts post; parents aggregate
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  parent       ChartOfAccount?  @relation("CoaTree", fields: [parentId], references: [id])
+  children     ChartOfAccount[] @relation("CoaTree")
+  lines        JournalLine[]
+
+  @@unique([universityId, code])
+  @@index([universityId, type])
+}
+
+// One balanced double-entry transaction. Every business event posts exactly one. Immutable once
+// POSTED — corrections are reversing entries (reversesEntryId). Idempotent on (sourceType, sourceId).
+model JournalEntry {
+  id              String           @id @default(cuid())
+  universityId    String?
+  periodId        String
+  entryNo         String // sequential per tenant (DocumentSequence JOURNAL)
+  entryDate       DateTime
+  memo            String?
+  sourceType      String           @default("MANUAL") // MANUAL | OPENING | INVOICE | RECEIPT | REFUND | EXPENSE | PAYROLL | FX
+  sourceId        String?
+  status          String           @default("DRAFT") // DRAFT | POSTED | REVERSED
+  createdById     String?
+  postedById      String?
+  postedAt        DateTime?
+  reversesEntryId String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  period          AccountingPeriod @relation(fields: [periodId], references: [id])
+  lines           JournalLine[]
+  reverses        JournalEntry?    @relation("EntryReversal", fields: [reversesEntryId], references: [id])
+  reversedBy      JournalEntry[]   @relation("EntryReversal")
+
+  @@unique([universityId, entryNo])
+  @@index([universityId, sourceType, sourceId])
+  @@index([periodId])
+  @@index([status])
+}
+
+// One debit OR credit leg. Engine invariant (lib/finance/ledger.ts): SUM(debit)=SUM(credit) per entry.
+model JournalLine {
+  id           String         @id @default(cuid())
+  entryId      String
+  accountId    String
+  debit        Decimal        @default(0) @db.Decimal(18, 4)
+  credit       Decimal        @default(0) @db.Decimal(18, 4)
+  memo         String?
+  costCenterId String? // soft ref → CostCenter (no FK, like gradeStatusCode)
+  entry        JournalEntry   @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  account      ChartOfAccount @relation(fields: [accountId], references: [id])
+
+  @@index([entryId])
+  @@index([accountId])
 }
 
 model Book {
