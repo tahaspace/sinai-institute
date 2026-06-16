@@ -723,6 +723,8 @@ model Student {
   equivalenceRequests CourseEquivalenceRequest[]
   transferRequests TransferRequest[]
   examAttempts ExamAttempt[]
+  invoices     Invoice[]
+  receipts     Receipt[]
 
   @@index([departmentId])
   @@index([studentCode])
@@ -1226,6 +1228,163 @@ model JournalLine {
 
   @@index([entryId])
   @@index([accountId])
+}
+
+// ===== Finance v2 — Phase 2: Accounts Receivable / student billing sub-ledger =====
+
+// Reusable tariff template (per program/level/year). Instantiated into Invoices.
+model FeeStructure {
+  id           String             @id @default(cuid())
+  universityId String?
+  code         String
+  nameAr       String
+  nameEn       String?
+  programId    String?
+  level        Int?
+  academicYear String?
+  isActive     Boolean            @default(true)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  items        FeeStructureItem[]
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+model FeeStructureItem {
+  id          String       @id @default(cuid())
+  structureId String
+  label       String
+  accountCode String       @default("4100") // revenue ChartOfAccount code
+  amount      Decimal      @db.Decimal(18, 4)
+  vatRate     Int          @default(0) // %
+  order       Int          @default(0)
+  structure   FeeStructure @relation(fields: [structureId], references: [id], onDelete: Cascade)
+
+  @@index([structureId])
+}
+
+// AR document issued to a student. Sub-ledger primary record; posts Dr 1100 / Cr revenue (+ VAT).
+model Invoice {
+  id           String           @id @default(cuid())
+  universityId String?
+  studentId    String
+  feeAccountId String? // soft link to the per-year FeeAccount control envelope
+  structureId  String?
+  number       String // sequential official number (DocumentSequence INVOICE)
+  academicYear String?
+  semester     String?
+  issueDate    DateTime         @default(now())
+  dueDate      DateTime?
+  status       String           @default("DRAFT") // DRAFT | ISSUED | PARTIAL | PAID | VOID
+  subtotal     Decimal          @default(0) @db.Decimal(18, 4)
+  vatTotal     Decimal          @default(0) @db.Decimal(18, 4)
+  total        Decimal          @default(0) @db.Decimal(18, 4)
+  paid         Decimal          @default(0) @db.Decimal(18, 4)
+  balance      Decimal          @default(0) @db.Decimal(18, 4)
+  memo         String?
+  etaUuid      String? // ETA e-invoice (Phase 4)
+  etaStatus    String?
+  createdById  String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  student      Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  lines        InvoiceLine[]
+  allocations  ReceiptAllocation[]
+  plan         InstallmentPlan?
+  creditNotes  CreditNote[]
+
+  @@unique([universityId, number])
+  @@index([studentId])
+  @@index([universityId, status])
+}
+
+model InvoiceLine {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  description String
+  accountCode String  @default("4100")
+  qty         Int     @default(1)
+  unitPrice   Decimal @db.Decimal(18, 4)
+  vatRate     Int     @default(0)
+  lineTotal   Decimal @db.Decimal(18, 4)
+  vatAmount   Decimal @default(0) @db.Decimal(18, 4)
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+model InstallmentPlan {
+  id           String        @id @default(cuid())
+  universityId String?
+  invoiceId    String        @unique
+  count        Int
+  createdAt    DateTime      @default(now())
+  invoice      Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  installments Installment[]
+}
+
+model Installment {
+  id      String          @id @default(cuid())
+  planId  String
+  seq     Int
+  dueDate DateTime
+  amount  Decimal         @db.Decimal(18, 4)
+  paid    Decimal         @default(0) @db.Decimal(18, 4)
+  lateFee Decimal         @default(0) @db.Decimal(18, 4)
+  status  String          @default("PENDING") // PENDING | PARTIAL | PAID | OVERDUE
+  plan    InstallmentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+}
+
+// Cash-in document; posts Dr cash/bank/gateway / Cr 1100. Allocated across invoices/installments.
+model Receipt {
+  id           String              @id @default(cuid())
+  universityId String?
+  studentId    String
+  number       String
+  receiptDate  DateTime            @default(now())
+  method       String              @default("CASH") // CASH | BANK | GATEWAY | SCHOLARSHIP
+  amount       Decimal             @db.Decimal(18, 4)
+  reference    String?
+  etaUuid      String?
+  createdById  String?
+  createdAt    DateTime            @default(now())
+  student      Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  allocations  ReceiptAllocation[]
+
+  @@unique([universityId, number])
+  @@index([studentId])
+}
+
+model ReceiptAllocation {
+  id            String   @id @default(cuid())
+  receiptId     String
+  invoiceId     String
+  installmentId String?
+  amount        Decimal  @db.Decimal(18, 4)
+  receipt       Receipt  @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([receiptId])
+  @@index([invoiceId])
+}
+
+model CreditNote {
+  id           String   @id @default(cuid())
+  universityId String?
+  invoiceId    String
+  number       String
+  creditDate   DateTime @default(now())
+  amount       Decimal  @db.Decimal(18, 4)
+  reason       String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([universityId, number])
+  @@index([invoiceId])
 }
 
 model Book {

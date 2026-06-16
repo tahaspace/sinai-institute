@@ -141,6 +141,7 @@ const navItems = [
     icon: Wallet,
     children: [
       { title: "لوحة تحكم المدير المالي", href: "/institute/finance/cfo-dashboard" },
+      { title: "فواتير ومدفوعات الطلاب", href: "/institute/finance/billing" },
       { title: "الأستاذ العام (القيود)", href: "/institute/finance/gl" },
       { title: "القوائم المالية", href: "/institute/finance/statements" },
       { title: "لوحة المتابعة المالية", href: "/institute/accounting/dashboard" },
