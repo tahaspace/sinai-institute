@@ -907,7 +907,9 @@ model FeeAccount {
   studentId    String
   academicYear String
   totalFees    Float     @default(0)
+  totalFeesDec Decimal?  @db.Decimal(18, 4) // finance P0: Decimal shadow of totalFees (migration target)
   installments Int       @default(1)
+  universityId String? // finance P0: tenant scoping (backfilled from Student→Department→University)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   student      Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -916,32 +918,39 @@ model FeeAccount {
 
   @@unique([studentId, academicYear])
   @@index([studentId])
+  @@index([universityId])
 }
 
 model FeeItem {
-  id        String     @id @default(cuid())
-  accountId String
-  label     String
-  amount    Float
-  account   FeeAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  id           String     @id @default(cuid())
+  accountId    String
+  label        String
+  amount       Float
+  amountDec    Decimal?   @db.Decimal(18, 4) // finance P0: Decimal shadow
+  universityId String? // finance P0: tenant scoping (inherited from account)
+  account      FeeAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId])
+  @@index([universityId])
 }
 
 model Payment {
-  id        String     @id @default(cuid())
-  accountId String
-  amount    Float
-  method    String? // بطاقة ائتمان | فوري | محفظة إلكترونية
-  receipt   String?
-  status    String     @default("pending") // paid | pending | overdue
-  dueDate   DateTime?
-  paidAt    DateTime?
-  createdAt DateTime   @default(now())
-  account   FeeAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  id           String     @id @default(cuid())
+  accountId    String
+  amount       Float
+  amountDec    Decimal?   @db.Decimal(18, 4) // finance P0: Decimal shadow
+  method       String? // بطاقة ائتمان | فوري | محفظة إلكترونية
+  receipt      String?
+  status       String     @default("pending") // paid | pending | overdue
+  dueDate      DateTime?
+  paidAt       DateTime?
+  universityId String? // finance P0: tenant scoping (inherited from account)
+  createdAt    DateTime   @default(now())
+  account      FeeAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId])
   @@index([status])
+  @@index([universityId])
 }
 
 model Guardian {
@@ -1021,8 +1030,11 @@ model Payroll {
   role         String    @default("staff") // faculty | staff
   month        String // e.g. "نوفمبر 2024"
   baseSalary   Float
+  baseSalaryDec Decimal? @db.Decimal(18, 4) // finance P0: Decimal shadow
   deductions   Float     @default(0)
+  deductionsDec Decimal? @db.Decimal(18, 4) // finance P0: Decimal shadow
   netSalary    Float
+  netSalaryDec Decimal?  @db.Decimal(18, 4) // finance P0: Decimal shadow
   status       String    @default("pending") // completed | pending
   paidAt       DateTime?
   universityId String?
@@ -1039,6 +1051,7 @@ model BankAccount {
   accountNo    String
   accountType  String
   balance      Float             @default(0)
+  balanceDec   Decimal?          @db.Decimal(18, 4) // finance P0: Decimal shadow
   universityId String?
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
@@ -1054,11 +1067,96 @@ model BankTransaction {
   description String
   type        String // credit | debit
   amount      Float
+  amountDec   Decimal?    @db.Decimal(18, 4) // finance P0: Decimal shadow
   reference   String?
   createdAt   DateTime    @default(now())
   account     BankAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId])
+}
+
+// ===== Finance v2 — Phase 0 foundations (additive; engine in lib/finance/*) =====
+
+model FiscalYear {
+  id           String             @id @default(cuid())
+  universityId String?
+  code         String // e.g. "2025" or "2024-2025"
+  startDate    DateTime
+  endDate      DateTime
+  status       String             @default("OPEN") // OPEN | CLOSING | CLOSED
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  periods      AccountingPeriod[]
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+model AccountingPeriod {
+  id           String     @id @default(cuid())
+  universityId String?
+  fiscalYearId String
+  code         String // e.g. "2025-09"
+  startDate    DateTime
+  endDate      DateTime
+  status       String     @default("OPEN") // OPEN | SOFT_CLOSED | CLOSED
+  closedById   String?
+  closedAt     DateTime?
+  createdAt    DateTime   @default(now())
+  fiscalYear   FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
+
+  @@unique([fiscalYearId, code])
+  @@index([universityId, status])
+}
+
+// Maker-checker dual-control for finance actions (journal post, payment/refund/payroll approve, period close).
+model Approval {
+  id            String    @id @default(cuid())
+  universityId  String?
+  entityType    String // JournalEntry | Payment | Refund | PayRun | Period | Bill | ExpenseClaim
+  entityId      String
+  action        String // post | approve | refund | close | pay
+  state         String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  requestedById String?
+  decidedById   String?
+  decidedAt     DateTime?
+  note          String?
+  createdAt     DateTime  @default(now())
+
+  @@index([universityId, entityType, state])
+  @@index([entityType, entityId])
+}
+
+// Per-tenant, per-doc-type, per-fiscal-year atomic counter → gap-free official/legal numbers.
+model DocumentSequence {
+  id           String   @id @default(cuid())
+  universityId String?
+  docType      String // INVOICE | RECEIPT | CREDIT_NOTE | JOURNAL | EINVOICE | PAYRUN | BILL
+  fiscalCode   String // fiscal-year code the sequence resets within
+  prefix       String   @default("")
+  nextNumber   Int      @default(1)
+  padding      Int      @default(6)
+  updatedAt    DateTime @updatedAt
+
+  @@unique([universityId, docType, fiscalCode])
+  @@index([universityId])
+}
+
+// Optional accounting dimension on journal lines (departments/programs/projects) for budgeting + reporting.
+model CostCenter {
+  id           String       @id @default(cuid())
+  universityId String?
+  code         String
+  nameAr       String
+  nameEn       String?
+  parentId     String?
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  parent       CostCenter?  @relation("CostCenterTree", fields: [parentId], references: [id])
+  children     CostCenter[] @relation("CostCenterTree")
+
+  @@unique([universityId, code])
+  @@index([universityId])
 }
 
 model Book {
@@ -1315,6 +1413,7 @@ model Scholarship {
   studentId    String
   type         String // منحة | إعفاء
   amount       Float    @default(0)
+  amountDec    Decimal? @db.Decimal(18, 4) // finance P0: Decimal shadow
   percentage   Int? // exemption percentage, if applicable
   academicYear String
   reason       String?

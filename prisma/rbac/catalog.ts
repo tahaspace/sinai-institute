@@ -46,6 +46,18 @@ export const PERMISSION_KEYS: string[] = [
   // Payroll / banking / accounting
   'payroll.view', 'payroll.edit', 'payroll.run', 'payroll.approve',
   'banking.view', 'banking.edit', 'accounting.view', 'accounting.edit',
+  // Finance v2 — professional accounting upgrade (GL, periods, AR docs, AP, e-invoicing, budgeting)
+  'finance.gl.account.view', 'finance.gl.account.edit',
+  'finance.gl.journal.view', 'finance.gl.journal.create', 'finance.gl.journal.post', 'finance.gl.journal.reverse',
+  'finance.period.view', 'finance.period.manage', 'finance.period.close',
+  'finance.invoice.view', 'finance.invoice.issue', 'finance.invoice.void',
+  'finance.receipt.view', 'finance.receipt.create', 'finance.creditnote.create',
+  'finance.payment.create',
+  'finance.einvoice.view', 'finance.einvoice.create', 'finance.einvoice.submit', 'finance.einvoice.cancel',
+  'finance.vendor.view', 'finance.vendor.edit',
+  'finance.expense.view', 'finance.expense.edit', 'finance.expense.approve',
+  'finance.budget.view', 'finance.budget.edit',
+  'banking.reconciliation.view', 'banking.reconciliation.edit',
   // Library
   'library.view', 'library.book.edit', 'library.loan.manage',
   // HR
@@ -93,8 +105,15 @@ export const SYSTEM_ROLES: RoleDef[] = [
       'advising.view', 'hr.staff.view', 'workload.view', 'workload.edit', 'exam.grade.view', 'exam.result.view',
       'admission.registration.view', 'institute.dashboard.view', 'reports.view'] },
   { key: 'CFO', nameAr: 'المدير المالي', nameEn: 'CFO', permissions: ['finance.*', 'payroll.*', 'banking.*', 'accounting.*', 'institute.dashboard.view', 'reports.view', 'reports.export'] },
-  { key: 'FINANCE', nameAr: 'موظف مالية', nameEn: 'Finance', permissions: ['finance.view', 'finance.tuition.*', 'finance.collection.*', 'finance.installment.*', 'finance.scholarship.view', 'finance.report.view', 'accounting.view', 'reports.view'] },
-  { key: 'ACCOUNTANT', nameAr: 'محاسب', nameEn: 'Accountant', permissions: ['accounting.*', 'finance.view', 'finance.collection.*', 'finance.tuition.view', 'banking.view', 'finance.report.view', 'reports.view'] },
+  { key: 'FINANCE', nameAr: 'موظف مالية', nameEn: 'Finance', permissions: ['finance.view', 'finance.tuition.*', 'finance.collection.*', 'finance.installment.*', 'finance.scholarship.view', 'finance.report.view', 'accounting.view', 'reports.view',
+    // Finance v2 cashier/front-desk: read invoices, take receipts, initiate online payments
+    'finance.invoice.view', 'finance.receipt.view', 'finance.receipt.create', 'finance.payment.create'] },
+  { key: 'ACCOUNTANT', nameAr: 'محاسب', nameEn: 'Accountant', permissions: ['accounting.*', 'finance.view', 'finance.collection.*', 'finance.tuition.view', 'banking.view', 'finance.report.view', 'reports.view',
+    // Finance v2 bookkeeping (maker): COA + draft journals + AR/AP docs + e-invoicing + reconciliation.
+    // post / approve / period-close stay with CFO (maker-checker via finance.* wildcard).
+    'finance.gl.account.view', 'finance.gl.account.edit', 'finance.gl.journal.view', 'finance.gl.journal.create',
+    'finance.period.view', 'finance.invoice.*', 'finance.receipt.*', 'finance.creditnote.create',
+    'finance.einvoice.*', 'finance.vendor.*', 'finance.expense.view', 'finance.expense.edit', 'banking.reconciliation.*'] },
   { key: 'REGISTRAR', nameAr: 'شؤون الطلاب / المسجل', nameEn: 'Registrar / Student Affairs', permissions: ['student.*', 'advising.*', 'warning.*', 'attendance.*', 'graduation.*', 'certificate.*', 'admission.registration.*', 'transfer.*', 'equivalence.*', 'cms.result.edit', 'cms.schedule.edit', 'reports.view', 'exam.exception.view', 'exam.exception.approve'] },
   { key: 'ADMISSIONS', nameAr: 'موظف القبول', nameEn: 'Admissions Officer', permissions: ['admission.*', 'student.view', 'student.create', 'cms.application.view', 'reports.view'] },
   { key: 'EXAMS_CONTROL', nameAr: 'الكنترول', nameEn: 'Exams Control', permissions: ['exam.*', 'onlineexam.*', 'cms.result.edit', 'reports.view'] },
