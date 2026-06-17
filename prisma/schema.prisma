@@ -1479,6 +1479,113 @@ model ExpenseClaim {
   @@index([universityId, status])
 }
 
+// ===== Finance v2 — Phase 6: Payroll v2 =====
+
+model Employee {
+  id           String                    @id @default(cuid())
+  universityId String?
+  code         String
+  nameAr       String
+  nameEn       String?
+  userId       String? // soft link to User (login)
+  instructorId String? // soft link to Instructor
+  jobTitle     String?
+  department   String?
+  baseSalary   Decimal                   @default(0) @db.Decimal(18, 4)
+  bankAccount  String?
+  taxCardNo    String?
+  insuranceNo  String?
+  hireDate     DateTime?
+  isActive     Boolean                   @default(true)
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  components   EmployeeSalaryComponent[]
+  payslips     Payslip[]
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+model SalaryComponent {
+  id           String                    @id @default(cuid())
+  universityId String?
+  code         String
+  nameAr       String
+  kind         String // EARNING | DEDUCTION
+  isTaxable    Boolean                   @default(true)
+  isPercentage Boolean                   @default(false) // % of base salary
+  defaultValue Decimal                   @default(0) @db.Decimal(18, 4)
+  order        Int                       @default(0)
+  isActive     Boolean                   @default(true)
+  employees    EmployeeSalaryComponent[]
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+model EmployeeSalaryComponent {
+  id          String          @id @default(cuid())
+  employeeId  String
+  componentId String
+  value       Decimal         @db.Decimal(18, 4)
+  employee    Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  component   SalaryComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, componentId])
+  @@index([employeeId])
+}
+
+// A monthly payroll run; posts Dr 5100 (salaries) / Cr 2400 (net payable) + Cr 2300 (tax/insurance/deductions).
+model PayRun {
+  id             String    @id @default(cuid())
+  universityId   String?
+  month          String // "2026-06"
+  status         String    @default("DRAFT") // DRAFT | APPROVED | PAID
+  runDate        DateTime  @default(now())
+  grossTotal     Decimal   @default(0) @db.Decimal(18, 4)
+  deductionTotal Decimal   @default(0) @db.Decimal(18, 4)
+  taxTotal       Decimal   @default(0) @db.Decimal(18, 4)
+  insuranceTotal Decimal   @default(0) @db.Decimal(18, 4)
+  netTotal       Decimal   @default(0) @db.Decimal(18, 4)
+  createdById    String?
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  payslips       Payslip[]
+
+  @@unique([universityId, month])
+  @@index([universityId, status])
+}
+
+model Payslip {
+  id         String        @id @default(cuid())
+  payRunId   String
+  employeeId String
+  gross      Decimal       @db.Decimal(18, 4)
+  deductions Decimal       @default(0) @db.Decimal(18, 4)
+  tax        Decimal       @default(0) @db.Decimal(18, 4)
+  insurance  Decimal       @default(0) @db.Decimal(18, 4)
+  net        Decimal       @db.Decimal(18, 4)
+  createdAt  DateTime      @default(now())
+  payRun     PayRun        @relation(fields: [payRunId], references: [id], onDelete: Cascade)
+  employee   Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  lines      PayslipLine[]
+
+  @@index([payRunId])
+  @@index([employeeId])
+}
+
+model PayslipLine {
+  id        String  @id @default(cuid())
+  payslipId String
+  label     String
+  kind      String // EARNING | DEDUCTION | TAX | INSURANCE
+  amount    Decimal @db.Decimal(18, 4)
+  payslip   Payslip @relation(fields: [payslipId], references: [id], onDelete: Cascade)
+
+  @@index([payslipId])
+}
+
 model Book {
   id         String      @id @default(cuid())
   title      String

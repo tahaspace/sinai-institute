@@ -31,6 +31,12 @@ export const DEFAULT_FINANCE_SETTINGS = {
     graceDays: 7,
     agingBuckets: [30, 60, 90] as number[],
   },
+  // Simplified payroll rates (refine to Egyptian progressive tax brackets in a later pass).
+  payroll: {
+    insuranceRate: 11, // % employee social-insurance share of taxable pay
+    taxRate: 10, // flat income-tax % on taxable pay after insurance + exemption
+    monthlyExemption: 2000, // tax-free monthly amount
+  },
 };
 export type FinanceSettings = typeof DEFAULT_FINANCE_SETTINGS;
 
@@ -47,6 +53,7 @@ function mergeConfig(base: FinanceSettings, over: Partial<FinanceSettings>): Fin
       journal: { ...base.numbering.journal, ...(over.numbering?.journal ?? {}) },
     },
     billing: { ...base.billing, ...(over.billing ?? {}) },
+    payroll: { ...base.payroll, ...(over.payroll ?? {}) },
   };
 }
 
