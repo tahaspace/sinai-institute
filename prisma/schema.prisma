@@ -1586,6 +1586,66 @@ model PayslipLine {
   @@index([payslipId])
 }
 
+// ===== Finance v2 — Phase 4: ETA e-invoicing + tax =====
+
+model TaxRate {
+  id           String   @id @default(cuid())
+  universityId String?
+  code         String
+  nameAr       String
+  rateType     String // VAT | WITHHOLDING | TABLE_TAX
+  rate         Decimal  @db.Decimal(9, 4) // percent
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+// Egyptian Tax Authority fiscal document. Built from an issued Invoice/Receipt/CreditNote, then
+// signed + submitted. Lines are SNAPSHOTTED (legal immutability). Submission is inert until creds.
+model EInvoiceDocument {
+  id             String         @id @default(cuid())
+  universityId   String?
+  sourceType     String // INVOICE | RECEIPT | CREDIT_NOTE
+  sourceId       String
+  internalId     String // our sequential legal number
+  documentType   String         @default("I") // ETA doc type code
+  status         String         @default("DRAFT") // DRAFT | SIGNED | SUBMITTED | VALID | REJECTED | CANCELLED
+  uuid           String? // ETA-assigned UUID
+  submissionUuid String?
+  netAmount      Decimal        @default(0) @db.Decimal(18, 4)
+  vatAmount      Decimal        @default(0) @db.Decimal(18, 4)
+  totalAmount    Decimal        @default(0) @db.Decimal(18, 4)
+  signedHash     String?
+  signedAt       DateTime?
+  submittedAt    DateTime?
+  etaResponse    Json?
+  createdById    String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  lines          EInvoiceLine[]
+
+  @@unique([universityId, internalId])
+  @@index([universityId, status])
+  @@index([sourceType, sourceId])
+}
+
+model EInvoiceLine {
+  id          String           @id @default(cuid())
+  documentId  String
+  description String
+  quantity    Int              @default(1)
+  unitPrice   Decimal          @db.Decimal(18, 4)
+  netTotal    Decimal          @db.Decimal(18, 4)
+  vatRate     Decimal          @default(0) @db.Decimal(9, 4)
+  vatAmount   Decimal          @default(0) @db.Decimal(18, 4)
+  total       Decimal          @db.Decimal(18, 4)
+  document    EInvoiceDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
 // ===== Finance v2 — Phase 3: Payment gateway =====
 
 // Non-secret per-tenant gateway registration (secrets live in Vercel env, never here).
