@@ -1586,6 +1586,79 @@ model PayslipLine {
   @@index([payslipId])
 }
 
+// ===== Finance v2 — Phase 3: Payment gateway =====
+
+// Non-secret per-tenant gateway registration (secrets live in Vercel env, never here).
+model PaymentProviderConfig {
+  id             String   @id @default(cuid())
+  universityId   String?
+  provider       String // paymob | fawry | kashier
+  mode           String   @default("sandbox") // sandbox | live
+  merchantInfo   Json? // non-secret ids (integration id, iframe id…)
+  isActive       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([universityId, provider])
+  @@index([universityId])
+}
+
+// A hosted-checkout order we initiate BEFORE redirecting the payer. The authoritative amount.
+model PaymentIntent {
+  id             String   @id @default(cuid())
+  universityId   String?
+  studentId      String?
+  invoiceId      String?
+  provider       String
+  amount         Decimal  @db.Decimal(18, 4)
+  currency       String   @default("EGP")
+  status         String   @default("CREATED") // CREATED | PENDING | PAID | FAILED | EXPIRED
+  idempotencyKey String   @unique
+  providerRef    String? // gateway order/intention id
+  checkoutUrl    String?
+  receiptId      String? // Receipt created on confirmation (sub-ledger link)
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  transactions   PaymentTransaction[]
+
+  @@index([universityId, status])
+  @@index([invoiceId])
+}
+
+// A provider-confirmed money event (webhook-sourced). Unique providerTxnId → idempotency.
+model PaymentTransaction {
+  id            String   @id @default(cuid())
+  universityId  String?
+  intentId      String?
+  provider      String
+  providerTxnId String
+  amount        Decimal  @db.Decimal(18, 4)
+  currency      String   @default("EGP")
+  status        String // SUCCESS | FAILED | REFUNDED
+  signatureHash String?
+  createdAt     DateTime @default(now())
+  intent        PaymentIntent? @relation(fields: [intentId], references: [id])
+
+  @@unique([provider, providerTxnId])
+  @@index([universityId])
+}
+
+// Raw inbound webhook log — idempotency + replay protection + forensic audit.
+model WebhookEvent {
+  id           String   @id @default(cuid())
+  universityId String?
+  provider     String
+  externalId   String? // provider event/txn id for dedup
+  verified     Boolean  @default(false)
+  outcome      String? // accepted | rejected:<reason>
+  payload      Json?
+  createdAt    DateTime @default(now())
+
+  @@index([provider, externalId])
+  @@index([createdAt])
+}
+
 // ===== Finance v2 — Phase 7: Treasury & budgeting =====
 
 // Move money between two asset accounts (cash↔bank↔petty). Posts Dr to / Cr from.
