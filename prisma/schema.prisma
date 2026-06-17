@@ -1387,6 +1387,98 @@ model CreditNote {
   @@index([invoiceId])
 }
 
+// ===== Finance v2 — Phase 5: Accounts Payable / expenses sub-ledger =====
+
+model Vendor {
+  id              String   @id @default(cuid())
+  universityId    String?
+  code            String
+  nameAr          String
+  nameEn          String?
+  taxRegNo        String?
+  phone           String?
+  email           String?
+  withholdingRate Int      @default(0) // % deducted at payment → 2300 withholding payable
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  bills           Bill[]
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+// Vendor bill. Posts Dr expense / Cr 2100 (AP) on approval; payment posts Dr 2100 / Cr withholding+bank.
+model Bill {
+  id               String     @id @default(cuid())
+  universityId     String?
+  vendorId         String
+  number           String
+  billDate         DateTime   @default(now())
+  dueDate          DateTime?
+  status           String     @default("DRAFT") // DRAFT | APPROVED | PAID | VOID
+  subtotal         Decimal    @default(0) @db.Decimal(18, 4)
+  vatTotal         Decimal    @default(0) @db.Decimal(18, 4)
+  total            Decimal    @default(0) @db.Decimal(18, 4)
+  paid             Decimal    @default(0) @db.Decimal(18, 4)
+  balance          Decimal    @default(0) @db.Decimal(18, 4)
+  memo             String?
+  createdById      String?
+  approvedById     String?
+  approvedAt       DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  vendor           Vendor     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  lines            BillLine[]
+
+  @@unique([universityId, number])
+  @@index([vendorId])
+  @@index([universityId, status])
+}
+
+model BillLine {
+  id          String  @id @default(cuid())
+  billId      String
+  description String
+  accountCode String  @default("5900") // expense ChartOfAccount code
+  amount      Decimal @db.Decimal(18, 4)
+  vatRate     Int     @default(0)
+  bill        Bill    @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+}
+
+model ExpenseCategory {
+  id           String   @id @default(cuid())
+  universityId String?
+  code         String
+  nameAr       String
+  accountCode  String   @default("5900")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+// Petty/staff expense claim (maker-checker). On pay: Dr expense / Cr bank.
+model ExpenseClaim {
+  id           String   @id @default(cuid())
+  universityId String?
+  claimantName String
+  accountCode  String   @default("5900")
+  description  String
+  amount       Decimal  @db.Decimal(18, 4)
+  status       String   @default("PENDING") // PENDING | APPROVED | REJECTED | PAID
+  claimDate    DateTime @default(now())
+  createdById  String?
+  approvedById String?
+  decidedAt    DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([universityId, status])
+}
+
 model Book {
   id         String      @id @default(cuid())
   title      String

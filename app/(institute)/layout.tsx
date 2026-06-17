@@ -142,6 +142,7 @@ const navItems = [
     children: [
       { title: "لوحة تحكم المدير المالي", href: "/institute/finance/cfo-dashboard" },
       { title: "فواتير ومدفوعات الطلاب", href: "/institute/finance/billing" },
+      { title: "الموردون والمصروفات", href: "/institute/finance/ap" },
       { title: "الأستاذ العام (القيود)", href: "/institute/finance/gl" },
       { title: "القوائم المالية", href: "/institute/finance/statements" },
       { title: "لوحة المتابعة المالية", href: "/institute/accounting/dashboard" },
