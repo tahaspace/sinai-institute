@@ -1586,6 +1586,67 @@ model PayslipLine {
   @@index([payslipId])
 }
 
+// ===== Finance v2 — Phase 7: Treasury & budgeting =====
+
+// Move money between two asset accounts (cash↔bank↔petty). Posts Dr to / Cr from.
+model FundTransfer {
+  id              String   @id @default(cuid())
+  universityId    String?
+  number          String
+  fromAccountCode String
+  toAccountCode   String
+  amount          Decimal  @db.Decimal(18, 4)
+  transferDate    DateTime @default(now())
+  memo            String?
+  createdById     String?
+  createdAt       DateTime @default(now())
+
+  @@unique([universityId, number])
+  @@index([universityId])
+}
+
+// Summary bank reconciliation: statement balance vs the GL balance of a bank account as-of a date.
+model BankReconciliation {
+  id               String   @id @default(cuid())
+  universityId     String?
+  accountCode      String
+  statementDate    DateTime
+  statementBalance Decimal  @db.Decimal(18, 4)
+  glBalance        Decimal  @db.Decimal(18, 4)
+  difference       Decimal  @db.Decimal(18, 4)
+  status           String   @default("OPEN") // OPEN | RECONCILED
+  note             String?
+  createdById      String?
+  createdAt        DateTime @default(now())
+
+  @@index([universityId])
+}
+
+model Budget {
+  id           String       @id @default(cuid())
+  universityId String?
+  name         String
+  fiscalCode   String
+  status       String       @default("ACTIVE") // DRAFT | ACTIVE
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  lines        BudgetLine[]
+
+  @@unique([universityId, name])
+  @@index([universityId])
+}
+
+model BudgetLine {
+  id           String  @id @default(cuid())
+  budgetId     String
+  accountCode  String
+  costCenterId String?
+  amount       Decimal @db.Decimal(18, 4)
+  budget       Budget  @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@index([budgetId])
+}
+
 model Book {
   id         String      @id @default(cuid())
   title      String

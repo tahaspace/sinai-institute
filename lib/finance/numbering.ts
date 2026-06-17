@@ -11,7 +11,7 @@ import prisma from '@/lib/prisma';
  * retry. Adequate for institute volumes; revisit with an advisory lock if contention appears.
  */
 
-export type DocType = 'INVOICE' | 'RECEIPT' | 'CREDIT_NOTE' | 'JOURNAL' | 'EINVOICE' | 'PAYRUN' | 'BILL';
+export type DocType = 'INVOICE' | 'RECEIPT' | 'CREDIT_NOTE' | 'JOURNAL' | 'EINVOICE' | 'PAYRUN' | 'BILL' | 'TRANSFER';
 
 export async function nextDocNumber(
   universityId: string | null,
