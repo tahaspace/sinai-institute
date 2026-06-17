@@ -6,7 +6,7 @@
 > **Scope (locked with owner):** Hybrid double‑entry **GL + statements** · **full institutional finance** (phased)
 > · **Egyptian payment gateway** · **full ETA e‑invoicing**.
 > **Method:** designed via a 5‑architect + critic workflow grounded in the real repo; consolidated here.
-> Date: 2026‑06‑16. Status: **plan only — no code yet.**
+> Date: 2026‑06‑16. **Status: ALL 8 PHASES SHIPPED & LIVE on `sinai-rbac` (2026‑06‑17) — see §12 Delivery log.**
 
 ---
 
@@ -318,3 +318,37 @@ sub‑ledgers gated only on P1.
 *Plan produced from a 5‑architect design workflow (foundations, GL, AR, payments+ETA grounded in the repo) +
 the AP/payroll/treasury/budgeting domain and the integrity/completeness/sequencing critic lenses applied
 directly. No code written yet — awaiting go‑ahead and the Phase‑0 decisions above.*
+
+---
+
+## 12. Delivery log — all phases shipped (2026‑06‑17)
+
+Built and deployed phase-by-phase to the live `sinai-rbac` Vercel project + Neon deploy DB
+(`ep-sweet-cherry-ap6hyt81`). Every phase: additive-only migration (0 data-loss drops, backup-safe),
+tsc 0-introduced (42 pre-existing baseline), ESLint 0, verified live (pages 307 login-gate, APIs 401
+guarded). Double-entry invariants (debits==credits, open-period, idempotent posting, reversal-only
+corrections) proven live in P1; AR posts reconcile to GL control account 1100.
+
+| Phase | Commit | Live surface |
+|---|---|---|
+| P0 Foundations (Decimal money, tenant scoping, fiscal periods, engine: money/settings/periods/numbering/approvals) | `e5bf847` | backfilled Float→Decimal (Δ=0), universityId on AR, FY2025+12 periods |
+| P1 General Ledger (COA, JournalEntry/Line, posting engine, statements) | `cec3efb` | `/institute/finance/gl`, `/statements` — TB/P&L/BS/Cash Flow |
+| P2 AR / student billing (FeeStructure/Invoice/Installment/Receipt/CreditNote, aging, statement) | `b4e545b` | `/institute/finance/billing` |
+| P5 AP / expenses (Vendor/Bill/ExpenseClaim) | `7547e4c` | `/institute/finance/ap` |
+| P6 Payroll v2 (Employee/Component/PayRun/Payslip) | `d291bc7` | `/institute/finance/payroll` |
+| P7 Treasury & budgeting (FundTransfer/BankReconciliation/Budget) | `600668b` | `/institute/finance/treasury` |
+| P3 Payment gateway (Paymob adapter + secure webhook) | `f3e668c` | `/institute/finance/payments` — **inert until merchant creds** |
+| P4 ETA e-invoicing + VAT (document build + submission flow) | `ef00bd0` | `/institute/finance/einvoice` — **build works; submit inert until ETA creds** |
+
+### Remaining to activate (external dependencies — not code)
+- **P3 online payments:** create a Paymob/Fawry/Kashier merchant account → set `PAYMENT_PROVIDER` +
+  `PAYMOB_API_KEY/HMAC_SECRET/INTEGRATION_ID/IFRAME_ID` in Vercel env → verify in the gateway sandbox.
+  Proven safe while unconfigured: a forged webhook callback returns 503 (inert); when live the webhook
+  verifies HMAC on the raw body, dedups on txn id, reconciles amount vs the stored PaymentIntent, fail-closed.
+- **P4 ETA submission:** set `ETA_CLIENT_ID/ETA_CLIENT_SECRET` + a signing cert (`ETA_SIGNING_MODE=remote`
+  + `ETA_SIGNING_URL/TOKEN`) in Vercel env → verify on ETA preprod. Document build + VAT already work live.
+
+### RBAC
+Finance v2 permission keys in `prisma/rbac/catalog.ts`; **ACCOUNTANT = maker** (create drafts/docs),
+**CFO = checker** (post/approve/close/submit) via the `finance.*` wildcard. Backfill/seed scripts in
+`scripts/` are production-guarded (dry-run unless `CONFIRM_PROD=1`).
