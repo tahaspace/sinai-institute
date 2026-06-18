@@ -15,6 +15,19 @@ export const authOptions: NextAuthOptions = {
     signOut: '/login',
     error: '/login',
   },
+  // ClientR3: capture login events for the audit/login report. Runs AFTER a successful
+  // sign-in and never affects the auth result (failure here is swallowed).
+  events: {
+    async signIn({ user }) {
+      try {
+        await prisma.auditLog.create({
+          data: { action: 'auth.login', actorUserId: (user as { id?: string }).id ?? user.email ?? null, targetType: 'User', metadata: { email: user.email } },
+        });
+      } catch {
+        /* never break sign-in on an audit write */
+      }
+    },
+  },
   providers: [
     CredentialsProvider({
       name: 'credentials',

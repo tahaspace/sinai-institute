@@ -8,6 +8,8 @@ import { academicReports } from '@/lib/reporting/reports/academic';
 import { attendanceReports } from '@/lib/reporting/reports/attendance';
 import { facultyReports } from '@/lib/reporting/reports/faculty';
 import { advisorReports } from '@/lib/reporting/reports/advisor';
+import { financialReports } from '@/lib/reporting/reports/financial';
+import { auditReports } from '@/lib/reporting/reports/audit';
 
 /**
  * Report registry (ClientR3 — R0). The single source of truth: every report is one ReportDef.
@@ -24,6 +26,8 @@ const ALL: ReportDef[] = [
   ...attendanceReports,
   ...facultyReports,
   ...advisorReports,
+  ...financialReports,
+  ...auditReports,
 ];
 
 const BY_ID = new Map(ALL.map((r) => [r.id, r]));
