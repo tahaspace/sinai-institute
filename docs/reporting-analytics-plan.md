@@ -151,3 +151,31 @@ Login & action audit (user, time, **device/userAgent**, edit/delete) — extend 
 
 ---
 *Grounded in the real repo: ~80% of inputs + engines already exist (lib/reports, standing, gpa, attendance, finance/*). This plan adds a report platform, ~7 small data fields, the new analytical/predictive engines, and the 11-family hub + dashboards. No code yet — awaiting go-ahead + the §6 decisions.*
+
+---
+
+## 7. Delivery log — reporting system SHIPPED & LIVE (2026-06-18)
+
+All 12 report families (the exact tree the client drew) built and deployed to `sinai-rbac`/Neon.
+**63 reports** registered. Each report is one `ReportDef` in the registry → the hub UI, permission
+guard, filters, runner, and CSV export all work automatically. tsc 0-introduced (42 baseline),
+ESLint 0 across all phases.
+
+| Phase | Commit | Families / reports |
+|---|---|---|
+| R0 platform + R1 | `a37b2cf` | registry/filters/export/runner/hub + schema gaps; Ministry(3), Student-Affairs(14), Results(7) |
+| R2 | `0114d9d` | Academic(7), Attendance(6), Faculty(2), Advisor(3) |
+| R3 + R7 | `f1dcbdf` | Financial(8) — reuse finance engines; Audit/login(1) + login-event capture |
+| R4 + R5 + R6 | `70125ab` | Executive+KPI(4), Analytical/strategic(5), Predictive(3) |
+
+**Architecture:** `lib/reporting/{types,filters,export,registry,kpi}.ts` + `reports/<family>.ts`
+modules; API `/api/institute/reporting` (catalogue filtered by permission) + `/[id]` (run +
+`?format=csv`); hub `/institute/reporting` (11-category tree, dynamic filters, run/print/CSV).
+Reuses `lib/reports`, `lib/standing`, `lib/gpa`, `lib/attendance`, `lib/finance/*`.
+
+**Honesty:** predictive risk is a transparent **rule-based estimate** (score + reason, labeled),
+not a black box. Satisfaction/research/strategic KPIs with no data source show **"يتطلب مصدر بيانات"** — never fabricated.
+
+**Remaining enhancements (optional):** nightly `KpiSnapshot` Vercel cron for trend history;
+Excel (.xlsx) export via `exceljs`; survey/evaluation capture to power the satisfaction KPIs;
+the official ministry print-letterhead layout for the result sheets; ML upgrade for predictions.
