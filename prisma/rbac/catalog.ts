@@ -64,6 +64,10 @@ export const PERMISSION_KEYS: string[] = [
   'hr.staff.view', 'hr.staff.edit', 'workload.view', 'workload.edit',
   // Quality / reports
   'quality.view', 'quality.edit', 'reports.view', 'reports.export',
+  // ClientR3 — Reporting & Analytics families (hub access per family)
+  'reports.ministry.view', 'reports.academic.view', 'reports.attendance.view',
+  'reports.financial.view', 'reports.executive.view', 'reports.analytical.view',
+  'reports.predictive.view', 'reports.audit.view',
   // CMS
   'cms.page.view', 'cms.page.edit', 'cms.news.edit', 'cms.news.publish',
   'cms.result.edit', 'cms.schedule.edit', 'cms.application.view',

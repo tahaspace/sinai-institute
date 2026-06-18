@@ -140,11 +140,27 @@ model AuditLog {
   targetId     String?
   metadata     Json?
   ip           String?
+  userAgent    String? // ClientR3: device/browser for the login & action audit report
   createdAt    DateTime @default(now())
 
   @@index([universityId])
   @@index([actorUserId])
   @@index([createdAt])
+  @@index([action])
+}
+
+// ClientR3: periodic KPI/metric snapshots → multi-year trends + instant dashboards (nightly cron).
+model KpiSnapshot {
+  id           String   @id @default(cuid())
+  universityId String?
+  metric       String // e.g. "students.total" | "pass.rate" | "revenue.month" | …
+  dimension    String? // optional breakdown key (programId/departmentId/level/term)
+  period       String // "2025" | "2025-09" | "2024-2025|first" …
+  value        Float
+  capturedAt   DateTime @default(now())
+
+  @@unique([universityId, metric, dimension, period])
+  @@index([universityId, metric])
 }
 
 model Department {
@@ -306,6 +322,10 @@ model Application {
   documentsUrl    String?
   status          String   @default("PENDING")
   notes           String?
+  // ClientR3 reporting gap fields (additive)
+  rejectionReason   String?  // → "most-common rejection reasons" report
+  qualificationType String?  // ثانوية عامة | مدارس فنية → "accepted by qualification"
+  documentsComplete Boolean  @default(false) // → "incomplete files count"
   universityId    String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -699,6 +719,11 @@ model Student {
   address      String?
   section      String? // e.g. "علمي رياضة" / specialization track
   advisorId    String? // academic advisor (Instructor) who approves registration
+  // ClientR3 reporting gap fields (additive)
+  holdStatus        Boolean @default(false) // registration hold (مالي/أكاديمي) → "students with Hold" report
+  holdReason        String?
+  source            String? // admissions/marketing source (مصدر الطالب)
+  entryQualification String? // ثانوية عامة | مدارس فنية | … → qualification filter
   universityId String?
   facultyId    String?
   createdAt    DateTime     @default(now())
@@ -963,6 +988,7 @@ model Guardian {
   name      String
   phone     String?
   job       String?
+  bankAccount String? // ClientR3: guardian financial data report
   createdAt DateTime @default(now())
   student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
 

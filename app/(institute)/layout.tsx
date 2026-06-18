@@ -34,6 +34,7 @@ import {
   Receipt,
   DollarSign,
   CreditCard,
+  BarChart3,
   Monitor,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -95,6 +96,11 @@ const navItems = [
       { title: "التخرج", href: "/institute/students/graduation" },
       { title: "الحضور والغياب", href: "/institute/students/attendance" },
     ],
+  },
+  {
+    title: "التقارير والتحليلات",
+    href: "/institute/reporting",
+    icon: BarChart3,
   },
   {
     title: "هيئة التدريس",
