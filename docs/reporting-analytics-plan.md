@@ -176,6 +176,17 @@ Reuses `lib/reports`, `lib/standing`, `lib/gpa`, `lib/attendance`, `lib/finance/
 **Honesty:** predictive risk is a transparent **rule-based estimate** (score + reason, labeled),
 not a black box. Satisfaction/research/strategic KPIs with no data source show **"يتطلب مصدر بيانات"** — never fabricated.
 
-**Remaining enhancements (optional):** nightly `KpiSnapshot` Vercel cron for trend history;
-Excel (.xlsx) export via `exceljs`; survey/evaluation capture to power the satisfaction KPIs;
-the official ministry print-letterhead layout for the result sheets; ML upgrade for predictions.
+## 8. Polish delivery (2026-06-21)
+
+The four optional enhancements (except the ML prediction upgrade) are now built:
+
+| # | Item | What shipped |
+|---|---|---|
+| 1 | **Excel export** | `toExcelXml` (dependency-free SpreadsheetML 2003, RTL, numeric typing) in `lib/reporting/export.ts`; runner serves `?format=xlsx\|excel`; hub has a **تصدير Excel** button. No new dependency. |
+| 2 | **Nightly KPI snapshot** | `lib/reporting/snapshot.ts` (`captureSnapshots`/`captureAllTenants`/`metricTrend`) → `app/api/cron/kpi-snapshot` (CRON_SECRET-gated, nodejs) scheduled in `vercel.json` `crons` at `0 2 * * *`. New analytical report **`kpi-trend`** pivots the daily snapshots (periods × metrics). |
+| 3 | **Survey / evaluation capture** | New additive models `Survey` / `SurveyResponse` / `ResearchOutput`. APIs: `POST/GET/PATCH /api/institute/surveys` (quality.view/edit) + `POST /api/institute/surveys/[id]/respond` (any authenticated member). `surveyKpis()` computes faculty/student satisfaction + teaching effectiveness (mean Likert→%) and research productivity (outputs/instructor); the executive **`kpi-quality`** card now shows real values, still **NO_DATA** when a source is empty. |
+| 4 | **Ministry print-letterhead** | Ministry sheets now emit `kind:'sheet'` with a header (institute / sheet / academic year / term) and a **grade-scale footer read live from `GradeStatus`** (not hardcoded). Hub renders the letterhead + grade legend with print CSS (`.no-print` hides the nav/filters; `.print-sheet` strips card chrome). |
+
+Schema delta is **additive only** (3 new models, no edits to existing models) → `prisma db push` is safe (0 DROP). tsc 42 baseline (0 introduced), ESLint 0.
+
+**Still optional:** ML upgrade for the predictive scores (current model is the transparent rule-based estimator).

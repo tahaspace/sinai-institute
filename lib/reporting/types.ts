@@ -53,7 +53,9 @@ export type TableResult = {
   meta?: Record<string, unknown>; // header info (institute/program/level/term), grade-scale footer, counts
 };
 export type KpiResult = { kind: 'kpi'; cards: { key: string; label: string; value: number | string; unit?: string; hint?: string }[] };
-export type SheetResult = TableResult & { kind: 'sheet'; title: string; header?: Record<string, string>; footer?: ReportRow[] };
+// Omit kind from TableResult so the discriminant is a clean 'sheet' (a plain intersection would
+// collapse kind to 'table' & 'sheet' = never).
+export type SheetResult = Omit<TableResult, 'kind'> & { kind: 'sheet'; title: string; header?: Record<string, string>; footer?: ReportRow[] };
 
 export type ReportResult = TableResult | KpiResult | SheetResult;
 

@@ -1,5 +1,5 @@
 import type { ReportDef } from '@/lib/reporting/types';
-import { academicKpis, studentKpis, financialKpis, hrKpis, NO_DATA } from '@/lib/reporting/kpi';
+import { academicKpis, studentKpis, financialKpis, hrKpis, surveyKpis } from '@/lib/reporting/kpi';
 
 /**
  * Executive Dashboard + KPI Center (ClientR3 — R4). KPI-card reports computed from the engines.
@@ -66,15 +66,18 @@ export const executiveReports: ReportDef[] = [
   },
   {
     id: 'kpi-quality', category: 'executive', nameAr: 'مركز المؤشرات — الجودة والرضا',
-    description: 'مؤشرات تتطلب مصدر بيانات (استبيانات/تقييم)', permission: EXEC, filters: [],
-    run: async () => ({
-      kind: 'kpi',
-      cards: [
-        { key: 'fac-sat', label: 'رضا أعضاء هيئة التدريس', value: NO_DATA },
-        { key: 'stu-sat', label: 'رضا الطلاب', value: NO_DATA },
-        { key: 'teaching', label: 'كفاءة التدريس', value: NO_DATA },
-        { key: 'research', label: 'الإنتاج البحثي', value: NO_DATA },
-      ],
-    }),
+    description: 'محسوبة من الاستبيانات وتقييم المقررات والإنتاج البحثي (تظهر "يتطلب مصدر بيانات" عند غياب الردود)', permission: EXEC, filters: [],
+    run: async (_f, ctx) => {
+      const q = await surveyKpis(ctx.universityId ?? null);
+      return {
+        kind: 'kpi',
+        cards: [
+          { key: 'fac-sat', label: 'رضا أعضاء هيئة التدريس', value: q.facultySatisfaction },
+          { key: 'stu-sat', label: 'رضا الطلاب', value: q.studentSatisfaction },
+          { key: 'teaching', label: 'كفاءة التدريس', value: q.teachingEffectiveness },
+          { key: 'research', label: 'الإنتاج البحثي (لكل عضو هيئة تدريس)', value: q.researchProductivity },
+        ],
+      };
+    },
   },
 ];

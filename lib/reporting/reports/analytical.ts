@@ -50,6 +50,21 @@ export const analyticalReports: ReportDef[] = [
     },
   },
   {
+    id: 'kpi-trend', category: 'analytical', nameAr: 'اتجاه مؤشرات الأداء عبر الزمن',
+    description: 'سلسلة زمنية من اللقطات الليلية (KpiSnapshot) — تتراكم يومًا بيوم بعد تشغيل المهمة المجدولة', permission: VIEW, filters: [],
+    run: async (_f, ctx) => {
+      const LABELS: Record<string, string> = { 'students.total': 'إجمالي الطلاب', 'pass.rate': 'نسبة النجاح %', 'fail.rate': 'نسبة الرسوب %', 'cgpa.avg': 'المعدل التراكمي', 'retention.rate': 'معدل الاستبقاء %', 'dropout.rate': 'معدل التسرب %', 'graduation.rate': 'معدل التخرج %', 'revenue.total': 'الإيرادات', 'expense.total': 'المصروفات', 'collection.rate': 'نسبة التحصيل %' };
+      const snaps = await prisma.kpiSnapshot.findMany({ where: { universityId: ctx.universityId ?? null, dimension: '' }, orderBy: { period: 'asc' } });
+      if (snaps.length === 0) return { kind: 'table', columns: [{ key: 'period', label: 'التاريخ', align: 'center' }], rows: [] };
+      const metrics = [...new Set(snaps.map((r) => r.metric))];
+      const byPeriod = new Map<string, Record<string, number>>();
+      for (const r of snaps) { const g = byPeriod.get(r.period) ?? {}; g[r.metric] = r.value; byPeriod.set(r.period, g); }
+      const columns = [{ key: 'period', label: 'التاريخ', align: 'center' as const }, ...metrics.map((m) => ({ key: m, label: LABELS[m] ?? m, align: 'center' as const, numeric: true }))];
+      const rows = [...byPeriod.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([period, vals]) => ({ period, ...vals }));
+      return { kind: 'table', columns, rows };
+    },
+  },
+  {
     id: 'marketing-efficiency', category: 'analytical', nameAr: 'كفاءة حملات التسويق',
     permission: VIEW, filters: [],
     run: async () => {

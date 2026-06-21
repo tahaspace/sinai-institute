@@ -48,9 +48,9 @@ export default function ReportingHub() {
     finally { setLoading(false) }
   }, [])
 
-  const exportCsv = () => {
+  const exportAs = (format: "csv" | "xlsx") => {
     if (!active) return
-    const qs = new URLSearchParams({ ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)), format: "csv" })
+    const qs = new URLSearchParams({ ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)), format })
     window.open(`/api/institute/reporting/${active.id}?${qs}`, "_blank")
   }
 
@@ -63,7 +63,8 @@ export default function ReportingHub() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <style>{`@media print { .no-print { display: none !important; } .print-sheet { border: none !important; box-shadow: none !important; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }`}</style>
+      <div className="flex items-center justify-between no-print">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><BarChart3 className="w-7 h-7 text-institute-blue" /> التقارير والتحليلات</h1>
           <p className="text-muted-foreground">مركز التقارير — كشوف الوزارة وشؤون الطلاب والنتائج والمالية والتحليلات</p>
@@ -74,7 +75,7 @@ export default function ReportingHub() {
 
       <div className="grid md:grid-cols-[280px_1fr] gap-4">
         {/* category tree */}
-        <Card className="h-fit">
+        <Card className="h-fit no-print">
           <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><FolderTree className="w-4 h-4" /> أنواع التقارير</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             {catalogue.length === 0 ? <p className="text-sm text-muted-foreground">جارٍ التحميل…</p> : catalogue.map((cat) => (
@@ -96,7 +97,7 @@ export default function ReportingHub() {
             <Card><CardContent className="p-12 text-center text-muted-foreground">اختر تقريرًا من القائمة</CardContent></Card>
           ) : (
             <>
-              <Card>
+              <Card className="no-print">
                 <CardHeader><CardTitle>{active.nameAr}</CardTitle>{active.description && <CardDescription>{active.description}</CardDescription>}</CardHeader>
                 <CardContent>
                   <div className="flex flex-wrap gap-2 items-end">
@@ -119,7 +120,8 @@ export default function ReportingHub() {
                       </div>
                     ))}
                     <Button onClick={() => run(active, filters)} disabled={loading || missingRequired}><Play className="w-4 h-4 ml-1" /> عرض</Button>
-                    {result && <Button variant="outline" onClick={exportCsv}><Download className="w-4 h-4 ml-1" /> تصدير CSV</Button>}
+                    {result && <Button variant="outline" onClick={() => exportAs("csv")}><Download className="w-4 h-4 ml-1" /> تصدير CSV</Button>}
+                    {result && <Button variant="outline" onClick={() => exportAs("xlsx")}><Download className="w-4 h-4 ml-1" /> تصدير Excel</Button>}
                   </div>
                   {missingRequired && <p className="text-xs text-amber-600 mt-2">يجب تحديد الفلاتر المطلوبة (*)</p>}
                 </CardContent>
@@ -139,19 +141,44 @@ function ResultView({ result }: { result: Any }) {
     return <div className="grid grid-cols-2 md:grid-cols-4 gap-3">{result.cards.map((c: Any) => <Card key={c.key}><CardContent className="p-4"><div className="text-xs text-muted-foreground">{c.label}</div><div className="text-xl font-bold">{c.value}{c.unit ? ` ${c.unit}` : ""}</div></CardContent></Card>)}</div>
   }
   const cols = result.columns ?? []
+  const isSheet = result.kind === "sheet"
   return (
-    <Card>
-      <CardContent className="p-0 overflow-x-auto">
-        {(!result.rows || result.rows.length === 0) ? <p className="p-8 text-center text-muted-foreground">لا توجد بيانات</p> : (
-          <Table>
-            <TableHeader><TableRow>{cols.map((c: Any) => <TableHead key={c.key} className={c.align === "center" ? "text-center" : ""}>{c.label}</TableHead>)}</TableRow></TableHeader>
-            <TableBody>
-              {result.rows.map((row: Any, i: number) => (
-                <TableRow key={i}>{cols.map((c: Any) => <TableCell key={c.key} className={`${c.align === "center" ? "text-center" : ""} ${c.numeric ? "font-mono" : ""}`}>{String(row[c.key] ?? "—")}</TableCell>)}</TableRow>
+    <Card className="print-sheet">
+      <CardContent className="p-0">
+        {isSheet && (result.title || result.header) && (
+          <div className="px-6 pt-6 pb-3 text-center border-b">
+            {result.title && <h2 className="text-lg font-bold">{result.title}</h2>}
+            {result.header && (
+              <div className="mt-2 flex flex-wrap justify-center gap-x-6 gap-y-1 text-sm">
+                {Object.entries(result.header).map(([k, v]: Any) => (
+                  <span key={k}><span className="text-muted-foreground">{k}:</span> <span className="font-medium">{String(v)}</span></span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          {(!result.rows || result.rows.length === 0) ? <p className="p-8 text-center text-muted-foreground">لا توجد بيانات</p> : (
+            <Table>
+              <TableHeader><TableRow>{cols.map((c: Any) => <TableHead key={c.key} className={c.align === "center" ? "text-center" : ""}>{c.label}</TableHead>)}</TableRow></TableHeader>
+              <TableBody>
+                {result.rows.map((row: Any, i: number) => (
+                  <TableRow key={i}>{cols.map((c: Any) => <TableCell key={c.key} className={`${c.align === "center" ? "text-center" : ""} ${c.numeric ? "font-mono" : ""}`}>{String(row[c.key] ?? "—")}</TableCell>)}</TableRow>
+                ))}
+                {result.totals && <TableRow className="bg-muted/50 font-bold">{cols.map((c: Any) => <TableCell key={c.key} className={c.align === "center" ? "text-center" : ""}>{result.totals[c.key] != null ? String(result.totals[c.key]) : ""}</TableCell>)}</TableRow>}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+        {isSheet && Array.isArray(result.footer) && result.footer.length > 0 && (
+          <div className="px-6 py-4 border-t">
+            <div className="text-sm font-semibold mb-2">مفتاح التقديرات</div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              {result.footer.map((g: Any, i: number) => (
+                <span key={i} className="border rounded px-2 py-1"><b>{String(g.code)}</b> {String(g.name)} — {String(g.points)}{g.minPercent && g.minPercent !== "—" ? ` (${g.minPercent}+)` : ""}</span>
               ))}
-              {result.totals && <TableRow className="bg-muted/50 font-bold">{cols.map((c: Any) => <TableCell key={c.key} className={c.align === "center" ? "text-center" : ""}>{result.totals[c.key] != null ? String(result.totals[c.key]) : ""}</TableCell>)}</TableRow>}
-            </TableBody>
-          </Table>
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>

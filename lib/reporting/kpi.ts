@@ -67,3 +67,26 @@ export async function hrKpis(universityId: string | null) {
   const employees = await prisma.employee.count({ where: { universityId: universityId ?? undefined, isActive: true } });
   return { employees, turnoverRate: NO_DATA }; // turnover needs hire/leave history
 }
+
+/**
+ * Quality KPIs from the survey/evaluation capture. Each satisfaction value is the mean Likert rating
+ * (1..5) for that survey type, expressed as a percentage. Research productivity = research outputs
+ * per active instructor. Anything with zero responses/rows stays NO_DATA — never fabricated.
+ */
+export async function surveyKpis(universityId: string | null) {
+  const uid = universityId ?? undefined;
+  const ratingFor = async (type: string): Promise<string> => {
+    const a = await prisma.surveyResponse.aggregate({ where: { universityId: uid, survey: { type } }, _avg: { rating: true }, _count: { _all: true } });
+    if (!a._count._all || a._avg.rating == null) return NO_DATA;
+    return `${Math.round((a._avg.rating / 5) * 100)}%`;
+  };
+  const [facultySatisfaction, studentSatisfaction, teachingEffectiveness, outputs, faculty] = await Promise.all([
+    ratingFor('FACULTY_SATISFACTION'),
+    ratingFor('STUDENT_SATISFACTION'),
+    ratingFor('COURSE_EVALUATION'),
+    prisma.researchOutput.count({ where: { universityId: uid } }),
+    prisma.instructor.count({ where: { universityId: uid } }),
+  ]);
+  const researchProductivity = outputs === 0 ? NO_DATA : faculty > 0 ? (outputs / faculty).toFixed(2) : String(outputs);
+  return { facultySatisfaction, studentSatisfaction, teachingEffectiveness, researchProductivity };
+}

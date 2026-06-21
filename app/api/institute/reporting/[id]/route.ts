@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/authz';
 import { getReport } from '@/lib/reporting/registry';
 import { parseFilters } from '@/lib/reporting/filters';
-import { toCsv, csvResponseHeaders } from '@/lib/reporting/export';
+import { toCsv, csvResponseHeaders, toExcelXml, excelResponseHeaders } from '@/lib/reporting/export';
 
 // Run a single report by id (ClientR3 — R0). ?format=csv → download. Each report carries its own
 // permission; required filters are enforced before running.
@@ -23,8 +23,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const result = await report.run(filters, { universityId: guard.ctx.universityId ?? null });
 
-    if (sp.get('format') === 'csv') {
+    const format = sp.get('format');
+    if (format === 'csv') {
       return new NextResponse(toCsv(result), { headers: csvResponseHeaders(report.id) });
+    }
+    if (format === 'xlsx' || format === 'excel') {
+      return new NextResponse(toExcelXml(result, report.nameAr), { headers: excelResponseHeaders(report.id) });
     }
     return NextResponse.json({ id, nameAr: report.nameAr, result });
   } catch (e) {

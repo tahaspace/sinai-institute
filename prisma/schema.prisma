@@ -18,7 +18,7 @@ model User {
   title           String?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
-  university      University?  @relation(fields: [universityId], references: [id])
+  university      University? @relation(fields: [universityId], references: [id])
   userRoles       UserRole[]
 
   @@index([universityId])
@@ -125,7 +125,7 @@ model FeatureFlag {
   config       Json?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
-  university   University?  @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  university   University? @relation(fields: [universityId], references: [id], onDelete: Cascade)
 
   @@unique([universityId, key])
   @@index([universityId])
@@ -164,28 +164,28 @@ model KpiSnapshot {
 }
 
 model Department {
-  id              String           @id @default(cuid())
-  nameAr          String
-  nameEn          String
-  description     String?
-  image           String?
-  head            String?
-  order           Int              @default(0)
-  isActive        Boolean          @default(true)
-  facultyId       String?
-  universityId    String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  results         Result[]
-  schedules       Schedule[]
-  specializations Specialization[]
-  students        Student[]
-  courses         Course[]
-  instructors     Instructor[]
-  programs        Program[]
+  id               String            @id @default(cuid())
+  nameAr           String
+  nameEn           String
+  description      String?
+  image            String?
+  head             String?
+  order            Int               @default(0)
+  isActive         Boolean           @default(true)
+  facultyId        String?
+  universityId     String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  results          Result[]
+  schedules        Schedule[]
+  specializations  Specialization[]
+  students         Student[]
+  courses          Course[]
+  instructors      Instructor[]
+  programs         Program[]
   transferRequests TransferRequest[]
-  faculty         Faculty?         @relation(fields: [facultyId], references: [id])
-  university      University?      @relation(fields: [universityId], references: [id])
+  faculty          Faculty?          @relation(fields: [facultyId], references: [id])
+  university       University?       @relation(fields: [universityId], references: [id])
 
   @@index([facultyId])
   @@index([universityId])
@@ -283,17 +283,17 @@ model Lecture {
 }
 
 model News {
-  id          String    @id @default(cuid())
-  titleAr     String
-  titleEn     String
-  contentAr   String
-  contentEn   String
-  image       String?
-  category    String    @default("NEWS")
-  isFeatured  Boolean   @default(false)
-  isInTicker  Boolean   @default(false)
-  isPublished Boolean   @default(false)
-  publishDate DateTime?
+  id           String    @id @default(cuid())
+  titleAr      String
+  titleEn      String
+  contentAr    String
+  contentEn    String
+  image        String?
+  category     String    @default("NEWS")
+  isFeatured   Boolean   @default(false)
+  isInTicker   Boolean   @default(false)
+  isPublished  Boolean   @default(false)
+  publishDate  DateTime?
   order        Int       @default(0)
   views        Int       @default(0)
   universityId String?
@@ -307,28 +307,28 @@ model News {
 }
 
 model Application {
-  id              String   @id @default(cuid())
-  fullName        String
-  nationalId      String   @unique
-  birthDate       DateTime
-  phone           String
-  email           String
-  address         String
-  highSchoolGrade Float
-  highSchoolYear  Int
-  firstChoice     String
-  secondChoice    String?
-  thirdChoice     String?
-  documentsUrl    String?
-  status          String   @default("PENDING")
-  notes           String?
+  id                String   @id @default(cuid())
+  fullName          String
+  nationalId        String   @unique
+  birthDate         DateTime
+  phone             String
+  email             String
+  address           String
+  highSchoolGrade   Float
+  highSchoolYear    Int
+  firstChoice       String
+  secondChoice      String?
+  thirdChoice       String?
+  documentsUrl      String?
+  status            String   @default("PENDING")
+  notes             String?
   // ClientR3 reporting gap fields (additive)
-  rejectionReason   String?  // → "most-common rejection reasons" report
-  qualificationType String?  // ثانوية عامة | مدارس فنية → "accepted by qualification"
+  rejectionReason   String? // → "most-common rejection reasons" report
+  qualificationType String? // ثانوية عامة | مدارس فنية → "accepted by qualification"
   documentsComplete Boolean  @default(false) // → "incomplete files count"
-  universityId    String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  universityId      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@index([status])
   @@index([email])
@@ -336,15 +336,15 @@ model Application {
 }
 
 model Complaint {
-  id          String    @id @default(cuid())
-  studentName String
-  studentId   String?
-  email       String?
-  phone       String
-  type        String
-  subject     String
-  message     String
-  attachments String?
+  id           String    @id @default(cuid())
+  studentName  String
+  studentId    String?
+  email        String?
+  phone        String
+  type         String
+  subject      String
+  message      String
+  attachments  String?
   status       String    @default("PENDING")
   response     String?
   respondedAt  DateTime?
@@ -357,12 +357,12 @@ model Complaint {
 }
 
 model ContactMessage {
-  id        String   @id @default(cuid())
-  name      String
-  email     String
-  phone     String?
-  subject   String
-  message   String
+  id           String   @id @default(cuid())
+  name         String
+  email        String
+  phone        String?
+  subject      String
+  message      String
   isRead       Boolean  @default(false)
   response     String?
   universityId String?
@@ -450,12 +450,12 @@ model PageVersion {
 }
 
 model WidgetTemplate {
-  id        String   @id @default(cuid())
-  name      String
-  type      String
-  thumbnail String?
-  data      String
-  category  String   @default("general")
+  id           String   @id @default(cuid())
+  name         String
+  type         String
+  thumbnail    String?
+  data         String
+  category     String   @default("general")
   isActive     Boolean  @default(true)
   order        Int      @default(0)
   universityId String?
@@ -468,11 +468,11 @@ model WidgetTemplate {
 }
 
 model StudyPlanItem {
-  id          String  @id @default(cuid())
-  programId   String?
-  programName String
-  year        String // "السنة الأولى"
-  semester    String // "الفصل الأول"
+  id           String  @id @default(cuid())
+  programId    String?
+  programName  String
+  year         String // "السنة الأولى"
+  semester     String // "الفصل الأول"
   courseCode   String
   courseName   String
   hours        Int     @default(3)
@@ -484,12 +484,12 @@ model StudyPlanItem {
 }
 
 model ExamCommittee {
-  id         String        @id @default(cuid())
-  name       String
-  department String?
-  head       String?
-  members    Int           @default(0)
-  courses    Int           @default(0)
+  id           String        @id @default(cuid())
+  name         String
+  department   String?
+  head         String?
+  members      Int           @default(0)
+  courses      Int           @default(0)
   status       String        @default("active") // active | pending
   universityId String?
   createdAt    DateTime      @default(now())
@@ -499,9 +499,9 @@ model ExamCommittee {
 }
 
 model ControlTask {
-  id          String         @id @default(cuid())
-  committeeId String?
-  title       String
+  id           String         @id @default(cuid())
+  committeeId  String?
+  title        String
   status       String         @default("pending") // pending | inprogress | done
   assignee     String?
   universityId String?
@@ -513,26 +513,26 @@ model ControlTask {
 }
 
 model QualityIndicator {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   name         String
-  score        Int    @default(0)
-  target       Int    @default(0)
-  order        Int    @default(0)
+  score        Int     @default(0)
+  target       Int     @default(0)
+  order        Int     @default(0)
   universityId String?
 
   @@index([universityId])
 }
 
 model Partnership {
-  id        String    @id @default(cuid())
-  name      String
-  type      String?
-  contact   String?
-  phone     String?
-  email     String?
-  website   String?
-  trainees  Int       @default(0)
-  programs  Int       @default(0)
+  id           String    @id @default(cuid())
+  name         String
+  type         String?
+  contact      String?
+  phone        String?
+  email        String?
+  website      String?
+  trainees     Int       @default(0)
+  programs     Int       @default(0)
   status       String    @default("active")
   since        DateTime?
   universityId String?
@@ -578,10 +578,10 @@ model Trainer {
 }
 
 model Activity {
-  id        String    @id @default(cuid())
-  name      String
-  members   Int       @default(0)
-  type      String?
+  id           String    @id @default(cuid())
+  name         String
+  members      Int       @default(0)
+  type         String?
   nextEvent    String?
   date         DateTime?
   status       String    @default("active")
@@ -606,13 +606,13 @@ model Certificate {
 }
 
 model MarketingCampaign {
-  id          String    @id @default(cuid())
-  name        String
-  type        String?
-  budget      Float     @default(0)
-  spent       Float     @default(0)
-  leads       Int       @default(0)
-  conversions Int       @default(0)
+  id           String    @id @default(cuid())
+  name         String
+  type         String?
+  budget       Float     @default(0)
+  spent        Float     @default(0)
+  leads        Int       @default(0)
+  conversions  Int       @default(0)
   status       String    @default("active")
   startDate    DateTime?
   endDate      DateTime?
@@ -641,24 +641,24 @@ model Message {
 // Configurable result/grade states (client: "different result states per institute bylaw").
 // Holds BOTH letter grades (A/B+/… with points) and special statuses (W/E/I/NE/FW/BL/DN/DS/TR/P/NP).
 model GradeStatus {
-  id           String  @id @default(cuid())
-  universityId String?
-  code         String
-  name         String // Arabic label
-  points       Float? // GPA points; null for non-graded statuses (W/E/I)
-  affectsGpa   Boolean @default(true) // included in CGPA when true
-  isPass       Boolean @default(false) // counts toward earned/completed hours (= "Earn Credit")
-  isLetter     Boolean @default(false) // true for A/B/C… letter grades (vs special statuses)
-  minPercent   Int? // letter grades: lower %% bound used to map a numeric total → this letter
+  id            String  @id @default(cuid())
+  universityId  String?
+  code          String
+  name          String // Arabic label
+  points        Float? // GPA points; null for non-graded statuses (W/E/I)
+  affectsGpa    Boolean @default(true) // included in CGPA when true
+  isPass        Boolean @default(false) // counts toward earned/completed hours (= "Earn Credit")
+  isLetter      Boolean @default(false) // true for A/B/C… letter grades (vs special statuses)
+  minPercent    Int? // letter grades: lower %% bound used to map a numeric total → this letter
   // --- ClientR2: per-status policy properties (the "rules table") ---
   // The result engine reads these flags off the status row instead of hardcoding
   // behaviour per screen ("السيستم يقرأ خصائص الحالة ويقرر"). All configurable per institute.
-  countsAttempt Boolean @default(true)  // does this outcome count as a registration attempt at the course
+  countsAttempt Boolean @default(true) // does this outcome count as a registration attempt at the course
   needsAction   Boolean @default(false) // result is PENDING until a follow-up action is completed (AB/INC/DEFER)
   nextAction    String? @default("NONE") // follow-up action code: MAKEUP_EXAM | COMPLETE_ASSESSMENT | REPEAT | NONE (canonical "no action" = "NONE", never null)
   isException   Boolean @default(false) // control-managed exceptional state (AB/ABS/INC/W/FW/DN/DEFER) vs system letter
-  isFinal       Boolean @default(true)  // false for non-terminal states that must resolve (INC/DEFER) before the result is settled
-  order        Int     @default(0)
+  isFinal       Boolean @default(true) // false for non-terminal states that must resolve (INC/DEFER) before the result is settled
+  order         Int     @default(0)
 
   @@unique([universityId, code])
   @@index([universityId])
@@ -700,56 +700,56 @@ model Setting {
 // --- Student portal (grades vertical slice) ---
 
 model Student {
-  id           String       @id @default(cuid())
-  userId       String?      @unique // forward-compat: link to NextAuth User/session later
-  studentCode  String       @unique // university/registration id
-  nameAr       String
-  nameEn       String?
-  email        String?      @unique
-  phone        String?
-  departmentId String?
-  level        Int          @default(1) // academic year/level
-  gpa          Float        @default(0)
-  status       String       @default("ACTIVE")
-  enrollYear   Int?
-  programId    String?
+  id                      String                     @id @default(cuid())
+  userId                  String?                    @unique // forward-compat: link to NextAuth User/session later
+  studentCode             String                     @unique // university/registration id
+  nameAr                  String
+  nameEn                  String?
+  email                   String?                    @unique
+  phone                   String?
+  departmentId            String?
+  level                   Int                        @default(1) // academic year/level
+  gpa                     Float                      @default(0)
+  status                  String                     @default("ACTIVE")
+  enrollYear              Int?
+  programId               String?
   // profile details
-  nationalId   String?
-  birthDate    DateTime?
-  address      String?
-  section      String? // e.g. "علمي رياضة" / specialization track
-  advisorId    String? // academic advisor (Instructor) who approves registration
+  nationalId              String?
+  birthDate               DateTime?
+  address                 String?
+  section                 String? // e.g. "علمي رياضة" / specialization track
+  advisorId               String? // academic advisor (Instructor) who approves registration
   // ClientR3 reporting gap fields (additive)
-  holdStatus        Boolean @default(false) // registration hold (مالي/أكاديمي) → "students with Hold" report
-  holdReason        String?
-  source            String? // admissions/marketing source (مصدر الطالب)
-  entryQualification String? // ثانوية عامة | مدارس فنية | … → qualification filter
-  universityId String?
-  facultyId    String?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  department   Department?  @relation(fields: [departmentId], references: [id])
-  program      Program?     @relation(fields: [programId], references: [id])
-  advisor      Instructor?  @relation("AdvisorAdvisees", fields: [advisorId], references: [id])
-  registrationRequests RegistrationRequest[]
-  enrollments  Enrollment[]
-  attendances  Attendance[]
-  feeAccounts  FeeAccount[]
-  guardians    Guardian[]
-  submissions  AssignmentSubmission[]
-  scholarships Scholarship[]
-  appeals      ExamAppeal[]
-  warnings     StudentWarning[]
-  gradRequests GraduationRequest[]
+  holdStatus              Boolean                    @default(false) // registration hold (مالي/أكاديمي) → "students with Hold" report
+  holdReason              String?
+  source                  String? // admissions/marketing source (مصدر الطالب)
+  entryQualification      String? // ثانوية عامة | مدارس فنية | … → qualification filter
+  universityId            String?
+  facultyId               String?
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+  department              Department?                @relation(fields: [departmentId], references: [id])
+  program                 Program?                   @relation(fields: [programId], references: [id])
+  advisor                 Instructor?                @relation("AdvisorAdvisees", fields: [advisorId], references: [id])
+  registrationRequests    RegistrationRequest[]
+  enrollments             Enrollment[]
+  attendances             Attendance[]
+  feeAccounts             FeeAccount[]
+  guardians               Guardian[]
+  submissions             AssignmentSubmission[]
+  scholarships            Scholarship[]
+  appeals                 ExamAppeal[]
+  warnings                StudentWarning[]
+  gradRequests            GraduationRequest[]
   officeHoursAppointments OfficeHoursAppointment[]
-  lessonProgress LessonProgress[]
-  pointsLog    PointsLog[]
-  studentBadges StudentBadge[]
-  equivalenceRequests CourseEquivalenceRequest[]
-  transferRequests TransferRequest[]
-  examAttempts ExamAttempt[]
-  invoices     Invoice[]
-  receipts     Receipt[]
+  lessonProgress          LessonProgress[]
+  pointsLog               PointsLog[]
+  studentBadges           StudentBadge[]
+  equivalenceRequests     CourseEquivalenceRequest[]
+  transferRequests        TransferRequest[]
+  examAttempts            ExamAttempt[]
+  invoices                Invoice[]
+  receipts                Receipt[]
 
   @@index([departmentId])
   @@index([studentCode])
@@ -759,39 +759,39 @@ model Student {
 }
 
 model Course {
-  id           String       @id @default(cuid())
-  code         String       @unique
-  nameAr       String
-  nameEn       String?
-  creditHours  Int          @default(3)
-  departmentId String?
-  instructorId String?
+  id                  String                     @id @default(cuid())
+  code                String                     @unique
+  nameAr              String
+  nameEn              String?
+  creditHours         Int                        @default(3)
+  departmentId        String?
+  instructorId        String?
   // registrar flags (client bylaw requirements)
-  countsInGpa     Boolean   @default(true)  // pass/fail subjects don't count toward CGPA
-  requirementType String    @default("mandatory") // mandatory | elective (إجباري/اختياري)
-  availableInSummer Boolean @default(true)
+  countsInGpa         Boolean                    @default(true) // pass/fail subjects don't count toward CGPA
+  requirementType     String                     @default("mandatory") // mandatory | elective (إجباري/اختياري)
+  availableInSummer   Boolean                    @default(true)
   // grade-component caps that drive the per-subject breakdown in the UI
-  midtermMax   Int          @default(50)
-  finalMax     Int          @default(100)
-  practicalMax Int          @default(0)
-  homeworkMax  Int          @default(20)
-  isGraduationProject Boolean @default(false) // مشروع التخرج — gates graduation eligibility
-  universityId String?
-  facultyId    String?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  department   Department?  @relation(fields: [departmentId], references: [id])
-  instructor   Instructor?  @relation(fields: [instructorId], references: [id])
-  enrollments  Enrollment[]
-  assignments  Assignment[]
-  examSessions ExamSession[]
-  examQuestions ExamQuestion[]
-  appeals      ExamAppeal[]
-  offerings    CourseOffering[]
+  midtermMax          Int                        @default(50)
+  finalMax            Int                        @default(100)
+  practicalMax        Int                        @default(0)
+  homeworkMax         Int                        @default(20)
+  isGraduationProject Boolean                    @default(false) // مشروع التخرج — gates graduation eligibility
+  universityId        String?
+  facultyId           String?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  department          Department?                @relation(fields: [departmentId], references: [id])
+  instructor          Instructor?                @relation(fields: [instructorId], references: [id])
+  enrollments         Enrollment[]
+  assignments         Assignment[]
+  examSessions        ExamSession[]
+  examQuestions       ExamQuestion[]
+  appeals             ExamAppeal[]
+  offerings           CourseOffering[]
   equivalenceRequests CourseEquivalenceRequest[]
   // prerequisite self-relation (registration validation)
-  prerequisites   Course[] @relation("CoursePrereq")
-  prerequisiteFor Course[] @relation("CoursePrereq")
+  prerequisites       Course[]                   @relation("CoursePrereq")
+  prerequisiteFor     Course[]                   @relation("CoursePrereq")
 
   @@index([departmentId])
   @@index([instructorId])
@@ -872,37 +872,37 @@ model RegistrationItem {
 }
 
 model Enrollment {
-  id           String   @id @default(cuid())
-  studentId    String
-  courseId     String
-  academicYear String // e.g. "2024-2025"
-  semester     String // "first" | "second"
+  id                  String    @id @default(cuid())
+  studentId           String
+  courseId            String
+  academicYear        String // e.g. "2024-2025"
+  semester            String // "first" | "second"
   // recorded grade components (null = not yet graded)
-  midterm      Float?
-  final        Float?
-  practical    Float?
-  homework     Float?
-  letterGrade  String?
-  gradeStatusCode String? // result-state code (A/B+/.../W/E/I/NE/FW/BL/DN/DS) → GradeStatus
-  points       Float? // GPA points earned for this course
-  status       String   @default("ENROLLED")
-  resultLocked Boolean  @default(false) // true once the result is approved & locked (اعتماد وغلق) — no further edits
-  approvedAt   DateTime?
+  midterm             Float?
+  final               Float?
+  practical           Float?
+  homework            Float?
+  letterGrade         String?
+  gradeStatusCode     String? // result-state code (A/B+/.../W/E/I/NE/FW/BL/DN/DS) → GradeStatus
+  points              Float? // GPA points earned for this course
+  status              String    @default("ENROLLED")
+  resultLocked        Boolean   @default(false) // true once the result is approved & locked (اعتماد وغلق) — no further edits
+  approvedAt          DateTime?
   // --- ClientR2: exceptional-case state machine (status → reason → action) ---
-  reasonCode          String?   // → CourseResultReason.code: WHY this state (WrittenFail/AttendanceShortage/MedicalExcuse…)
-  attemptNo           Int       @default(1)     // which attempt at this course (only countsAttempt outcomes increment it)
+  reasonCode          String? // → CourseResultReason.code: WHY this state (WrittenFail/AttendanceShortage/MedicalExcuse…)
+  attemptNo           Int       @default(1) // which attempt at this course (only countsAttempt outcomes increment it)
   resultPending       Boolean   @default(false) // a needsAction status not yet resolved → excluded from final GPA/credit calc
-  actionType          String?   // pending follow-up: MAKEUP_EXAM | COMPLETE_ASSESSMENT
+  actionType          String? // pending follow-up: MAKEUP_EXAM | COMPLETE_ASSESSMENT
   actionDueDate       DateTime? // bylaw deadline for the follow-up (الأسبوع الأول/الثاني من الترم التالي)
   actionResolvedAt    DateTime? // when the follow-up (makeup exam / completed assessment) was recorded
-  statusSetBy         String?   // userId of the executor (control) who set the exceptional status
-  statusApprovalState String?   // null | PENDING | APPROVED | REJECTED — two-step approval for exceptional states
-  statusApprovedBy    String?   // userId of the approver (control head / student affairs)
+  statusSetBy         String? // userId of the executor (control) who set the exceptional status
+  statusApprovalState String? // null | PENDING | APPROVED | REJECTED — two-step approval for exceptional states
+  statusApprovedBy    String? // userId of the approver (control head / student affairs)
   statusApprovedAt    DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  course       Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  student             Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course              Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@unique([studentId, courseId, academicYear, semester])
   @@index([studentId])
@@ -981,36 +981,36 @@ model Payment {
 }
 
 model Guardian {
-  id        String   @id @default(cuid())
-  studentId String
-  userId    String? // parent login account (User with role PARENT); shared across their children
-  relation  String // "father" | "mother" | "guardian"
-  name      String
-  phone     String?
-  job       String?
+  id          String   @id @default(cuid())
+  studentId   String
+  userId      String? // parent login account (User with role PARENT); shared across their children
+  relation    String // "father" | "mother" | "guardian"
+  name        String
+  phone       String?
+  job         String?
   bankAccount String? // ClientR3: guardian financial data report
-  createdAt DateTime @default(now())
-  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@index([studentId])
   @@index([userId])
 }
 
 model ExamSession {
-  id           String   @id @default(cuid())
+  id           String        @id @default(cuid())
   courseId     String
   title        String?
-  examType     String   @default("final") // midterm | final | quiz
+  examType     String        @default("final") // midterm | final | quiz
   date         DateTime
   startTime    String // "9:00 AM"
-  durationMins Int      @default(120)
+  durationMins Int           @default(120)
   hall         String?
-  passingScore Int      @default(60) // percentage needed to pass
+  passingScore Int           @default(60) // percentage needed to pass
   totalPoints  Int? // optional cached total; otherwise summed from question points
-  academicYear String   @default("2024-2025")
-  semester     String   @default("first")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  academicYear String        @default("2024-2025")
+  semester     String        @default("first")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   course       Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
   attempts     ExamAttempt[]
 
@@ -1037,14 +1037,14 @@ model ExamAppeal {
 }
 
 model ExamQuestion {
-  id            String   @id @default(cuid())
+  id            String               @id @default(cuid())
   courseId      String
   text          String
-  type          String   @default("mcq") // mcq | essay | truefalse | short
-  difficulty    String   @default("medium") // easy | medium | hard
-  points        Int      @default(10)
+  type          String               @default("mcq") // mcq | essay | truefalse | short
+  difficulty    String               @default("medium") // easy | medium | hard
+  points        Int                  @default(10)
   correctAnswer String? // answer key for truefalse/short (never sent to the client)
-  createdAt     DateTime @default(now())
+  createdAt     DateTime             @default(now())
   course        Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
   options       ExamQuestionOption[]
 
@@ -1053,20 +1053,20 @@ model ExamQuestion {
 }
 
 model Payroll {
-  id           String    @id @default(cuid())
-  employeeName String
-  role         String    @default("staff") // faculty | staff
-  month        String // e.g. "نوفمبر 2024"
-  baseSalary   Float
-  baseSalaryDec Decimal? @db.Decimal(18, 4) // finance P0: Decimal shadow
-  deductions   Float     @default(0)
-  deductionsDec Decimal? @db.Decimal(18, 4) // finance P0: Decimal shadow
-  netSalary    Float
-  netSalaryDec Decimal?  @db.Decimal(18, 4) // finance P0: Decimal shadow
-  status       String    @default("pending") // completed | pending
-  paidAt       DateTime?
-  universityId String?
-  createdAt    DateTime  @default(now())
+  id            String    @id @default(cuid())
+  employeeName  String
+  role          String    @default("staff") // faculty | staff
+  month         String // e.g. "نوفمبر 2024"
+  baseSalary    Float
+  baseSalaryDec Decimal?  @db.Decimal(18, 4) // finance P0: Decimal shadow
+  deductions    Float     @default(0)
+  deductionsDec Decimal?  @db.Decimal(18, 4) // finance P0: Decimal shadow
+  netSalary     Float
+  netSalaryDec  Decimal?  @db.Decimal(18, 4) // finance P0: Decimal shadow
+  status        String    @default("pending") // completed | pending
+  paidAt        DateTime?
+  universityId  String?
+  createdAt     DateTime  @default(now())
 
   @@index([month])
   @@index([status])
@@ -1121,17 +1121,17 @@ model FiscalYear {
 }
 
 model AccountingPeriod {
-  id           String     @id @default(cuid())
+  id           String         @id @default(cuid())
   universityId String?
   fiscalYearId String
   code         String // e.g. "2025-09"
   startDate    DateTime
   endDate      DateTime
-  status       String     @default("OPEN") // OPEN | SOFT_CLOSED | CLOSED
+  status       String         @default("OPEN") // OPEN | SOFT_CLOSED | CLOSED
   closedById   String?
   closedAt     DateTime?
-  createdAt    DateTime   @default(now())
-  fiscalYear   FiscalYear @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
+  createdAt    DateTime       @default(now())
+  fiscalYear   FiscalYear     @relation(fields: [fiscalYearId], references: [id], onDelete: Cascade)
   entries      JournalEntry[]
 
   @@unique([fiscalYearId, code])
@@ -1292,7 +1292,7 @@ model FeeStructureItem {
 
 // AR document issued to a student. Sub-ledger primary record; posts Dr 1100 / Cr revenue (+ VAT).
 model Invoice {
-  id           String           @id @default(cuid())
+  id           String              @id @default(cuid())
   universityId String?
   studentId    String
   feeAccountId String? // soft link to the per-year FeeAccount control envelope
@@ -1300,21 +1300,21 @@ model Invoice {
   number       String // sequential official number (DocumentSequence INVOICE)
   academicYear String?
   semester     String?
-  issueDate    DateTime         @default(now())
+  issueDate    DateTime            @default(now())
   dueDate      DateTime?
-  status       String           @default("DRAFT") // DRAFT | ISSUED | PARTIAL | PAID | VOID
-  subtotal     Decimal          @default(0) @db.Decimal(18, 4)
-  vatTotal     Decimal          @default(0) @db.Decimal(18, 4)
-  total        Decimal          @default(0) @db.Decimal(18, 4)
-  paid         Decimal          @default(0) @db.Decimal(18, 4)
-  balance      Decimal          @default(0) @db.Decimal(18, 4)
+  status       String              @default("DRAFT") // DRAFT | ISSUED | PARTIAL | PAID | VOID
+  subtotal     Decimal             @default(0) @db.Decimal(18, 4)
+  vatTotal     Decimal             @default(0) @db.Decimal(18, 4)
+  total        Decimal             @default(0) @db.Decimal(18, 4)
+  paid         Decimal             @default(0) @db.Decimal(18, 4)
+  balance      Decimal             @default(0) @db.Decimal(18, 4)
   memo         String?
   etaUuid      String? // ETA e-invoice (Phase 4)
   etaStatus    String?
   createdById  String?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  student      Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  student      Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
   lines        InvoiceLine[]
   allocations  ReceiptAllocation[]
   plan         InstallmentPlan?
@@ -1385,13 +1385,13 @@ model Receipt {
 }
 
 model ReceiptAllocation {
-  id            String   @id @default(cuid())
+  id            String  @id @default(cuid())
   receiptId     String
   invoiceId     String
   installmentId String?
-  amount        Decimal  @db.Decimal(18, 4)
-  receipt       Receipt  @relation(fields: [receiptId], references: [id], onDelete: Cascade)
-  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount        Decimal @db.Decimal(18, 4)
+  receipt       Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  invoice       Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@index([receiptId])
   @@index([invoiceId])
@@ -1436,26 +1436,26 @@ model Vendor {
 
 // Vendor bill. Posts Dr expense / Cr 2100 (AP) on approval; payment posts Dr 2100 / Cr withholding+bank.
 model Bill {
-  id               String     @id @default(cuid())
-  universityId     String?
-  vendorId         String
-  number           String
-  billDate         DateTime   @default(now())
-  dueDate          DateTime?
-  status           String     @default("DRAFT") // DRAFT | APPROVED | PAID | VOID
-  subtotal         Decimal    @default(0) @db.Decimal(18, 4)
-  vatTotal         Decimal    @default(0) @db.Decimal(18, 4)
-  total            Decimal    @default(0) @db.Decimal(18, 4)
-  paid             Decimal    @default(0) @db.Decimal(18, 4)
-  balance          Decimal    @default(0) @db.Decimal(18, 4)
-  memo             String?
-  createdById      String?
-  approvedById     String?
-  approvedAt       DateTime?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  vendor           Vendor     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  lines            BillLine[]
+  id           String     @id @default(cuid())
+  universityId String?
+  vendorId     String
+  number       String
+  billDate     DateTime   @default(now())
+  dueDate      DateTime?
+  status       String     @default("DRAFT") // DRAFT | APPROVED | PAID | VOID
+  subtotal     Decimal    @default(0) @db.Decimal(18, 4)
+  vatTotal     Decimal    @default(0) @db.Decimal(18, 4)
+  total        Decimal    @default(0) @db.Decimal(18, 4)
+  paid         Decimal    @default(0) @db.Decimal(18, 4)
+  balance      Decimal    @default(0) @db.Decimal(18, 4)
+  memo         String?
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  vendor       Vendor     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  lines        BillLine[]
 
   @@unique([universityId, number])
   @@index([vendorId])
@@ -1489,18 +1489,18 @@ model ExpenseCategory {
 
 // Petty/staff expense claim (maker-checker). On pay: Dr expense / Cr bank.
 model ExpenseClaim {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   universityId String?
   claimantName String
-  accountCode  String   @default("5900")
+  accountCode  String    @default("5900")
   description  String
-  amount       Decimal  @db.Decimal(18, 4)
-  status       String   @default("PENDING") // PENDING | APPROVED | REJECTED | PAID
-  claimDate    DateTime @default(now())
+  amount       Decimal   @db.Decimal(18, 4)
+  status       String    @default("PENDING") // PENDING | APPROVED | REJECTED | PAID
+  claimDate    DateTime  @default(now())
   createdById  String?
   approvedById String?
   decidedAt    DateTime?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
 
   @@index([universityId, status])
 }
@@ -1676,14 +1676,14 @@ model EInvoiceLine {
 
 // Non-secret per-tenant gateway registration (secrets live in Vercel env, never here).
 model PaymentProviderConfig {
-  id             String   @id @default(cuid())
-  universityId   String?
-  provider       String // paymob | fawry | kashier
-  mode           String   @default("sandbox") // sandbox | live
-  merchantInfo   Json? // non-secret ids (integration id, iframe id…)
-  isActive       Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id           String   @id @default(cuid())
+  universityId String?
+  provider     String // paymob | fawry | kashier
+  mode         String   @default("sandbox") // sandbox | live
+  merchantInfo Json? // non-secret ids (integration id, iframe id…)
+  isActive     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([universityId, provider])
   @@index([universityId])
@@ -1691,21 +1691,21 @@ model PaymentProviderConfig {
 
 // A hosted-checkout order we initiate BEFORE redirecting the payer. The authoritative amount.
 model PaymentIntent {
-  id             String   @id @default(cuid())
+  id             String               @id @default(cuid())
   universityId   String?
   studentId      String?
   invoiceId      String?
   provider       String
-  amount         Decimal  @db.Decimal(18, 4)
-  currency       String   @default("EGP")
-  status         String   @default("CREATED") // CREATED | PENDING | PAID | FAILED | EXPIRED
-  idempotencyKey String   @unique
+  amount         Decimal              @db.Decimal(18, 4)
+  currency       String               @default("EGP")
+  status         String               @default("CREATED") // CREATED | PENDING | PAID | FAILED | EXPIRED
+  idempotencyKey String               @unique
   providerRef    String? // gateway order/intention id
   checkoutUrl    String?
   receiptId      String? // Receipt created on confirmation (sub-ledger link)
   createdById    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
   transactions   PaymentTransaction[]
 
   @@index([universityId, status])
@@ -1714,16 +1714,16 @@ model PaymentIntent {
 
 // A provider-confirmed money event (webhook-sourced). Unique providerTxnId → idempotency.
 model PaymentTransaction {
-  id            String   @id @default(cuid())
+  id            String         @id @default(cuid())
   universityId  String?
   intentId      String?
   provider      String
   providerTxnId String
-  amount        Decimal  @db.Decimal(18, 4)
-  currency      String   @default("EGP")
+  amount        Decimal        @db.Decimal(18, 4)
+  currency      String         @default("EGP")
   status        String // SUCCESS | FAILED | REFUNDED
   signatureHash String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime       @default(now())
   intent        PaymentIntent? @relation(fields: [intentId], references: [id])
 
   @@unique([provider, providerTxnId])
@@ -1807,11 +1807,11 @@ model BudgetLine {
 }
 
 model Book {
-  id         String      @id @default(cuid())
-  title      String
-  author     String?
-  isbn       String?
-  category   String?
+  id           String      @id @default(cuid())
+  title        String
+  author       String?
+  isbn         String?
+  category     String?
   copies       Int         @default(1)
   available    Int         @default(1)
   universityId String?
@@ -1889,9 +1889,9 @@ model StudentBadge {
 }
 
 model Reward {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
   icon         String?
   cost         Int
   stock        Int      @default(0)
@@ -1902,11 +1902,11 @@ model Reward {
 }
 
 model LMSContent {
-  id        String   @id @default(cuid())
-  courseId  String? // optional course link (no FK at test scope)
-  unit      String? // module / chapter
-  title     String
-  type      String   @default("video") // video | pdf | image | audio
+  id           String   @id @default(cuid())
+  courseId     String? // optional course link (no FK at test scope)
+  unit         String? // module / chapter
+  title        String
+  type         String   @default("video") // video | pdf | image | audio
   url          String?
   sizeMb       Float?
   views        Int      @default(0)
@@ -1918,7 +1918,7 @@ model LMSContent {
 }
 
 model ForumCategory {
-  id          String       @id @default(cuid())
+  id           String       @id @default(cuid())
   name         String
   description  String?
   order        Int          @default(0)
@@ -2039,17 +2039,17 @@ model StudentWarning {
 }
 
 model GraduationRequest {
-  id            String    @id @default(cuid())
-  studentId     String
-  status        String    @default("PENDING") // PENDING | APPROVED | REJECTED
-  completedHours Int      @default(0)
-  requiredHours Int       @default(132)
-  gpa           Float     @default(0)
-  notes         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  reviewedAt    DateTime?
-  student       Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  id             String    @id @default(cuid())
+  studentId      String
+  status         String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  completedHours Int       @default(0)
+  requiredHours  Int       @default(132)
+  gpa            Float     @default(0)
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  reviewedAt     DateTime?
+  student        Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@index([studentId])
   @@index([status])
@@ -2074,19 +2074,19 @@ model Scholarship {
 }
 
 model Program {
-  id               String     @id @default(cuid())
+  id               String      @id @default(cuid())
   nameAr           String
   nameEn           String?
   departmentId     String?
   degree           String? // بكالوريوس | دبلوم | ماجستير
-  years            Int        @default(4)
-  totalCreditHours Int        @default(0)
+  years            Int         @default(4)
+  totalCreditHours Int         @default(0)
   description      String?
-  isActive         Boolean    @default(true)
+  isActive         Boolean     @default(true)
   universityId     String?
   facultyId        String?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
   department       Department? @relation(fields: [departmentId], references: [id])
   students         Student[]
 
@@ -2096,24 +2096,24 @@ model Program {
 }
 
 model Instructor {
-  id             String   @id @default(cuid())
-  userId         String?  @unique // login account (User with role FACULTY)
-  name           String
-  email          String?  @unique
-  phone          String?
-  title          String? // e.g. أستاذ مساعد
-  departmentId   String?
-  specialization String?
-  universityId   String?
-  facultyId      String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  department     Department? @relation(fields: [departmentId], references: [id])
-  courses        Course[]
-  officeHours    OfficeHoursSlot[]
-  publications   Publication[]
-  advisees       Student[]              @relation("AdvisorAdvisees")
-  sections       Section[]
+  id              String                @id @default(cuid())
+  userId          String?               @unique // login account (User with role FACULTY)
+  name            String
+  email           String?               @unique
+  phone           String?
+  title           String? // e.g. أستاذ مساعد
+  departmentId    String?
+  specialization  String?
+  universityId    String?
+  facultyId       String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  department      Department?           @relation(fields: [departmentId], references: [id])
+  courses         Course[]
+  officeHours     OfficeHoursSlot[]
+  publications    Publication[]
+  advisees        Student[]             @relation("AdvisorAdvisees")
+  sections        Section[]
   advisorRequests RegistrationRequest[] @relation("AdvisorRequests")
 
   @@index([departmentId])
@@ -2259,4 +2259,65 @@ model TransferRequest {
   @@index([direction])
   @@index([status])
   @@index([universityId])
+}
+
+// ───────────────────────── Surveys & evaluations (ClientR3 — polish) ─────────────────────────
+// Capture satisfaction / course-evaluation responses so the quality KPIs (faculty/student
+// satisfaction, teaching effectiveness) compute from real data instead of the NO_DATA sentinel.
+// IDs are stored as plain strings (no back-relations into Student/Instructor/Course) to keep this
+// strictly additive — nothing existing changes.
+model Survey {
+  id           String           @id @default(cuid())
+  universityId String?
+  title        String
+  type         String // STUDENT_SATISFACTION | FACULTY_SATISFACTION | COURSE_EVALUATION
+  academicYear String?
+  semester     String?
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  responses    SurveyResponse[]
+
+  @@index([universityId])
+  @@index([type])
+  @@index([isActive])
+}
+
+model SurveyResponse {
+  id             String   @id @default(cuid())
+  surveyId       String
+  survey         Survey   @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  universityId   String?
+  respondentType String // STUDENT | FACULTY
+  studentId      String?
+  instructorId   String?
+  courseId       String?
+  rating         Int // 1..5 Likert
+  comment        String?
+  academicYear   String?
+  semester       String?
+  createdAt      DateTime @default(now())
+
+  @@index([surveyId])
+  @@index([universityId])
+  @@index([courseId])
+  @@index([instructorId])
+}
+
+// Faculty research output — feeds the "research productivity" KPI (outputs per active faculty).
+// Empty table ⇒ the KPI stays NO_DATA; never fabricated.
+model ResearchOutput {
+  id           String    @id @default(cuid())
+  universityId String?
+  instructorId String?
+  title        String
+  kind         String    @default("JOURNAL") // JOURNAL | CONFERENCE | BOOK | PATENT | OTHER
+  venue        String?
+  academicYear String?
+  publishedAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([universityId])
+  @@index([instructorId])
+  @@index([academicYear])
 }
