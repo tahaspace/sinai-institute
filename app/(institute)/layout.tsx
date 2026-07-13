@@ -195,6 +195,8 @@ const navItems = [
     children: [
       { title: "العاملون", href: "/institute/hr/employees" },
       { title: "الهيكل الإداري والوظائف", href: "/institute/hr/org" },
+      { title: "الحضور والانصراف", href: "/institute/hr/attendance" },
+      { title: "الإجازات", href: "/institute/hr/leave" },
       { title: "لوحة الموارد البشرية", href: "/institute/hr/dashboard" },
     ],
   },

@@ -1583,6 +1583,12 @@ model Employee {
   documents      EmployeeDocument[]
   jobHistory     EmployeeJobHistory[]
   custody        AssetCustody[]
+  attendanceRecords EmployeeAttendance[]
+  leaveRequests     LeaveRequest[]
+  leaveBalances     LeaveBalance[]
+  penalties         Penalty[]
+  overtimeRecords   Overtime[]
+  permissions       AttendancePermission[]
 
   @@unique([universityId, code])
   @@index([universityId])
@@ -2540,5 +2546,181 @@ model AssetCustody {
   note       String?
   employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
+  @@index([employeeId])
+}
+
+// ═══════════════ ClientR4 — HR module (R4c-2): attendance + leave ═══════════════
+
+// Work-hour pattern. mode FIXED = start/end; FLEXIBLE/BY_LECTURES = counted by workHours.
+model WorkSchedule {
+  id           String   @id @default(cuid())
+  universityId String?
+  name         String
+  mode         String   @default("FIXED") // FIXED | FLEXIBLE | BY_LECTURES
+  startTime    String? // "09:00"
+  endTime      String? // "15:00"
+  workHours    Float?
+  graceInMin   Int      @default(0)
+  graceOutMin  Int      @default(0)
+  isDefault    Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@index([universityId])
+}
+
+model Shift {
+  id           String  @id @default(cuid())
+  universityId String?
+  name         String
+  type         String  @default("MORNING") // MORNING | EVENING | NIGHT | VARIABLE
+  startTime    String?
+  endTime      String?
+  isActive     Boolean @default(true)
+
+  @@index([universityId])
+}
+
+model Holiday {
+  id           String   @id @default(cuid())
+  universityId String?
+  name         String
+  date         DateTime
+  isPaid       Boolean  @default(true)
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@index([universityId])
+}
+
+// Grace/late/overtime thresholds per the institute bylaw.
+model AttendancePolicy {
+  id              String  @id @default(cuid())
+  universityId    String?
+  name            String  @default("السياسة الافتراضية")
+  graceInMin      Int     @default(15)
+  graceOutMin     Int     @default(10)
+  lateToDeductMin Int     @default(60)
+  minOvertimeMin  Int     @default(30)
+  overtimeMethod  String  @default("HOURLY") // HOURLY | SALARY_PCT | FIXED
+  isActive        Boolean @default(true)
+
+  @@index([universityId])
+}
+
+// Daily attendance record. Review workflow DRAFT → REVIEWED → APPROVED → LOCKED.
+model EmployeeAttendance {
+  id            String   @id @default(cuid())
+  universityId  String?
+  employeeId    String
+  date          DateTime
+  checkIn       String?
+  checkOut      String?
+  status        String   @default("P") // P|A|L|E|O|H
+  workedMinutes Int?
+  lateMinutes   Int      @default(0)
+  reviewState   String   @default("DRAFT") // DRAFT | REVIEWED | APPROVED | LOCKED
+  source        String   @default("MANUAL") // MANUAL | IMPORT | DEVICE
+  note          String?
+  createdAt     DateTime @default(now())
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+  @@index([universityId, date])
+  @@index([employeeId])
+}
+
+model LeaveType {
+  id           String  @id @default(cuid())
+  universityId String?
+  code         String
+  nameAr       String
+  isPaid       Boolean @default(true)
+  annualQuota  Int?
+  isActive     Boolean @default(true)
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+model LeaveRequest {
+  id           String    @id @default(cuid())
+  universityId String?
+  employeeId   String
+  leaveTypeId  String
+  fromDate     DateTime
+  toDate       DateTime
+  days         Int
+  reason       String?
+  status       String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  approverId   String?
+  decidedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  employee     Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([universityId])
+  @@index([employeeId])
+}
+
+model LeaveBalance {
+  id           String   @id @default(cuid())
+  universityId String?
+  employeeId   String
+  leaveTypeId  String
+  year         Int
+  entitled     Int      @default(0)
+  used         Int      @default(0)
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, leaveTypeId, year])
+  @@index([universityId])
+}
+
+// Disciplinary action (separate module per the spec).
+model Penalty {
+  id           String   @id @default(cuid())
+  universityId String?
+  employeeId   String
+  type         String // WARNING | NOTICE | DEDUCT_DAY | DEDUCT_DAYS | SUSPEND
+  reason       String? // ABSENCE | REPEATED_LATE | MISCONDUCT | OTHER
+  date         DateTime @default(now())
+  deductDays   Float    @default(0)
+  note         String?
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([universityId])
+  @@index([employeeId])
+}
+
+model Overtime {
+  id           String   @id @default(cuid())
+  universityId String?
+  employeeId   String
+  date         DateTime
+  hours        Float
+  reason       String?
+  status       String   @default("DRAFT") // DRAFT | APPROVED | POSTED
+  createdAt    DateTime @default(now())
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([universityId])
+  @@index([employeeId])
+}
+
+// أذونات ومأموريات — permissions to leave / arrive late / official missions.
+model AttendancePermission {
+  id           String   @id @default(cuid())
+  universityId String?
+  employeeId   String
+  type         String // EARLY_LEAVE | LATE_ARRIVAL | PERMISSION | MISSION
+  date         DateTime
+  fromTime     String?
+  toTime       String?
+  reason       String?
+  status       String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  createdAt    DateTime @default(now())
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([universityId])
   @@index([employeeId])
 }
