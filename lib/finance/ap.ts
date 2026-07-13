@@ -27,6 +27,8 @@ export async function createBill(args: {
   billDate?: Date;
   dueDate?: Date | null;
   memo?: string | null;
+  costCenterId?: string | null;
+  branchId?: string | null;
   createdById?: string | null;
 }): Promise<{ id: string; number: string; total: number }> {
   if (!args.lines.length) throw new Error('فاتورة مورد بلا بنود');
@@ -46,6 +48,7 @@ export async function createBill(args: {
     data: {
       universityId: args.universityId ?? null, vendorId: args.vendorId, number, billDate, dueDate: args.dueDate ?? null,
       status: 'DRAFT', subtotal, vatTotal, total, paid: money(0), balance: total, memo: args.memo ?? null, createdById: args.createdById ?? null,
+      costCenterId: args.costCenterId ?? null, branchId: args.branchId ?? null,
       lines: { create: computed.map((c) => ({ description: c.description, accountCode: c.accountCode, amount: c.amount, vatRate: c.vatRate })) },
     },
   });
@@ -65,9 +68,11 @@ export async function approveBill(billId: string, approverId?: string | null): P
     const vat = l.vatRate ? percentOf(l.amount, l.vatRate) : money(0);
     byExpense.set(l.accountCode, add(byExpense.get(l.accountCode) ?? money(0), add(l.amount, vat)));
   }
-  const lines: { accountId: string; debit?: Prisma.Decimal; credit?: Prisma.Decimal }[] = [];
-  for (const [code, amt] of byExpense) lines.push({ accountId: await accountIdByCode(bill.universityId, code), debit: amt });
-  lines.push({ accountId: await accountIdByCode(bill.universityId, '2100'), credit: bill.total });
+  // Tag every leg with the bill's cost centre so the profitability report attributes this expense.
+  const cc = bill.costCenterId;
+  const lines: { accountId: string; debit?: Prisma.Decimal; credit?: Prisma.Decimal; costCenterId?: string | null }[] = [];
+  for (const [code, amt] of byExpense) lines.push({ accountId: await accountIdByCode(bill.universityId, code), debit: amt, costCenterId: cc });
+  lines.push({ accountId: await accountIdByCode(bill.universityId, '2100'), credit: bill.total, costCenterId: cc });
 
   await postEvent({ universityId: bill.universityId, entryDate: bill.billDate, lines, sourceType: 'EXPENSE', sourceId: bill.id, memo: `فاتورة مورد ${bill.number}`, postedById: approverId });
   await prisma.bill.update({ where: { id: billId }, data: { status: 'APPROVED', approvedById: approverId ?? null, approvedAt: new Date() } });
@@ -98,9 +103,9 @@ export async function payBill(billId: string, opts?: { bankCode?: string; paidBy
 }
 
 /** Staff expense claim (maker). */
-export async function createExpenseClaim(args: { universityId: string | null; claimantName: string; description: string; amount: number | string; accountCode?: string; createdById?: string | null }) {
+export async function createExpenseClaim(args: { universityId: string | null; claimantName: string; description: string; amount: number | string; accountCode?: string; costCenterId?: string | null; branchId?: string | null; createdById?: string | null }) {
   const claim = await prisma.expenseClaim.create({
-    data: { universityId: args.universityId ?? null, claimantName: args.claimantName, description: args.description, amount: round2(args.amount), accountCode: args.accountCode ?? '5900', status: 'PENDING', createdById: args.createdById ?? null },
+    data: { universityId: args.universityId ?? null, claimantName: args.claimantName, description: args.description, amount: round2(args.amount), accountCode: args.accountCode ?? '5900', status: 'PENDING', createdById: args.createdById ?? null, costCenterId: args.costCenterId ?? null, branchId: args.branchId ?? null },
   });
   await writeAudit('finance.expense.create', { targetType: 'ExpenseClaim', targetId: claim.id, universityId: args.universityId });
   return { id: claim.id };
@@ -121,8 +126,8 @@ export async function decideExpenseClaim(claimId: string, opts: { approve: boole
     await postEvent({
       universityId: claim.universityId, entryDate: date, sourceType: 'EXPENSE', sourceId: `CLAIM-${claim.id}`, memo: `صرف مصروف: ${claim.description}`, postedById: opts.approverId,
       lines: [
-        { accountId: await accountIdByCode(claim.universityId, claim.accountCode), debit: claim.amount },
-        { accountId: await accountIdByCode(claim.universityId, opts.bankCode ?? '1210'), credit: claim.amount },
+        { accountId: await accountIdByCode(claim.universityId, claim.accountCode), debit: claim.amount, costCenterId: claim.costCenterId },
+        { accountId: await accountIdByCode(claim.universityId, opts.bankCode ?? '1210'), credit: claim.amount, costCenterId: claim.costCenterId },
       ],
     });
   }

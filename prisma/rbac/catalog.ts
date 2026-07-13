@@ -58,6 +58,8 @@ export const PERMISSION_KEYS: string[] = [
   'finance.expense.view', 'finance.expense.edit', 'finance.expense.approve',
   'finance.budget.view', 'finance.budget.edit',
   'banking.reconciliation.view', 'banking.reconciliation.edit',
+  // ClientR4 — cost-centre & branch profitability dimension
+  'finance.costcenter.view', 'finance.costcenter.edit',
   // Library
   'library.view', 'library.book.edit', 'library.loan.manage',
   // HR
@@ -117,7 +119,7 @@ export const SYSTEM_ROLES: RoleDef[] = [
     // post / approve / period-close stay with CFO (maker-checker via finance.* wildcard).
     'finance.gl.account.view', 'finance.gl.account.edit', 'finance.gl.journal.view', 'finance.gl.journal.create',
     'finance.period.view', 'finance.invoice.*', 'finance.receipt.*', 'finance.creditnote.create',
-    'finance.einvoice.*', 'finance.vendor.*', 'finance.expense.view', 'finance.expense.edit', 'banking.reconciliation.*'] },
+    'finance.einvoice.*', 'finance.vendor.*', 'finance.expense.view', 'finance.expense.edit', 'banking.reconciliation.*', 'finance.costcenter.view', 'finance.costcenter.edit'] },
   { key: 'REGISTRAR', nameAr: 'شؤون الطلاب / المسجل', nameEn: 'Registrar / Student Affairs', permissions: ['student.*', 'advising.*', 'warning.*', 'attendance.*', 'graduation.*', 'certificate.*', 'admission.registration.*', 'transfer.*', 'equivalence.*', 'cms.result.edit', 'cms.schedule.edit', 'reports.view', 'exam.exception.view', 'exam.exception.approve'] },
   { key: 'ADMISSIONS', nameAr: 'موظف القبول', nameEn: 'Admissions Officer', permissions: ['admission.*', 'student.view', 'student.create', 'cms.application.view', 'reports.view'] },
   { key: 'EXAMS_CONTROL', nameAr: 'الكنترول', nameEn: 'Exams Control', permissions: ['exam.*', 'onlineexam.*', 'cms.result.edit', 'reports.view'] },

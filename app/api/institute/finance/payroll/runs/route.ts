@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     if (!body?.month) return NextResponse.json({ error: 'الشهر مطلوب' }, { status: 400 });
     try {
-      const res = await createPayRun({ universityId: guard.ctx.universityId ?? null, month: body.month, createdById: uid });
+      const res = await createPayRun({ universityId: guard.ctx.universityId ?? null, month: body.month, costCenterId: body.costCenterId ?? null, branchId: body.branchId ?? null, createdById: uid });
       return NextResponse.json({ ok: true, ...res }, { status: 201 });
     } catch (err) {
       return NextResponse.json({ error: (err as Error).message }, { status: 422 });

@@ -53,7 +53,7 @@ async function computeFor(employeeId: string, cfg: Awaited<ReturnType<typeof get
 }
 
 /** Create a DRAFT pay run for `month` with a payslip per active employee. */
-export async function createPayRun(args: { universityId: string | null; month: string; createdById?: string | null }): Promise<{ id: string; month: string; employees: number; net: number }> {
+export async function createPayRun(args: { universityId: string | null; month: string; costCenterId?: string | null; branchId?: string | null; createdById?: string | null }): Promise<{ id: string; month: string; employees: number; net: number }> {
   if (await prisma.payRun.findFirst({ where: { universityId: args.universityId ?? null, month: args.month } })) {
     throw new Error(`يوجد مسير رواتب للشهر ${args.month}`);
   }
@@ -70,7 +70,7 @@ export async function createPayRun(args: { universityId: string | null; month: s
 
   const run = await prisma.payRun.create({
     data: {
-      universityId: args.universityId ?? null, month: args.month, status: 'DRAFT', grossTotal, deductionTotal, taxTotal, insuranceTotal, netTotal, createdById: args.createdById ?? null,
+      universityId: args.universityId ?? null, month: args.month, status: 'DRAFT', grossTotal, deductionTotal, taxTotal, insuranceTotal, netTotal, createdById: args.createdById ?? null, costCenterId: args.costCenterId ?? null, branchId: args.branchId ?? null,
       payslips: { create: computed.map((c) => ({ employeeId: c.employeeId, gross: c.gross, deductions: c.deductions, tax: c.tax, insurance: c.insurance, net: c.net, lines: { create: c.lines.map((l) => ({ label: l.label, kind: l.kind, amount: l.amount })) } })) },
     },
   });
@@ -84,11 +84,12 @@ export async function approvePayRun(payRunId: string, approverId?: string | null
   if (!run) throw new Error('مسير الرواتب غير موجود');
   if (run.status !== 'DRAFT') throw new Error('لا يمكن اعتماد إلا مسير في حالة مسودة');
   const withholdings = sub(run.grossTotal, run.netTotal); // tax + insurance + deductions
-  const lines: { accountId: string; debit?: Prisma.Decimal; credit?: Prisma.Decimal }[] = [
-    { accountId: await accountIdByCode(run.universityId, '5100'), debit: run.grossTotal },
-    { accountId: await accountIdByCode(run.universityId, '2400'), credit: run.netTotal },
+  const cc = run.costCenterId; // tag the salary expense so payroll cost attributes to the centre
+  const lines: { accountId: string; debit?: Prisma.Decimal; credit?: Prisma.Decimal; costCenterId?: string | null }[] = [
+    { accountId: await accountIdByCode(run.universityId, '5100'), debit: run.grossTotal, costCenterId: cc },
+    { accountId: await accountIdByCode(run.universityId, '2400'), credit: run.netTotal, costCenterId: cc },
   ];
-  if (!isZero(withholdings)) lines.push({ accountId: await accountIdByCode(run.universityId, '2300'), credit: withholdings });
+  if (!isZero(withholdings)) lines.push({ accountId: await accountIdByCode(run.universityId, '2300'), credit: withholdings, costCenterId: cc });
 
   await postEvent({ universityId: run.universityId, entryDate: run.runDate, lines, sourceType: 'PAYROLL', sourceId: run.id, memo: `مسير رواتب ${run.month}`, postedById: approverId });
   await prisma.payRun.update({ where: { id: payRunId }, data: { status: 'APPROVED', approvedById: approverId ?? null, approvedAt: new Date() } });

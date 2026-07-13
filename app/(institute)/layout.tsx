@@ -153,6 +153,7 @@ const navItems = [
       { title: "الموردون والمصروفات", href: "/institute/finance/ap" },
       { title: "الرواتب والأجور", href: "/institute/finance/payroll" },
       { title: "الخزينة والموازنات", href: "/institute/finance/treasury" },
+      { title: "مراكز التكلفة والفروع", href: "/institute/finance/cost-centers" },
       { title: "الأستاذ العام (القيود)", href: "/institute/finance/gl" },
       { title: "القوائم المالية", href: "/institute/finance/statements" },
       { title: "لوحة المتابعة المالية", href: "/institute/accounting/dashboard" },

@@ -21,6 +21,19 @@ async function fiscalCodeFor(date: Date, universityId: string | null): Promise<s
   return p?.fiscalYear.code ?? date.getUTCFullYear().toString();
 }
 
+/**
+ * Resolve the {costCenterId, branchId} to stamp on a student document. An explicit cost centre wins;
+ * otherwise map the student's programme → its academic CostCenter (programId match). The branch is
+ * taken from the resolved centre unless the caller overrides it. Returns nulls when nothing maps.
+ */
+async function deriveCostCentre(universityId: string | null, costCenterId: string | null, branchId: string | null, studentId: string): Promise<{ costCenterId: string | null; branchId: string | null }> {
+  if (costCenterId) return { costCenterId, branchId };
+  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { programId: true } });
+  if (!student?.programId) return { costCenterId: null, branchId };
+  const cc = await prisma.costCenter.findFirst({ where: { universityId: universityId ?? null, programId: student.programId, isActive: true } });
+  return cc ? { costCenterId: cc.id, branchId: branchId ?? cc.branchId } : { costCenterId: null, branchId };
+}
+
 /** Issue an invoice from explicit lines: compute totals, assign a number, post Dr 1100 / Cr revenue (+ VAT). */
 export async function issueInvoice(args: {
   universityId: string | null;
@@ -32,10 +45,16 @@ export async function issueInvoice(args: {
   memo?: string | null;
   feeAccountId?: string | null;
   structureId?: string | null;
+  costCenterId?: string | null;
+  branchId?: string | null;
   createdById?: string | null;
 }): Promise<{ id: string; number: string; total: number }> {
   if (!args.lines.length) throw new Error('فاتورة بلا بنود');
   const issueDate = new Date();
+  // ClientR4: attribute revenue to a profit centre. If the caller didn't pass one, derive it from
+  // the student's programme (a CostCenter carrying that programId) so program/faculty profitability
+  // works without tagging every invoice by hand. Falls back to null (unallocated) when unmapped.
+  const dim = await deriveCostCentre(args.universityId, args.costCenterId ?? null, args.branchId ?? null, args.studentId);
   const computed = args.lines.map((l) => {
     const qty = l.qty ?? 1;
     const lineTotal = round2(mul(l.unitPrice, qty));
@@ -68,6 +87,8 @@ export async function issueInvoice(args: {
       balance: total,
       memo: args.memo ?? null,
       createdById: args.createdById ?? null,
+      costCenterId: dim.costCenterId,
+      branchId: dim.branchId,
       lines: { create: computed.map((c) => ({ description: c.description, accountCode: c.accountCode, qty: c.qty, unitPrice: c.unitPrice, vatRate: c.vatRate, lineTotal: c.lineTotal, vatAmount: c.vatAmount })) },
     },
   });
@@ -80,7 +101,7 @@ export async function issueInvoice(args: {
   for (const [code, amt] of byRevenue) glLines.push({ accountId: await accountIdByCode(args.universityId, code), credit: amt });
   if (!isZero(vatTotal)) glLines.push({ accountId: await accountIdByCode(args.universityId, '2200'), credit: vatTotal });
 
-  await postEvent({ universityId: args.universityId, entryDate: issueDate, lines: glLines, sourceType: 'INVOICE', sourceId: invoice.id, memo: `فاتورة ${number}`, postedById: args.createdById });
+  await postEvent({ universityId: args.universityId, entryDate: issueDate, lines: glLines.map((l) => ({ ...l, costCenterId: dim.costCenterId })), sourceType: 'INVOICE', sourceId: invoice.id, memo: `فاتورة ${number}`, postedById: args.createdById });
   await writeAudit('finance.invoice.issue', { targetType: 'Invoice', targetId: invoice.id, metadata: { number, total: total.toFixed(2) }, universityId: args.universityId });
   return { id: invoice.id, number, total: Number(total.toFixed(2)) };
 }
@@ -149,7 +170,7 @@ export async function recordReceipt(args: {
 
   await prisma.$transaction(async (tx) => {
     const receipt = await tx.receipt.create({
-      data: { universityId: args.universityId ?? null, studentId: args.studentId, number, receiptDate, method, amount, reference: args.reference ?? null, createdById: args.createdById ?? null },
+      data: { universityId: args.universityId ?? null, studentId: args.studentId, number, receiptDate, method, amount, reference: args.reference ?? null, createdById: args.createdById ?? null, costCenterId: invoice.costCenterId, branchId: invoice.branchId },
     });
     await tx.receiptAllocation.create({ data: { receiptId: receipt.id, invoiceId: invoice.id, installmentId: args.installmentId ?? null, amount } });
     await tx.invoice.update({ where: { id: invoice.id }, data: { paid: newPaid, balance: newBalance, status } });
@@ -174,8 +195,8 @@ export async function recordReceipt(args: {
     universityId: args.universityId,
     entryDate: receiptDate,
     lines: [
-      { accountId: await accountIdByCode(args.universityId, cashCode), debit: amount },
-      { accountId: await accountIdByCode(args.universityId, '1100'), credit: amount },
+      { accountId: await accountIdByCode(args.universityId, cashCode), debit: amount, costCenterId: invoice.costCenterId },
+      { accountId: await accountIdByCode(args.universityId, '1100'), credit: amount, costCenterId: invoice.costCenterId },
     ],
     sourceType: 'RECEIPT',
     sourceId: number, // receipt number is unique per tenant; keeps idempotency stable
@@ -204,8 +225,8 @@ export async function issueCreditNote(args: { universityId: string | null; invoi
     universityId: args.universityId,
     entryDate: date,
     lines: [
-      { accountId: await accountIdByCode(args.universityId, '4900'), debit: amount },
-      { accountId: await accountIdByCode(args.universityId, '1100'), credit: amount },
+      { accountId: await accountIdByCode(args.universityId, '4900'), debit: amount, costCenterId: invoice.costCenterId },
+      { accountId: await accountIdByCode(args.universityId, '1100'), credit: amount, costCenterId: invoice.costCenterId },
     ],
     sourceType: 'CREDIT_NOTE',
     sourceId: number,

@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     if (!body?.vendorId || !Array.isArray(body?.lines) || !body.lines.length) return NextResponse.json({ error: 'المورد والبنود مطلوبة' }, { status: 400 });
     try {
-      const res = await createBill({ universityId: guard.ctx.universityId ?? null, vendorId: body.vendorId, lines: body.lines, dueDate: body.dueDate ? new Date(body.dueDate) : null, memo: body.memo, createdById: uid });
+      const res = await createBill({ universityId: guard.ctx.universityId ?? null, vendorId: body.vendorId, lines: body.lines, dueDate: body.dueDate ? new Date(body.dueDate) : null, memo: body.memo, costCenterId: body.costCenterId ?? null, branchId: body.branchId ?? null, createdById: uid });
       return NextResponse.json({ ok: true, ...res }, { status: 201 });
     } catch (err) {
       return NextResponse.json({ error: (err as Error).message }, { status: 422 });

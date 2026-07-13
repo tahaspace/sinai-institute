@@ -1179,10 +1179,31 @@ model CostCenter {
   nameAr       String
   nameEn       String?
   parentId     String?
+  // ClientR4: profitability roll-up dimensions. `type` classifies the centre; the optional
+  // programId/facultyId/branchId (soft refs) let program/faculty/branch profitability reports roll
+  // up the centres that belong to each. A centre with programId set = an academic profit centre.
+  type         String       @default("ADMIN") // ACADEMIC | ADMIN | OPERATIONAL | BRANCH
+  branchId     String?
+  programId    String?
+  facultyId    String?
   isActive     Boolean      @default(true)
   createdAt    DateTime     @default(now())
   parent       CostCenter?  @relation("CostCenterTree", fields: [parentId], references: [id])
   children     CostCenter[] @relation("CostCenterTree")
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+// ClientR4: physical branch / campus — the location dimension for branch-comparison profitability.
+model Branch {
+  id           String   @id @default(cuid())
+  universityId String?
+  code         String
+  nameAr       String
+  nameEn       String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
 
   @@unique([universityId, code])
   @@index([universityId])
@@ -1312,6 +1333,8 @@ model Invoice {
   etaUuid      String? // ETA e-invoice (Phase 4)
   etaStatus    String?
   createdById  String?
+  costCenterId String? // ClientR4 profitability dimension (auto-derived from student's program)
+  branchId     String?
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
   student      Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -1376,6 +1399,8 @@ model Receipt {
   reference    String?
   etaUuid      String?
   createdById  String?
+  costCenterId String? // ClientR4 profitability dimension (inherited from the paid invoice)
+  branchId     String?
   createdAt    DateTime            @default(now())
   student      Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
   allocations  ReceiptAllocation[]
@@ -1452,6 +1477,8 @@ model Bill {
   createdById  String?
   approvedById String?
   approvedAt   DateTime?
+  costCenterId String? // ClientR4 profitability dimension (which programme/faculty/branch bears this cost)
+  branchId     String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   vendor       Vendor     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
@@ -1500,6 +1527,8 @@ model ExpenseClaim {
   createdById  String?
   approvedById String?
   decidedAt    DateTime?
+  costCenterId String? // ClientR4 profitability dimension
+  branchId     String?
   createdAt    DateTime  @default(now())
 
   @@index([universityId, status])
@@ -1576,6 +1605,8 @@ model PayRun {
   createdById    String?
   approvedById   String?
   approvedAt     DateTime?
+  costCenterId   String? // ClientR4 profitability dimension (optional cost centre bearing this run)
+  branchId       String?
   createdAt      DateTime  @default(now())
   payslips       Payslip[]
 

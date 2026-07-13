@@ -3,6 +3,7 @@ import type { ReportDef } from '@/lib/reporting/types';
 import { trialBalance, incomeStatement, balanceSheet, cashFlow } from '@/lib/finance/statements';
 import { arAging } from '@/lib/finance/billing';
 import { listBudgets, budgetVsActual } from '@/lib/finance/budget';
+import { profitabilityByCostCentre, profitabilityByProgram, profitabilityByFaculty, profitabilityByBranch, studentUnitCost } from '@/lib/finance/profitability';
 
 /**
  * Financial reports (ClientR3 — R3). Thin registry wrappers over the finance engines we already
@@ -14,6 +15,58 @@ const FIN = 'finance.report.view';
 function statementTable(rows: { label: string; amount: number }[], totalLabel: string, total: number) {
   return { kind: 'table' as const, columns: [{ key: 'label', label: 'البند' }, { key: 'amount', label: 'القيمة', align: 'center' as const, numeric: true }], rows: rows.map((r) => ({ label: r.label, amount: r.amount.toFixed(2) })), totals: { label: totalLabel, amount: total.toFixed(2) } };
 }
+
+// ClientR4 profitability reports — declared before financialReports so the spread below is in scope.
+type ProfitRow = { label: string; revenue: number; expense: number; profit: number; margin: string };
+function profitTable(rows: ProfitRow[], dimLabel: string) {
+  const sum = (k: 'revenue' | 'expense' | 'profit') => rows.reduce((s, r) => s + r[k], 0);
+  return {
+    kind: 'table' as const,
+    columns: [{ key: 'label', label: dimLabel }, { key: 'revenue', label: 'الإيرادات', align: 'center' as const, numeric: true }, { key: 'expense', label: 'المصروفات', align: 'center' as const, numeric: true }, { key: 'profit', label: 'الربح/الخسارة', align: 'center' as const, numeric: true }, { key: 'margin', label: 'هامش الربح', align: 'center' as const }],
+    rows: rows.map((r) => ({ label: r.label, revenue: r.revenue.toFixed(2), expense: r.expense.toFixed(2), profit: r.profit.toFixed(2), margin: r.margin })),
+    totals: { label: 'الإجمالي', revenue: sum('revenue').toFixed(2), expense: sum('expense').toFixed(2), profit: sum('profit').toFixed(2) },
+  };
+}
+const term = (f: { dateFrom?: string; dateTo?: string }) => ({ from: f.dateFrom ? new Date(f.dateFrom) : undefined, to: f.dateTo ? new Date(f.dateTo) : undefined });
+
+const profitabilityReports: ReportDef[] = [
+  {
+    id: 'fin-profitability-costcenter', category: 'financial', nameAr: 'ربحية مراكز التكلفة', permission: FIN,
+    description: 'الإيرادات والمصروفات وصافي الربح لكل مركز تكلفة (من القيود المُرحّلة)', filters: ['dateFrom', 'dateTo'],
+    run: async (f, ctx) => profitTable(await profitabilityByCostCentre(ctx.universityId, term(f)), 'مركز التكلفة'),
+  },
+  {
+    id: 'fin-profitability-program', category: 'financial', nameAr: 'ربحية البرامج', permission: FIN,
+    description: 'ربحية كل برنامج عبر مراكز التكلفة المرتبطة به', filters: ['dateFrom', 'dateTo'],
+    run: async (f, ctx) => profitTable(await profitabilityByProgram(ctx.universityId, term(f)), 'البرنامج'),
+  },
+  {
+    id: 'fin-profitability-faculty', category: 'financial', nameAr: 'ربحية الكليات', permission: FIN,
+    description: 'ربحية كل كلية عبر مراكز التكلفة المرتبطة بها', filters: ['dateFrom', 'dateTo'],
+    run: async (f, ctx) => profitTable(await profitabilityByFaculty(ctx.universityId, term(f)), 'الكلية'),
+  },
+  {
+    id: 'fin-branch-comparison', category: 'financial', nameAr: 'مقارنة الفروع', permission: FIN,
+    description: 'مقارنة الإيرادات والمصروفات وصافي الربح بين الفروع', filters: ['dateFrom', 'dateTo'],
+    run: async (f, ctx) => profitTable(await profitabilityByBranch(ctx.universityId, term(f)), 'الفرع'),
+  },
+  {
+    id: 'fin-student-cost', category: 'financial', nameAr: 'تكلفة الطالب', permission: FIN,
+    description: 'إجمالي المصروفات ÷ عدد الطلاب النشطين', filters: ['dateFrom', 'dateTo'],
+    run: async (f, ctx) => {
+      const r = await studentUnitCost(ctx.universityId, term(f));
+      return {
+        kind: 'kpi',
+        cards: [
+          { key: 'students', label: 'عدد الطلاب النشطين', value: r.students },
+          { key: 'expense', label: 'إجمالي المصروفات', value: r.totalExpense.toFixed(2), unit: 'ج.م' },
+          { key: 'revenue', label: 'إجمالي الإيرادات', value: r.totalRevenue.toFixed(2), unit: 'ج.م' },
+          { key: 'cost', label: 'تكلفة الطالب الواحد', value: r.costPerStudent.toFixed(2), unit: 'ج.م' },
+        ],
+      };
+    },
+  },
+];
 
 export const financialReports: ReportDef[] = [
   {
@@ -107,4 +160,6 @@ export const financialReports: ReportDef[] = [
       };
     },
   },
+  // ---- ClientR4: cost-centre profitability (GL-based; revenue − expense per dimension) ----
+  ...profitabilityReports,
 ];
