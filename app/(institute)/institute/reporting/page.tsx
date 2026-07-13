@@ -157,6 +157,13 @@ function ResultView({ result }: { result: Any }) {
             )}
           </div>
         )}
+        {Array.isArray(result.meta?.stats) && result.meta.stats.length > 0 && (
+          <div className="px-6 py-3 border-b flex flex-wrap gap-3">
+            {result.meta.stats.map((s: Any, i: number) => (
+              <div key={i} className="border rounded px-3 py-1.5 text-center min-w-[90px]"><div className="text-xs text-muted-foreground">{s.label}</div><div className="font-bold">{String(s.value)}</div></div>
+            ))}
+          </div>
+        )}
         <div className="overflow-x-auto">
           {(!result.rows || result.rows.length === 0) ? <p className="p-8 text-center text-muted-foreground">لا توجد بيانات</p> : (
             <Table>

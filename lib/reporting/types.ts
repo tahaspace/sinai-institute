@@ -15,6 +15,7 @@ export type ReportCategory =
   | 'executive'
   | 'analytical'
   | 'predictive'
+  | 'transcripts'
   | 'audit';
 
 export const CATEGORY_LABELS: Record<ReportCategory, string> = {
@@ -29,6 +30,7 @@ export const CATEGORY_LABELS: Record<ReportCategory, string> = {
   executive: 'اللوحات التنفيذية',
   analytical: 'تحليلات استراتيجية',
   predictive: 'تحليلات تنبؤية',
+  transcripts: 'بيانات الحالة وكشوف النتائج',
   audit: 'سجل التدقيق',
 };
 
