@@ -15,6 +15,7 @@ import { analyticalReports } from '@/lib/reporting/reports/analytical';
 import { predictiveReports } from '@/lib/reporting/reports/predictive';
 import { transcriptsReports } from '@/lib/reporting/reports/transcripts';
 import { hrReports } from '@/lib/reporting/reports/hr';
+import { hrPredictiveReports } from '@/lib/reporting/reports/hr-predictive';
 
 /**
  * Report registry (ClientR3 — R0). The single source of truth: every report is one ReportDef.
@@ -37,6 +38,7 @@ const ALL: ReportDef[] = [
   ...predictiveReports,
   ...transcriptsReports,
   ...hrReports,
+  ...hrPredictiveReports,
   ...auditReports,
 ];
 
