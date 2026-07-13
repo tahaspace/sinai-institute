@@ -156,7 +156,7 @@ function ConfigCard({ cfg, save, reload }: { cfg: Any; save: (e: string, p: Any,
 }
 
 function AdjustmentsCard({ staff }: { staff: Any[] }) {
-  const [data, setData] = useState<Any>({ penalties: [], overtime: [], permissions: [] })
+  const [data, setData] = useState<Any>({ penalties: [], overtime: [], permissions: [], loans: [] })
   const [f, setF] = useState<Record<string, string>>({ kind: "overtime" })
   const [err, setErr] = useState<string | null>(null)
   const load = useCallback(async () => {
@@ -179,18 +179,20 @@ function AdjustmentsCard({ staff }: { staff: Any[] }) {
       <CardContent className="space-y-3">
         {err && <p className="text-red-600 text-sm">{err}</p>}
         <div className="flex flex-wrap gap-2 items-end">
-          <Select value={f.kind} onValueChange={(v) => setF({ kind: v })}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="overtime">إضافي</SelectItem><SelectItem value="penalty">جزاء</SelectItem><SelectItem value="permission">إذن/مأمورية</SelectItem></SelectContent></Select>
+          <Select value={f.kind} onValueChange={(v) => setF({ kind: v })}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="overtime">إضافي</SelectItem><SelectItem value="penalty">جزاء</SelectItem><SelectItem value="permission">إذن/مأمورية</SelectItem><SelectItem value="loan">سلفة</SelectItem></SelectContent></Select>
           <Select value={f.employeeId ?? ""} onValueChange={(v) => setF((p) => ({ ...p, employeeId: v }))}><SelectTrigger className="w-52"><SelectValue placeholder="الموظف" /></SelectTrigger><SelectContent>{staff.map((s) => <SelectItem key={s.id} value={s.id}>{s.nameAr}</SelectItem>)}</SelectContent></Select>
-          <Input type="date" className="w-40" value={f.date ?? ""} onChange={(e) => setF((p) => ({ ...p, date: e.target.value }))} />
+          {f.kind !== "loan" && <Input type="date" className="w-40" value={f.date ?? ""} onChange={(e) => setF((p) => ({ ...p, date: e.target.value }))} />}
           {f.kind === "overtime" && <Input className="w-24" placeholder="ساعات" value={f.hours ?? ""} onChange={(e) => setF((p) => ({ ...p, hours: e.target.value }))} />}
           {f.kind === "penalty" && <Input className="w-28" placeholder="خصم أيام" value={f.deductDays ?? ""} onChange={(e) => setF((p) => ({ ...p, deductDays: e.target.value }))} />}
+          {f.kind === "loan" && <><Input className="w-24" placeholder="المبلغ" value={f.amount ?? ""} onChange={(e) => setF((p) => ({ ...p, amount: e.target.value }))} /><Input className="w-28" placeholder="القسط الشهري" value={f.monthlyAmount ?? ""} onChange={(e) => setF((p) => ({ ...p, monthlyAmount: e.target.value }))} /></>}
           <Input className="w-40" placeholder="السبب/ملاحظة" value={f.reason ?? ""} onChange={(e) => setF((p) => ({ ...p, reason: e.target.value }))} />
           <Button onClick={add}><Plus className="w-4 h-4 ml-1" /> إضافة</Button>
         </div>
-        <div className="grid md:grid-cols-3 gap-3 text-sm">
+        <div className="grid md:grid-cols-4 gap-3 text-sm">
           <div><div className="font-semibold mb-1">الإضافي</div>{data.overtime.slice(0, 8).map((o: Any) => <div key={o.id} className="border-b py-1">{o.name} — {o.hours} س <Badge variant="outline" className="text-xs">{o.status}</Badge></div>)}</div>
           <div><div className="font-semibold mb-1">الجزاءات</div>{data.penalties.slice(0, 8).map((p: Any) => <div key={p.id} className="border-b py-1">{p.name} — {p.type} {p.deductDays ? `(${p.deductDays} يوم)` : ""}</div>)}</div>
           <div><div className="font-semibold mb-1">الأذونات/المأموريات</div>{data.permissions.slice(0, 8).map((p: Any) => <div key={p.id} className="border-b py-1">{p.name} — {p.type} <Badge variant="outline" className="text-xs">{p.status}</Badge></div>)}</div>
+          <div><div className="font-semibold mb-1">السلف</div>{data.loans.slice(0, 8).map((l: Any) => <div key={l.id} className="border-b py-1">{l.name} — متبقي {l.remaining}/{l.amount} <Badge variant="outline" className="text-xs">{l.status}</Badge></div>)}</div>
         </div>
       </CardContent>
     </Card>

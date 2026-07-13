@@ -1589,6 +1589,7 @@ model Employee {
   penalties         Penalty[]
   overtimeRecords   Overtime[]
   permissions       AttendancePermission[]
+  loans             Loan[]
 
   @@unique([universityId, code])
   @@index([universityId])
@@ -2720,6 +2721,25 @@ model AttendancePermission {
   status       String   @default("PENDING") // PENDING | APPROVED | REJECTED
   createdAt    DateTime @default(now())
   employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([universityId])
+  @@index([employeeId])
+}
+
+// Employee loan / advance (سلفة). Each approved monthly pay run deducts `monthlyAmount` from
+// `remaining` until it reaches zero (then CLOSED). Feeds the R4c-3 payroll integration.
+model Loan {
+  id            String   @id @default(cuid())
+  universityId  String?
+  employeeId    String
+  amount        Decimal  @db.Decimal(18, 4)
+  monthlyAmount Decimal  @db.Decimal(18, 4)
+  remaining     Decimal  @db.Decimal(18, 4)
+  startMonth    String? // "YYYY-MM"
+  status        String   @default("ACTIVE") // ACTIVE | CLOSED
+  note          String?
+  createdAt     DateTime @default(now())
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@index([universityId])
   @@index([employeeId])

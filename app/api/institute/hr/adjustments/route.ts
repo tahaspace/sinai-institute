@@ -17,16 +17,18 @@ export async function GET(request: NextRequest) {
     const empId = new URL(request.url).searchParams.get('employeeId') || undefined;
     const scope = { universityId: uid, ...(empId ? { employeeId: empId } : {}) };
     const sel = { employee: { select: { code: true, nameAr: true } } };
-    const [penalties, overtime, permissions] = await Promise.all([
+    const [penalties, overtime, permissions, loans] = await Promise.all([
       prisma.penalty.findMany({ where: scope, orderBy: { date: 'desc' }, take: 300, include: sel }),
       prisma.overtime.findMany({ where: scope, orderBy: { date: 'desc' }, take: 300, include: sel }),
       prisma.attendancePermission.findMany({ where: scope, orderBy: { date: 'desc' }, take: 300, include: sel }),
+      prisma.loan.findMany({ where: scope, orderBy: { createdAt: 'desc' }, take: 300, include: sel }),
     ]);
     const map = (r: { employee: { code: string; nameAr: string } }) => ({ code: r.employee.code, name: r.employee.nameAr });
     return NextResponse.json({
       penalties: penalties.map((r) => ({ id: r.id, ...map(r), type: r.type, reason: r.reason, date: r.date, deductDays: r.deductDays, note: r.note })),
       overtime: overtime.map((r) => ({ id: r.id, ...map(r), date: r.date, hours: r.hours, reason: r.reason, status: r.status })),
       permissions: permissions.map((r) => ({ id: r.id, ...map(r), type: r.type, date: r.date, fromTime: r.fromTime, toTime: r.toTime, reason: r.reason, status: r.status })),
+      loans: loans.map((r) => ({ id: r.id, ...map(r), amount: Number(r.amount), monthlyAmount: Number(r.monthlyAmount), remaining: Number(r.remaining), status: r.status })),
     });
   } catch (e) {
     console.error('Error loading adjustments:', e);
@@ -51,6 +53,12 @@ export async function POST(request: NextRequest) {
       case 'permission':
         await prisma.attendancePermission.create({ data: { universityId: uid, employeeId: b.employeeId, type: b.type ?? 'PERMISSION', date: b.date ? dayOnly(b.date) : new Date(), fromTime: b.fromTime ?? null, toTime: b.toTime ?? null, reason: b.reason ?? null } });
         break;
+      case 'loan': {
+        const amount = Number(b.amount ?? 0);
+        if (!(amount > 0)) return NextResponse.json({ error: 'قيمة السلفة غير صحيحة' }, { status: 400 });
+        await prisma.loan.create({ data: { universityId: uid, employeeId: b.employeeId, amount, monthlyAmount: Number(b.monthlyAmount ?? amount), remaining: amount, startMonth: b.startMonth ?? null, note: b.reason ?? null } });
+        break;
+      }
       default:
         return NextResponse.json({ error: 'نوع غير معروف' }, { status: 400 });
     }

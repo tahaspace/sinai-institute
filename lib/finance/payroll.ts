@@ -21,9 +21,10 @@ type Computed = {
   insurance: Prisma.Decimal;
   net: Prisma.Decimal;
   lines: { label: string; kind: string; amount: Prisma.Decimal }[];
+  loanApplications: { loanId: string; amount: Prisma.Decimal }[]; // R4c-3: loan installments to post
 };
 
-async function computeFor(employeeId: string, cfg: Awaited<ReturnType<typeof getFinanceConfig>>): Promise<Computed> {
+async function computeFor(employeeId: string, cfg: Awaited<ReturnType<typeof getFinanceConfig>>, month: string, universityId: string | null): Promise<Computed> {
   const emp = await prisma.employee.findUnique({ where: { id: employeeId }, include: { components: { include: { component: true } } } });
   if (!emp) throw new Error('موظف غير موجود');
   const lines: { label: string; kind: string; amount: Prisma.Decimal }[] = [{ label: 'الراتب الأساسي', kind: 'EARNING', amount: money(emp.baseSalary) }];
@@ -42,6 +43,43 @@ async function computeFor(employeeId: string, cfg: Awaited<ReturnType<typeof get
       lines.push({ label: c.nameAr, kind: 'DEDUCTION', amount: val });
     }
   }
+
+  // ---- ClientR4 R4c-3: pull the month's attendance / overtime / penalties / loans ----
+  const [y, m] = month.split('-').map(Number);
+  const monthStart = new Date(Date.UTC(y, m - 1, 1));
+  const monthEnd = new Date(Date.UTC(y, m, 0, 23, 59, 59));
+  const dailyRate = money(emp.baseSalary).dividedBy(30);
+  const hourlyRate = dailyRate.dividedBy(8);
+  const uid = universityId ?? undefined;
+  const [attendance, overtime, penalties, loans] = await Promise.all([
+    prisma.employeeAttendance.findMany({ where: { universityId: uid, employeeId, date: { gte: monthStart, lte: monthEnd } } }),
+    prisma.overtime.findMany({ where: { universityId: uid, employeeId, status: { in: ['APPROVED', 'POSTED'] }, date: { gte: monthStart, lte: monthEnd } } }),
+    prisma.penalty.findMany({ where: { universityId: uid, employeeId, date: { gte: monthStart, lte: monthEnd } } }),
+    prisma.loan.findMany({ where: { universityId: uid, employeeId, status: 'ACTIVE' } }),
+  ]);
+  // overtime → taxable earning
+  const overtimeHours = overtime.reduce((s, o) => s + o.hours, 0);
+  const overtimeEarn = round2(hourlyRate.times(overtimeHours));
+  if (!isZero(overtimeEarn)) { earnings = add(earnings, overtimeEarn); taxableEarnings = add(taxableEarnings, overtimeEarn); lines.push({ label: `عمل إضافي (${overtimeHours} س)`, kind: 'EARNING', amount: overtimeEarn }); }
+  // absence + late + penalties → deductions
+  const absenceDays = attendance.filter((a) => a.status === 'A').length;
+  const totalLateMin = attendance.reduce((s, a) => s + (a.lateMinutes || 0), 0);
+  const absenceDeduction = round2(dailyRate.times(absenceDays));
+  const lateDeduction = round2(hourlyRate.times(totalLateMin / 60));
+  const penaltyDays = penalties.reduce((s, p) => s + p.deductDays, 0);
+  const penaltyDeduction = round2(dailyRate.times(penaltyDays));
+  if (!isZero(absenceDeduction)) { deductions = add(deductions, absenceDeduction); lines.push({ label: `خصم غياب (${absenceDays} يوم)`, kind: 'DEDUCTION', amount: absenceDeduction }); }
+  if (!isZero(lateDeduction)) { deductions = add(deductions, lateDeduction); lines.push({ label: `خصم تأخير (${totalLateMin} د)`, kind: 'DEDUCTION', amount: lateDeduction }); }
+  if (!isZero(penaltyDeduction)) { deductions = add(deductions, penaltyDeduction); lines.push({ label: `جزاءات (${penaltyDays} يوم)`, kind: 'DEDUCTION', amount: penaltyDeduction }); }
+  // loans → installment deduction (records the applications; remaining decremented in createPayRun)
+  const loanApplications: { loanId: string; amount: Prisma.Decimal }[] = [];
+  let loanDeduction = money(0);
+  for (const ln of loans) {
+    const amt = cmp(ln.monthlyAmount, ln.remaining) <= 0 ? money(ln.monthlyAmount) : money(ln.remaining);
+    if (cmp(amt, 0) > 0) { loanApplications.push({ loanId: ln.id, amount: amt }); loanDeduction = add(loanDeduction, amt); }
+  }
+  if (!isZero(loanDeduction)) { deductions = add(deductions, loanDeduction); lines.push({ label: 'سلف', kind: 'DEDUCTION', amount: loanDeduction }); }
+
   const gross = earnings;
   const insurance = round2(percentOf(taxableEarnings, cfg.payroll.insuranceRate));
   const taxableBase = sub(sub(taxableEarnings, insurance), money(cfg.payroll.monthlyExemption));
@@ -49,7 +87,7 @@ async function computeFor(employeeId: string, cfg: Awaited<ReturnType<typeof get
   if (!isZero(insurance)) lines.push({ label: 'التأمينات الاجتماعية', kind: 'INSURANCE', amount: insurance });
   if (!isZero(tax)) lines.push({ label: 'ضريبة الدخل', kind: 'TAX', amount: tax });
   const net = sub(sub(sub(gross, deductions), tax), insurance);
-  return { employeeId, gross, deductions, tax, insurance, net, lines };
+  return { employeeId, gross, deductions, tax, insurance, net, lines, loanApplications };
 }
 
 /** Create a DRAFT pay run for `month` with a payslip per active employee. */
@@ -60,7 +98,7 @@ export async function createPayRun(args: { universityId: string | null; month: s
   const cfg = await getFinanceConfig(args.universityId);
   const employees = await prisma.employee.findMany({ where: { universityId: args.universityId ?? null, isActive: true } });
   if (!employees.length) throw new Error('لا يوجد موظفون نشطون');
-  const computed = await Promise.all(employees.map((e) => computeFor(e.id, cfg)));
+  const computed = await Promise.all(employees.map((e) => computeFor(e.id, cfg, args.month, args.universityId ?? null)));
 
   const grossTotal = sumMoney(computed.map((c) => c.gross));
   const deductionTotal = sumMoney(computed.map((c) => c.deductions));
@@ -74,6 +112,15 @@ export async function createPayRun(args: { universityId: string | null; month: s
       payslips: { create: computed.map((c) => ({ employeeId: c.employeeId, gross: c.gross, deductions: c.deductions, tax: c.tax, insurance: c.insurance, net: c.net, lines: { create: c.lines.map((l) => ({ label: l.label, kind: l.kind, amount: l.amount })) } })) },
     },
   });
+  // R4c-3: post loan installments — decrement remaining, close when fully repaid.
+  for (const c of computed) {
+    for (const la of c.loanApplications) {
+      const ln = await prisma.loan.findUnique({ where: { id: la.loanId } });
+      if (!ln) continue;
+      const remaining = sub(ln.remaining, la.amount);
+      await prisma.loan.update({ where: { id: la.loanId }, data: { remaining, status: cmp(remaining, 0) <= 0 ? 'CLOSED' : 'ACTIVE' } });
+    }
+  }
   await writeAudit('finance.payroll.run', { targetType: 'PayRun', targetId: run.id, metadata: { month: args.month, net: netTotal.toFixed(2) }, universityId: args.universityId });
   return { id: run.id, month: args.month, employees: employees.length, net: Number(netTotal.toFixed(2)) };
 }
