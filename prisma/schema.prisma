@@ -1544,21 +1544,50 @@ model Employee {
   nameEn       String?
   userId       String? // soft link to User (login)
   instructorId String? // soft link to Instructor
-  jobTitle     String?
-  department   String?
+  jobTitle     String? // legacy denormalized label (kept for back-compat; jobTitleId is canonical)
+  department   String? // legacy denormalized label (kept; adminDepartmentId is canonical)
   baseSalary   Decimal                   @default(0) @db.Decimal(18, 4)
   bankAccount  String?
   taxCardNo    String?
   insuranceNo  String?
   hireDate     DateTime?
   isActive     Boolean                   @default(true)
+  // --- ClientR4 HR (R4c-1): 360 profile + org placement. Config entities (type/title/position/
+  // dept/section/manager) are soft refs — resolved by lookup, like costCenterId/gradeStatusCode.
+  nationalId        String?
+  birthDate         DateTime?
+  gender            String? // male | female
+  maritalStatus     String?
+  phone             String?
+  email             String?
+  address           String?
+  employeeTypeId    String?
+  jobTitleId        String?
+  positionId        String?
+  adminDepartmentId String?
+  sectionId         String?
+  managerId         String? // soft ref → Employee.id (direct manager)
+  contractType      String? // permanent | temporary | partial | seasonal | consultant | fulltime_faculty | seconded_faculty
+  contractStart     DateTime?
+  contractEnd       DateTime?
+  hrStatus          String                    @default("ACTIVE") // NEW|UNDER_REVIEW|ACCEPTED|PROBATION|SUSPENDED|INVESTIGATION|RESIGNED|TERMINATED|RETIRED|DECEASED|CONTRACT_ENDED
+  iban              String?
+  payMethod         String? // bank | cash | cheque
   createdAt    DateTime                  @default(now())
   updatedAt    DateTime                  @updatedAt
-  components   EmployeeSalaryComponent[]
-  payslips     Payslip[]
+  components     EmployeeSalaryComponent[]
+  payslips       Payslip[]
+  assignments    EmployeeAssignment[]
+  qualifications EmployeeQualification[]
+  experiences    EmployeeExperience[]
+  documents      EmployeeDocument[]
+  jobHistory     EmployeeJobHistory[]
+  custody        AssetCustody[]
 
   @@unique([universityId, code])
   @@index([universityId])
+  @@index([adminDepartmentId])
+  @@index([employeeTypeId])
 }
 
 model SalaryComponent {
@@ -2351,4 +2380,165 @@ model ResearchOutput {
   @@index([universityId])
   @@index([instructorId])
   @@index([academicYear])
+}
+
+// ═══════════════ ClientR4 — HR module (R4c-1): org structure + employee 360 profile ═══════════════
+
+// Administrative department — distinct from the academic `Department`. Self-nesting; manager is a
+// soft ref → Employee.id. isAcademic flags teaching-side admin units.
+model AdminDepartment {
+  id                String          @id @default(cuid())
+  universityId      String?
+  code              String
+  nameAr            String
+  nameEn            String?
+  parentId          String?
+  managerEmployeeId String?
+  isAcademic        Boolean         @default(false)
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  sections          AdminSection[]
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+model AdminSection {
+  id                String          @id @default(cuid())
+  universityId      String?
+  adminDepartmentId String
+  code              String?
+  nameAr            String
+  nameEn            String?
+  headEmployeeId    String?
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  adminDepartment   AdminDepartment @relation(fields: [adminDepartmentId], references: [id], onDelete: Cascade)
+
+  @@index([adminDepartmentId])
+  @@index([universityId])
+}
+
+// Employee category (أعضاء هيئة تدريس / هيئة معاونة / إداريين / عمال / أمن / فنيين / قيادات).
+model EmployeeType {
+  id           String   @id @default(cuid())
+  universityId String?
+  code         String
+  nameAr       String
+  order        Int      @default(0)
+  isActive     Boolean  @default(true)
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+// Job title with a level (سلم المسمى الوظيفي). isAcademic/isManagerial drive career-path + workflow.
+model JobTitle {
+  id             String   @id @default(cuid())
+  universityId   String?
+  code           String
+  nameAr         String
+  nameEn         String?
+  employeeTypeId String?
+  jobLevel       Int      @default(1)
+  isAcademic     Boolean  @default(false)
+  isManagerial   Boolean  @default(false)
+  isActive       Boolean  @default(true)
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+// Administrative position/appointment (رئيس قسم / مدير إدارة / وكيل / عميد / أمين عام) — distinct
+// from JobTitle: a person holds a title AND may occupy a position.
+model Position {
+  id           String   @id @default(cuid())
+  universityId String?
+  code         String
+  nameAr       String
+  nameEn       String?
+  isActive     Boolean  @default(true)
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+// Dated placement of an employee (dept/section/title/position/manager). One row is current at a time.
+model EmployeeAssignment {
+  id                String    @id @default(cuid())
+  employeeId        String
+  adminDepartmentId String?
+  sectionId         String?
+  jobTitleId        String?
+  positionId        String?
+  managerEmployeeId String?
+  startDate         DateTime  @default(now())
+  endDate           DateTime?
+  isCurrent         Boolean   @default(true)
+  note              String?
+  employee          Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+}
+
+model EmployeeQualification {
+  id          String   @id @default(cuid())
+  employeeId  String
+  degree      String
+  institution String?
+  year        Int?
+  grade       String?
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+}
+
+model EmployeeExperience {
+  id         String   @id @default(cuid())
+  employeeId String
+  employer   String
+  title      String?
+  years      Float?
+  note       String?
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+}
+
+model EmployeeDocument {
+  id         String   @id @default(cuid())
+  employeeId String
+  type       String // NATIONAL_ID | BIRTH_CERT | QUALIFICATION | CONTRACT | PHOTO | OTHER
+  name       String
+  url        String?
+  uploadedAt DateTime @default(now())
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+}
+
+// Employment movement log (تعيين / ترقية / نقل / ندب …).
+model EmployeeJobHistory {
+  id         String   @id @default(cuid())
+  employeeId String
+  date       DateTime @default(now())
+  action     String // HIRE | PROMOTION | TRANSFER | POSITION | SUSPEND | RETURN | END
+  note       String?
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+}
+
+// Asset custody (عهدة) linked to the employee (laptop, phone, key, vehicle…).
+model AssetCustody {
+  id         String    @id @default(cuid())
+  employeeId String
+  item       String
+  code       String?
+  assignedAt DateTime  @default(now())
+  returnedAt DateTime?
+  note       String?
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
 }

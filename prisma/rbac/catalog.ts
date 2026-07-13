@@ -64,6 +64,8 @@ export const PERMISSION_KEYS: string[] = [
   'library.view', 'library.book.edit', 'library.loan.manage',
   // HR
   'hr.staff.view', 'hr.staff.edit', 'workload.view', 'workload.edit',
+  // ClientR4 — HR module (R4c-1): org structure + employee 360 profile
+  'hr.org.view', 'hr.org.edit', 'hr.employee.view', 'hr.employee.edit',
   // Quality / reports
   'quality.view', 'quality.edit', 'reports.view', 'reports.export',
   // ClientR3 — Reporting & Analytics families (hub access per family)
@@ -127,7 +129,7 @@ export const SYSTEM_ROLES: RoleDef[] = [
   { key: 'EXAMS_CONTROL', nameAr: 'الكنترول', nameEn: 'Exams Control', permissions: ['exam.*', 'onlineexam.*', 'cms.result.edit', 'reports.view', 'reports.transcripts.view'] },
   { key: 'LIBRARIAN', nameAr: 'أمين المكتبة', nameEn: 'Librarian', permissions: ['library.*', 'reports.view'] },
   { key: 'QUALITY', nameAr: 'ضمان الجودة', nameEn: 'Quality', permissions: ['quality.*', 'institute.reports.view', 'reports.view', 'reports.export'] },
-  { key: 'HR', nameAr: 'الموارد البشرية', nameEn: 'Human Resources', permissions: ['hr.staff.*', 'workload.*', 'payroll.view', 'reports.view'] },
+  { key: 'HR', nameAr: 'الموارد البشرية', nameEn: 'Human Resources', permissions: ['hr.*', 'workload.*', 'payroll.view', 'reports.view'] },
   { key: 'MARKETING', nameAr: 'التسويق', nameEn: 'Marketing', permissions: ['marketing.manage', 'partnerships.manage', 'cms.news.edit', 'communication.send'] },
   { key: 'PROFESSOR', nameAr: 'عضو هيئة تدريس', nameEn: 'Professor / Faculty', defaultScope: 'department',
     permissions: ['faculty.portal.access', 'faculty.grade.edit', 'faculty.research.edit', 'faculty.officehours.edit',

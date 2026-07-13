@@ -189,6 +189,16 @@ const navItems = [
     icon: ShieldCheck,
   },
   {
+    title: "الموارد البشرية",
+    href: "/institute/hr/employees",
+    icon: Users,
+    children: [
+      { title: "العاملون", href: "/institute/hr/employees" },
+      { title: "الهيكل الإداري والوظائف", href: "/institute/hr/org" },
+      { title: "لوحة الموارد البشرية", href: "/institute/hr/dashboard" },
+    ],
+  },
+  {
     title: "الرواتب",
     href: "/institute/payroll",
     icon: Receipt,
@@ -231,6 +241,7 @@ const NAV_REQUIRES: Record<string, string> = {
   "/institute/library": "library.view",
   "/institute/activities": "activities.view",
   "/institute/quality": "quality.view",
+  "/institute/hr/employees": "hr.employee.view",
   "/institute/payroll": "payroll.view",
   "/institute/banking": "banking.view",
   "/institute/settings": "settings.view",
