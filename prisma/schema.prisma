@@ -1590,6 +1590,7 @@ model Employee {
   overtimeRecords   Overtime[]
   permissions       AttendancePermission[]
   loans             Loan[]
+  performanceReviews PerformanceReview[]
 
   @@unique([universityId, code])
   @@index([universityId])
@@ -2743,4 +2744,65 @@ model Loan {
 
   @@index([universityId])
   @@index([employeeId])
+}
+
+// ═══════════════ ClientR4 — HR module (R4c-4): performance management ═══════════════
+
+// Weighted evaluation template (criteria sum to 100). Different forms for admin vs faculty.
+model EvaluationTemplate {
+  id           String                @id @default(cuid())
+  universityId String?
+  nameAr       String
+  target       String                @default("ALL") // ALL | ADMIN | FACULTY
+  isActive     Boolean               @default(true)
+  createdAt    DateTime              @default(now())
+  criteria     EvaluationCriterion[]
+
+  @@index([universityId])
+}
+
+model EvaluationCriterion {
+  id         String             @id @default(cuid())
+  templateId String
+  nameAr     String
+  weight     Int                @default(0) // percentage
+  order      Int                @default(0)
+  template   EvaluationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+}
+
+// One performance review of an employee against a template. evaluatorType supports 360 reviews.
+model PerformanceReview {
+  id            String             @id @default(cuid())
+  universityId  String?
+  employeeId    String
+  templateId    String?
+  period        String // free label e.g. "2026 - سنوي"
+  periodType    String             @default("ANNUAL") // MONTHLY | QUARTERLY | SEMI | ANNUAL
+  evaluatorType String             @default("MANAGER") // MANAGER | PEER | SUBORDINATE | SELF
+  evaluatorId   String?
+  totalScore    Float              @default(0)
+  grade         String? // ممتاز | جيد جداً | جيد | مقبول | يحتاج تطوير
+  recommendation String? // PROMOTION | BONUS | TRAINING | WARNING | FOLLOWUP
+  note          String?
+  status        String             @default("SUBMITTED") // DRAFT | SUBMITTED
+  createdAt     DateTime           @default(now())
+  employee      Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  scores        PerformanceScore[]
+
+  @@index([universityId])
+  @@index([employeeId])
+}
+
+model PerformanceScore {
+  id          String            @id @default(cuid())
+  reviewId    String
+  criterionId String
+  criterionAr String // snapshot of the criterion label at review time
+  weight      Int               @default(0)
+  score       Float             @default(0) // 0..100
+  review      PerformanceReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
 }

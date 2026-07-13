@@ -11,6 +11,7 @@ const EMP = 'hr.employee.view';
 const ATT = 'hr.attendance.view';
 const LEAVE = 'hr.leave.view';
 const PAY = 'payroll.view';
+const PERF = 'hr.performance.view';
 
 async function nameMaps(universityId: string | null) {
   const [types, titles, depts] = await Promise.all([
@@ -109,6 +110,18 @@ export const hrReports: ReportDef[] = [
       for (const p of run.payslips) { const d = deptOf.get(p.employeeId); const k = d ? maps.dept.get(d) ?? 'غير محدد' : 'غير محدد'; m.set(k, (m.get(k) ?? 0) + Number(p.net)); }
       const rows = [...m.entries()].map(([dept, net]) => ({ dept, net: net.toFixed(2) })).sort((a, b) => Number(b.net) - Number(a.net));
       return { kind: 'table', columns: [{ key: 'dept', label: 'الإدارة' }, { key: 'net', label: 'صافي الرواتب', align: 'center', numeric: true }], rows, totals: { dept: `مسير ${run.month}`, net: Number(run.netTotal).toFixed(2) } };
+    },
+  },
+  {
+    id: 'hr-performance-summary', category: 'hr', nameAr: 'ملخص تقييم الأداء', description: 'أحدث تقييم لكل موظف مع النتيجة والتقدير والتوصية', permission: PERF, filters: [],
+    run: async (_f, ctx) => {
+      const uid = ctx.universityId ?? null;
+      const reviews = await prisma.performanceReview.findMany({ where: { universityId: uid }, orderBy: { createdAt: 'desc' }, include: { employee: { select: { code: true, nameAr: true } } } });
+      const seen = new Set<string>();
+      const REC: Record<string, string> = { PROMOTION: 'ترقية', BONUS: 'مكافأة', TRAINING: 'تدريب', WARNING: 'إنذار', FOLLOWUP: 'متابعة' };
+      const rows: ReportRow[] = [];
+      for (const r of reviews) { if (seen.has(r.employeeId)) continue; seen.add(r.employeeId); rows.push({ code: r.employee.code, name: r.employee.nameAr, period: r.period, score: r.totalScore, grade: r.grade ?? '—', recommendation: r.recommendation ? REC[r.recommendation] ?? r.recommendation : '—' }); }
+      return { kind: 'table', columns: [{ key: 'code', label: 'الكود' }, { key: 'name', label: 'الاسم' }, { key: 'period', label: 'الفترة' }, { key: 'score', label: 'النتيجة', align: 'center', numeric: true }, { key: 'grade', label: 'التقدير', align: 'center' }, { key: 'recommendation', label: 'التوصية', align: 'center' }], rows, totals: { code: 'الإجمالي', name: `${rows.length} موظف` } };
     },
   },
   {

@@ -69,6 +69,8 @@ export const PERMISSION_KEYS: string[] = [
   // ClientR4 — HR module (R4c-2): attendance + leave + adjustments
   'hr.attendance.view', 'hr.attendance.edit', 'hr.attendance.approve',
   'hr.leave.view', 'hr.leave.edit', 'hr.leave.approve',
+  // ClientR4 — HR module (R4c-4): performance management
+  'hr.performance.view', 'hr.performance.edit',
   // Quality / reports
   'quality.view', 'quality.edit', 'reports.view', 'reports.export',
   // ClientR3 — Reporting & Analytics families (hub access per family)

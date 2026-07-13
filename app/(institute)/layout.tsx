@@ -197,6 +197,7 @@ const navItems = [
       { title: "الهيكل الإداري والوظائف", href: "/institute/hr/org" },
       { title: "الحضور والانصراف", href: "/institute/hr/attendance" },
       { title: "الإجازات", href: "/institute/hr/leave" },
+      { title: "تقييم الأداء", href: "/institute/hr/performance" },
       { title: "لوحة الموارد البشرية", href: "/institute/hr/dashboard" },
     ],
   },
