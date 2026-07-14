@@ -34,6 +34,8 @@ const DEFAULT_REGULATIONS = {
   incompleteCourseworkPercent: 60,
   graduationHours: 132,
   levelMinHours: { "1": 0, "2": 30, "3": 66, "4": 99 } as Record<string, number>,
+  annualPassPercent: 50,
+  maxCarryOverSubjects: 2,
 }
 
 type RegKey = Exclude<keyof typeof DEFAULT_REGULATIONS, "levelMinHours">
@@ -87,6 +89,14 @@ const FIELD_GROUPS: { title: string; description: string; fields: FieldDef[] }[]
     description: "ساعات التخرج وحدود الترقي",
     fields: [
       { key: "graduationHours", label: "إجمالي ساعات التخرج", note: "إجمالي الساعات المعتمدة المطلوبة للتخرج" },
+    ],
+  },
+  {
+    title: "النظام السنوي (العادي)",
+    description: "قواعد النتيجة السنوية — تُطبَّق على البرامج ذات النظام السنوي فقط",
+    fields: [
+      { key: "annualPassPercent", label: "نسبة النجاح في المادة (%)", note: "أقل من هذه النسبة ← رسوب في المادة (النظام السنوي)" },
+      { key: "maxCarryOverSubjects", label: "أقصى مواد للدور الثاني", note: "رسوب في عدد مواد ≤ هذا ← له دور ثانٍ؛ أكثر ← باقٍ للإعادة" },
     ],
   },
 ]

@@ -23,6 +23,9 @@ export const DEFAULT_REGULATIONS = {
   graduationHours: 132, // total credit hours required to graduate (per program bylaw)
   // minimum EARNED credit hours to be promoted INTO each level
   levelMinHours: { 1: 0, 2: 30, 3: 66, 4: 99 } as Record<string, number>,
+  // ---- Traditional/annual system (النظام السنوي) — used only by ANNUAL programs (lib/annual.ts) ----
+  annualPassPercent: 50, // per-subject pass threshold (%) in the annual system
+  maxCarryOverSubjects: 2, // failed subjects ≤ this → له دور ثانٍ (makeup); more → باقٍ للإعادة
 };
 export type Regulations = typeof DEFAULT_REGULATIONS;
 export const REGULATIONS_KEY = 'institute.regulations';
