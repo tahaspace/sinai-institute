@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requirePermission } from '@/lib/authz';
+import { normalizeSystem } from '@/lib/academic-system';
 
 // GET /api/institute/programs?search=&departmentId=
 export async function GET(request: NextRequest) {
@@ -34,6 +35,7 @@ export async function GET(request: NextRequest) {
         totalCreditHours: p.totalCreditHours,
         description: p.description ?? '',
         isActive: p.isActive,
+        academicSystem: normalizeSystem(p.academicSystem),
         students: p._count.students,
       })),
       stats: { total: programs.length },
@@ -51,7 +53,7 @@ export async function POST(request: NextRequest) {
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
     const body = await request.json();
-    const { nameAr, nameEn, departmentId, degree, years, totalCreditHours, description } = body ?? {};
+    const { nameAr, nameEn, departmentId, degree, years, totalCreditHours, description, academicSystem } = body ?? {};
     if (!nameAr) return NextResponse.json({ error: 'اسم البرنامج مطلوب' }, { status: 400 });
 
     const program = await prisma.program.create({
@@ -63,6 +65,7 @@ export async function POST(request: NextRequest) {
         years: years ? parseInt(String(years), 10) : 4,
         totalCreditHours: totalCreditHours ? parseInt(String(totalCreditHours), 10) : 0,
         description: description || null,
+        academicSystem: normalizeSystem(academicSystem),
       },
     });
     return NextResponse.json(program, { status: 201 });
@@ -83,6 +86,7 @@ export async function PATCH(request: NextRequest) {
     if (!id) return NextResponse.json({ error: 'المعرف مطلوب' }, { status: 400 });
     if (typeof data.years !== 'undefined') data.years = parseInt(String(data.years), 10);
     if (typeof data.totalCreditHours !== 'undefined') data.totalCreditHours = parseInt(String(data.totalCreditHours), 10);
+    if ('academicSystem' in data) data.academicSystem = normalizeSystem(data.academicSystem);
 
     const program = await prisma.program.update({ where: { id }, data });
     return NextResponse.json(program);

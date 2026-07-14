@@ -2149,6 +2149,7 @@ model Program {
   degree           String? // بكالوريوس | دبلوم | ماجستير
   years            Int         @default(4)
   totalCreditHours Int         @default(0)
+  academicSystem   String      @default("CREDIT_HOURS") // CREDIT_HOURS | ANNUAL (dual-mode, per program)
   description      String?
   isActive         Boolean     @default(true)
   universityId     String?
