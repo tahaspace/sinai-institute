@@ -22,4 +22,10 @@ engines + the ministry print-letterhead (R3) — nothing added to the result sch
 ## Live verification (2026-07-13)
 `student-transcript`/`graduates-batch`/`level-result-sheet` → 401 registered (unknown-id control → 404). App root 200.
 
+## Screen vs. ministry export (2026-07-14, commit `1df5959`)
+Per the client: result sheets have **two renderings** — on-screen (viewable) and an **export for ministry signature**.
+- **Export = «طباعة رسمية (للوزارة)»** button on the hub → a dedicated **landscape** `MinistrySheet` (letterhead + full students×courses matrix + grade-distribution box + grade-scale legend + signature lines رئيس الكنترول/وكيل المعهد/العميد) → browser print → Save as PDF. Opt-in via `meta.ministrySheet` on the report; no PDF dependency.
+- **`graduates-result-sheet`** (كشف نتيجة الخريجين — مصفوفة) added: GRADUATED cohort × courses + cumulative CGPA + final grade + distribution (matches the graduates PDF). Summary `graduates-batch` kept.
+- `level-result-sheet` gained a grade-bracket distribution box + cumulative-CGPA column and the ministry export.
+
 ## Next: R4c — HR module (phased-core).
