@@ -181,12 +181,13 @@ export const transcriptsReports: ReportDef[] = [
       });
       if (!students.length) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا يوجد طلاب في هذا المستوى' } };
       const ids = students.map((s) => s.id);
-      const [enrollments, statuses] = await Promise.all([
+      const [enrollments, statuses, standings] = await Promise.all([
         prisma.enrollment.findMany({
           where: { studentId: { in: ids }, academicYear: f.academicYear, semester: f.semester },
           include: { course: { select: { id: true, code: true, nameAr: true, creditHours: true, countsInGpa: true } } },
         }),
         prisma.gradeStatus.findMany({ where: ctx.universityId ? { universityId: ctx.universityId } : {} }),
+        computeStandingForStudents(ids),
       ]);
       const byCode = new Map(statuses.map((s) => [s.code, s]));
 
@@ -213,6 +214,7 @@ export const transcriptsReports: ReportDef[] = [
           if (e.points != null && e.course.countsInGpa) { qp += e.points * e.course.creditHours; gpaHours += e.course.creditHours; }
         }
         row.gpa = gpaHours > 0 ? (qp / gpaHours).toFixed(2) : '—';
+        row.cgpa = (standings.get(s.id)?.cgpa ?? 0).toFixed(2);
         const result = hasFail ? 'راسب' : hasPending ? 'غير مكتمل' : es.length ? 'ناجح' : '—';
         row.result = result;
         if (result === 'ناجح') passed++; else if (result === 'راسب') failed++; else if (result === 'غير مكتمل') incomplete++;
@@ -222,12 +224,24 @@ export const transcriptsReports: ReportDef[] = [
       const columns: ReportColumn[] = [
         { key: 'code', label: 'رقم الجلوس' }, { key: 'name', label: 'الاسم' },
         ...courseCols.map(([id, c]) => ({ key: id, label: c.code, align: 'center' as const })),
-        { key: 'gpa', label: 'المعدل', align: 'center', numeric: true }, { key: 'result', label: 'النتيجة', align: 'center' },
+        { key: 'gpa', label: 'المعدل الفصلي', align: 'center', numeric: true }, { key: 'cgpa', label: 'التراكمي', align: 'center', numeric: true }, { key: 'result', label: 'النتيجة', align: 'center' },
       ];
+      // grade-bracket distribution (count per letter grade across all course results) — matches the
+      // statistics box in the client's «نتيجة المستوى» sample.
+      const gradeDist = new Map<string, number>();
+      for (const e of enrollments) {
+        const code = e.letterGrade ?? e.gradeStatusCode;
+        if (!code) continue;
+        const st = byCode.get(code);
+        if (st && !st.isLetter) continue; // distribution counts letter grades only
+        gradeDist.set(code, (gradeDist.get(code) ?? 0) + 1);
+      }
+      const gradeOrder = [...gradeDist.keys()].sort((a, b) => (byCode.get(b)?.minPercent ?? -1) - (byCode.get(a)?.minPercent ?? -1));
       const stats = [
         { label: 'إجمالي الطلاب', value: students.length }, { label: 'ناجح', value: passed },
         { label: 'راسب', value: failed }, { label: 'غير مكتمل', value: incomplete },
         { label: 'نسبة النجاح', value: students.length ? `${Math.round((passed / students.length) * 100)}%` : '—' },
+        ...gradeOrder.map((code) => ({ label: `تقدير ${code}`, value: gradeDist.get(code)! })),
       ];
       return {
         kind: 'sheet',
