@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { BarChart3, Printer, Download, Play, FolderTree } from "lucide-react"
+import { useActiveProgramSystem } from "@/lib/use-active-program-system"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any
@@ -25,6 +26,12 @@ export default function ReportingHub() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [officialPrint, setOfficialPrint] = useState(false)
+  const activeSystem = useActiveProgramSystem()
+  // Show the result family that matches the active program's system: annual sheets for ANNUAL,
+  // the credit-hour transcript family for CREDIT_HOURS. Everything else shows in both.
+  const shownCatalogue = catalogue.filter((cat) =>
+    cat.category === "annual" ? activeSystem === "ANNUAL" : cat.category === "transcripts" ? activeSystem === "CREDIT_HOURS" : true,
+  )
 
   useEffect(() => {
     (async () => {
@@ -88,9 +95,11 @@ export default function ReportingHub() {
       <div className="grid md:grid-cols-[280px_1fr] gap-4">
         {/* category tree */}
         <Card className="h-fit no-print">
-          <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><FolderTree className="w-4 h-4" /> أنواع التقارير</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><FolderTree className="w-4 h-4" /> أنواع التقارير</CardTitle>
+            <p className="text-xs text-muted-foreground">النظام النشط: {activeSystem === "ANNUAL" ? "النظام السنوي (العادي)" : "نظام الساعات المعتمدة"}</p>
+          </CardHeader>
           <CardContent className="space-y-3">
-            {catalogue.length === 0 ? <p className="text-sm text-muted-foreground">جارٍ التحميل…</p> : catalogue.map((cat) => (
+            {shownCatalogue.length === 0 ? <p className="text-sm text-muted-foreground">جارٍ التحميل…</p> : shownCatalogue.map((cat) => (
               <div key={cat.category}>
                 <div className="text-xs font-semibold text-muted-foreground mb-1">{cat.label} <Badge variant="outline" className="ml-1">{cat.reports.length}</Badge></div>
                 <div className="space-y-0.5">

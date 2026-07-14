@@ -283,14 +283,27 @@ export default function InstituteLayout({
       if (!r.ok) throw new Error(j.error || "failed")
       const list: { id: string; nameAr: string; academicSystem: string }[] = (j.programs ?? []).map((p: { id: string; nameAr: string; academicSystem?: string }) => ({ id: p.id, nameAr: p.nameAr, academicSystem: p.academicSystem === "ANNUAL" ? "ANNUAL" : "CREDIT_HOURS" }))
       const saved = typeof window !== "undefined" ? window.localStorage.getItem("activeProgramId") : null
+      const activeId = saved && list.some((p) => p.id === saved) ? saved : (list[0]?.id ?? "")
       setPrograms(list)
-      setActiveProgramId(saved && list.some((p) => p.id === saved) ? saved : (list[0]?.id ?? ""))
+      setActiveProgramId(activeId)
+      if (typeof window !== "undefined" && activeId) {
+        const sys = list.find((p) => p.id === activeId)?.academicSystem === "ANNUAL" ? "ANNUAL" : "CREDIT_HOURS"
+        window.localStorage.setItem("activeProgramSystem", sys)
+        window.dispatchEvent(new Event("academic-system-changed"))
+      }
     } catch { setPrograms([]) }
   }, [])
   useEffect(() => { loadPrograms() }, [loadPrograms])
   const activeProgram = programs.find((p) => p.id === activeProgramId)
   const activeSystemLabel = activeProgram?.academicSystem === "ANNUAL" ? "النظام السنوي (العادي)" : "نظام الساعات المعتمدة"
-  const pickProgram = (id: string) => { setActiveProgramId(id); if (typeof window !== "undefined") window.localStorage.setItem("activeProgramId", id) }
+  const pickProgram = (id: string) => {
+    setActiveProgramId(id)
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("activeProgramId", id)
+      window.localStorage.setItem("activeProgramSystem", programs.find((p) => p.id === id)?.academicSystem === "ANNUAL" ? "ANNUAL" : "CREDIT_HOURS")
+      window.dispatchEvent(new Event("academic-system-changed"))
+    }
+  }
 
   const toggleExpanded = (href: string) => {
     if (expandedItems.includes(href)) {
