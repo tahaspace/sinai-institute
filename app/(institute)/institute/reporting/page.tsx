@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, type CSSProperties } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -24,6 +24,7 @@ export default function ReportingHub() {
   const [result, setResult] = useState<Any>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [officialPrint, setOfficialPrint] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -54,6 +55,12 @@ export default function ReportingHub() {
     window.open(`/api/institute/reporting/${active.id}?${qs}`, "_blank")
   }
 
+  // Official ministry export: render the landscape sheet, print (→ Save as PDF), then restore.
+  const printOfficial = () => {
+    setOfficialPrint(true)
+    setTimeout(() => { window.print(); setTimeout(() => setOfficialPrint(false), 300) }, 80)
+  }
+
   const optsFor = (key: string): { value: string; label: string }[] => {
     if (!options) return []
     const map: Record<string, string> = { academicYear: "academicYears", semester: "semesters", facultyId: "faculties", departmentId: "departments", programId: "programs", courseId: "courses", advisorId: "advisors", level: "levels" }
@@ -63,14 +70,19 @@ export default function ReportingHub() {
 
   return (
     <div className="space-y-6">
-      <style>{`@media print { .no-print { display: none !important; } .print-sheet { border: none !important; box-shadow: none !important; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }`}</style>
+      <style>{`@media print { .no-print { display: none !important; } .print-sheet { border: none !important; box-shadow: none !important; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } } .official-doc { display: none; }`}</style>
+      {officialPrint && <style>{`@page { size: A4 landscape; margin: 8mm; } @media print { body * { visibility: hidden !important; } .official-doc, .official-doc * { visibility: visible !important; } .official-doc { position: absolute; inset: 0; display: block !important; } }`}</style>}
       <div className="flex items-center justify-between no-print">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><BarChart3 className="w-7 h-7 text-institute-blue" /> التقارير والتحليلات</h1>
           <p className="text-muted-foreground">مركز التقارير — كشوف الوزارة وشؤون الطلاب والنتائج والمالية والتحليلات</p>
         </div>
-        {result && <Button variant="outline" onClick={() => window.print()}><Printer className="w-4 h-4 ml-2" /> طباعة</Button>}
+        <div className="flex gap-2">
+          {result?.meta?.ministrySheet && <Button onClick={printOfficial}><Printer className="w-4 h-4 ml-2" /> طباعة رسمية (للوزارة)</Button>}
+          {result && <Button variant="outline" onClick={() => window.print()}><Printer className="w-4 h-4 ml-2" /> طباعة</Button>}
+        </div>
       </div>
+      {officialPrint && result?.meta?.ministrySheet && <MinistrySheet result={result} />}
       {error && <Card><CardContent className="p-4 text-center text-red-600">{error}</CardContent></Card>}
 
       <div className="grid md:grid-cols-[280px_1fr] gap-4">
@@ -234,6 +246,39 @@ function TranscriptView({ t }: { t: Any }) {
         <span>المعدل التراكمي النهائي: <b>{t.summary.cgpa}</b></span>
         <span>الساعات المكتسبة: <b>{t.summary.earnedHours}</b></span>
         <span>التقدير العام: <b>{t.summary.grade}</b></span>
+      </div>
+    </div>
+  )
+}
+
+// Official ministry export layout (landscape, print-only) — letterhead + full students×courses
+// matrix + grade-distribution box + signature/approval lines, matching the client's PDF sheets.
+// Inline styles so the printed output is deterministic regardless of Tailwind/print quirks.
+function MinistrySheet({ result }: { result: Any }) {
+  const cols = result.columns ?? []
+  const sigs: string[] = result.meta?.ministrySheet?.signatures ?? []
+  const stats: Any[] = Array.isArray(result.meta?.stats) ? result.meta.stats : []
+  const cell = (align: string, bold = false): CSSProperties => ({ border: "1px solid #333", padding: "2px 4px", textAlign: align === "center" ? "center" : "right", fontWeight: bold ? "bold" : "normal" })
+  return (
+    <div className="official-doc" dir="rtl" style={{ padding: "3mm", color: "#000", fontSize: "10px" }}>
+      <div style={{ textAlign: "center", marginBottom: "6px" }}>
+        {result.header?.["المعهد"] && <div style={{ fontWeight: "bold", fontSize: "15px" }}>{result.header["المعهد"]}</div>}
+        {result.title && <div style={{ fontWeight: "bold", fontSize: "12px", marginTop: "2px" }}>{result.title}</div>}
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "14px", fontSize: "11px", marginTop: "3px" }}>
+          {Object.entries(result.header ?? {}).filter(([k]) => k !== "المعهد").map(([k, v]: Any) => <span key={k}>{k}: <b>{String(v)}</b></span>)}
+        </div>
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr>{cols.map((c: Any) => <th key={c.key} style={{ ...cell("center", true), background: "#e5e7eb" }}>{c.label}</th>)}</tr></thead>
+        <tbody>
+          {(result.rows ?? []).map((r: Any, i: number) => <tr key={i}>{cols.map((c: Any) => <td key={c.key} style={cell(c.align)}>{String(r[c.key] ?? "")}</td>)}</tr>)}
+          {result.totals && <tr>{cols.map((c: Any) => <td key={c.key} style={cell(c.align, true)}>{result.totals[c.key] != null ? String(result.totals[c.key]) : ""}</td>)}</tr>}
+        </tbody>
+      </table>
+      {stats.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "6px", fontSize: "10px" }}>{stats.map((s: Any, i: number) => <span key={i} style={{ border: "1px solid #333", padding: "2px 6px" }}>{s.label}: <b>{String(s.value)}</b></span>)}</div>}
+      {Array.isArray(result.footer) && result.footer.length > 0 && <div style={{ marginTop: "6px", fontSize: "9px" }}>مفتاح التقديرات: {result.footer.map((g: Any) => `${g.code}=${g.name} (${g.points})`).join(" · ")}</div>}
+      <div style={{ display: "flex", justifyContent: "space-around", marginTop: "26px", fontSize: "11px" }}>
+        {sigs.map((s: string, i: number) => <div key={i} style={{ textAlign: "center" }}><div>{s}</div><div style={{ marginTop: "30px", borderTop: "1px solid #333", width: "150px" }} /></div>)}
       </div>
     </div>
   )

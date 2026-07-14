@@ -16,6 +16,8 @@ const VIEW = 'reports.transcripts.view';
 const INSTITUTE_FALLBACK = 'معهد سيناء العالي للدراسات النوعية';
 const SEM_ORDER: Record<string, number> = { first: 1, second: 2, summer: 3 };
 const STATUS_AR: Record<string, string> = { ACTIVE: 'مقيّد', GRADUATED: 'خرّيج', WITHDRAWN: 'منسحب', DISMISSED: 'مفصول', SUSPENDED: 'موقوف' };
+// Signature/approval roles printed on the official ministry export sheet.
+const MINISTRY_SIGNATURES = ['رئيس الكنترول', 'وكيل المعهد لشؤون التعليم والطلاب', 'عميد المعهد'];
 
 const semLabel = (s: string) => SEMESTERS.find((x) => x.value === s)?.label ?? s;
 const termLabelOf = (academicYear: string, semester: string) => `${semLabel(semester)} ${academicYear}`;
@@ -248,10 +250,64 @@ export const transcriptsReports: ReportDef[] = [
         title: `كشف نتيجة المستوى ${f.level} — ${termLabelOf(f.academicYear ?? '', f.semester ?? '')}`,
         header: { المعهد: await instituteName(ctx.universityId), المستوى: String(f.level), 'العام الجامعي': f.academicYear ?? '—', 'الفصل الدراسي': semLabel(f.semester ?? '') },
         footer: await gradeScaleFooter(ctx.universityId),
-        meta: { stats, courses: courseCols.map(([, c]) => `${c.code}: ${c.name}`) },
+        meta: { stats, courses: courseCols.map(([, c]) => `${c.code}: ${c.name}`), ministrySheet: { signatures: MINISTRY_SIGNATURES } },
         columns,
         rows,
         totals: { code: 'الإجمالي', name: `${students.length} طالب` },
+      };
+    },
+  },
+  {
+    id: 'graduates-result-sheet', category: 'transcripts', nameAr: 'كشف نتيجة الخريجين (مصفوفة)',
+    description: 'مصفوفة نتائج الخريجين: طالب × مقرر مع المعدل التراكمي والتقدير العام والتوزيع — تُصدَّر بصيغة الوزارة للتوقيع',
+    permission: VIEW, filters: ['academicYear', 'semester', 'departmentId', 'programId'], requires: ['academicYear', 'semester'],
+    run: async (f, ctx) => {
+      const uid = ctx.universityId ?? null;
+      const students = await prisma.student.findMany({ where: { ...studentWhere(f, uid), status: 'GRADUATED' }, select: { id: true, studentCode: true, nameAr: true }, orderBy: { studentCode: 'asc' } });
+      if (!students.length) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا يوجد خريجون بهذه المعايير' } };
+      const ids = students.map((s) => s.id);
+      const [enrollments, statuses, standings] = await Promise.all([
+        prisma.enrollment.findMany({ where: { studentId: { in: ids }, academicYear: f.academicYear, semester: f.semester }, include: { course: { select: { id: true, code: true, nameAr: true } } } }),
+        prisma.gradeStatus.findMany({ where: ctx.universityId ? { universityId: ctx.universityId } : {} }),
+        computeStandingForStudents(ids),
+      ]);
+      const byCode = new Map(statuses.map((s) => [s.code, s]));
+      const courses = new Map<string, { code: string; name: string }>();
+      for (const e of enrollments) if (!courses.has(e.course.id)) courses.set(e.course.id, { code: e.course.code, name: e.course.nameAr });
+      const courseCols = [...courses.entries()].sort((a, b) => a[1].code.localeCompare(b[1].code));
+      const byStudent = new Map<string, typeof enrollments>();
+      for (const e of enrollments) (byStudent.get(e.studentId) ?? byStudent.set(e.studentId, []).get(e.studentId)!).push(e);
+      const gradeDist = new Map<string, number>();
+      const rows: ReportRow[] = students.map((s) => {
+        const es = byStudent.get(s.id) ?? [];
+        const row: ReportRow = { code: s.studentCode, name: s.nameAr };
+        let hasFail = false;
+        for (const e of es) {
+          const g = e.letterGrade ?? e.gradeStatusCode ?? '—';
+          row[e.course.id] = g;
+          const st = e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null;
+          if (classify(st) === 'fail') hasFail = true;
+          if (g !== '—' && (!st || st.isLetter)) gradeDist.set(g, (gradeDist.get(g) ?? 0) + 1);
+        }
+        const cgpa = standings.get(s.id)?.cgpa ?? 0;
+        row.cgpa = cgpa.toFixed(2); row.grade = cgpaToGrade(cgpa); row.result = hasFail ? 'راسب' : 'ناجح';
+        return row;
+      });
+      const gradeOrder = [...gradeDist.keys()].sort((a, b) => (byCode.get(b)?.minPercent ?? -1) - (byCode.get(a)?.minPercent ?? -1));
+      const columns: ReportColumn[] = [
+        { key: 'code', label: 'رقم الجلوس' }, { key: 'name', label: 'الاسم' },
+        ...courseCols.map(([id, c]) => ({ key: id, label: c.code, align: 'center' as const })),
+        { key: 'cgpa', label: 'المعدل التراكمي', align: 'center', numeric: true }, { key: 'grade', label: 'التقدير العام', align: 'center' }, { key: 'result', label: 'النتيجة', align: 'center' },
+      ];
+      const stats = [{ label: 'إجمالي الخريجين', value: students.length }, ...gradeOrder.map((code) => ({ label: `تقدير ${code}`, value: gradeDist.get(code)! }))];
+      return {
+        kind: 'sheet',
+        title: `كشف نتيجة الخريجين — ${termLabelOf(f.academicYear ?? '', f.semester ?? '')}`,
+        header: { المعهد: await instituteName(uid), 'العام الجامعي': f.academicYear ?? '—', 'الفصل الدراسي': semLabel(f.semester ?? ''), 'عدد الخريجين': String(students.length) },
+        footer: await gradeScaleFooter(uid),
+        meta: { stats, courses: courseCols.map(([, c]) => `${c.code}: ${c.name}`), ministrySheet: { signatures: MINISTRY_SIGNATURES } },
+        columns, rows,
+        totals: { code: 'الإجمالي', name: `${students.length} خريج` },
       };
     },
   },
