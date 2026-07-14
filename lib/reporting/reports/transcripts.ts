@@ -1,7 +1,6 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef, ReportColumn, ReportRow } from '@/lib/reporting/types';
 import { SEMESTERS, studentWhere } from '@/lib/reporting/filters';
-import { computeStanding } from '@/lib/gpa';
 import { computeStandingForStudents } from '@/lib/standing';
 import { classify } from '@/lib/reports';
 
@@ -64,11 +63,11 @@ export const transcriptsReports: ReportDef[] = [
       });
       if (!student) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'الطالب غير موجود' } };
 
-      const [standing, enrollments] = await Promise.all([
-        computeStanding(student.id),
-        prisma.enrollment.findMany({ where: { studentId: student.id }, include: { course: { select: { code: true, nameAr: true, creditHours: true } } } }),
+      const [enrollments, statuses] = await Promise.all([
+        prisma.enrollment.findMany({ where: { studentId: student.id }, include: { course: { select: { code: true, nameAr: true, creditHours: true, countsInGpa: true } } } }),
+        prisma.gradeStatus.findMany({ where: ctx.universityId ? { universityId: ctx.universityId } : {} }),
       ]);
-      const termGpaMap = new Map(standing.termGpas.map((t) => [t.term, t]));
+      const byCode = new Map(statuses.map((s) => [s.code, s]));
       const groups = new Map<string, typeof enrollments>();
       for (const e of enrollments) {
         const k = `${e.academicYear}|${e.semester}`;
@@ -79,18 +78,37 @@ export const transcriptsReports: ReportDef[] = [
         return ay1 === ay2 ? (SEM_ORDER[s1] ?? 9) - (SEM_ORDER[s2] ?? 9) : ay1.localeCompare(ay2);
       });
 
+      // Flat rows feed CSV/Excel; `terms` feeds the rich per-term transcript layout in the hub.
       const rows: ReportRow[] = [];
+      type TermBlock = { label: string; courses: ReportRow[]; footer: Record<string, string | number> };
+      const terms: TermBlock[] = [];
+      let cumQuality = 0, cumGpaHours = 0, cumEarned = 0;
       for (const tk of orderedTerms) {
         const [ay, sem] = tk.split('|');
         const label = termLabelOf(ay, sem);
+        const courses: ReportRow[] = [];
+        let regHours = 0, earnedHours = 0, quality = 0, termPoints = 0, gpaHours = 0;
         for (const e of groups.get(tk)!) {
+          const st = e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null;
+          const ch = e.course.creditHours;
           const comps = [e.midterm, e.final, e.practical, e.homework].filter((v): v is number => v != null);
-          const total = comps.reduce((s, v) => s + v, 0);
-          rows.push({ term: label, code: e.course.code, name: e.course.nameAr, hours: e.course.creditHours, score: comps.length ? total.toFixed(0) : '—', points: e.points != null ? e.points.toFixed(2) : '—', grade: e.letterGrade ?? e.gradeStatusCode ?? '—' });
+          const score = comps.length ? comps.reduce((s, v) => s + v, 0).toFixed(0) : '—';
+          const grade = e.letterGrade ?? e.gradeStatusCode ?? '—';
+          const pts = e.points;
+          regHours += ch;
+          if (st?.isPass) earnedHours += ch;
+          if (st?.affectsGpa && e.course.countsInGpa && pts != null) { quality += pts * ch; termPoints += pts; gpaHours += ch; }
+          const row = { code: e.course.code, name: e.course.nameAr, hours: ch, score, points: pts != null ? pts.toFixed(2) : '—', grade };
+          courses.push(row);
+          rows.push({ term: label, ...row });
         }
-        const tg = termGpaMap.get(tk);
-        rows.push({ term: label, code: '', name: '— المعدل الفصلي —', hours: tg?.hours ?? '', score: '', points: tg ? tg.gpa.toFixed(2) : '—', grade: '' });
+        cumQuality += quality; cumGpaHours += gpaHours; cumEarned += earnedHours;
+        const termGpa = gpaHours ? quality / gpaHours : 0;
+        const cumGpa = cumGpaHours ? cumQuality / cumGpaHours : 0;
+        terms.push({ label, courses, footer: { termGpa: termGpa.toFixed(2), cumulativeGpa: cumGpa.toFixed(2), registeredHours: regHours, earnedHours, qualityPoints: quality.toFixed(2), termPoints: termPoints.toFixed(2) } });
+        rows.push({ term: label, code: '', name: '— معدل الفصل —', hours: regHours, score: '', points: termGpa.toFixed(2), grade: '' });
       }
+      const cgpa = cumGpaHours ? cumQuality / cumGpaHours : 0;
 
       return {
         kind: 'sheet',
@@ -105,13 +123,14 @@ export const transcriptsReports: ReportDef[] = [
           الحالة: STATUS_AR[student.status] ?? student.status,
         },
         footer: await gradeScaleFooter(ctx.universityId),
+        meta: { transcript: { terms, summary: { cgpa: cgpa.toFixed(2), earnedHours: cumEarned, grade: cgpaToGrade(cgpa) } } },
         columns: [
           { key: 'term', label: 'الفصل' }, { key: 'code', label: 'كود المقرر' }, { key: 'name', label: 'اسم المقرر' },
           { key: 'hours', label: 'س.م', align: 'center', numeric: true }, { key: 'score', label: 'الدرجة', align: 'center' },
           { key: 'points', label: 'النقاط', align: 'center' }, { key: 'grade', label: 'التقدير', align: 'center' },
         ],
         rows,
-        totals: { term: 'الإجمالي', name: `المعدل التراكمي: ${standing.cgpa.toFixed(2)}`, hours: standing.earnedHours, points: standing.cgpa.toFixed(2), grade: cgpaToGrade(standing.cgpa) },
+        totals: { term: 'الإجمالي', name: `المعدل التراكمي: ${cgpa.toFixed(2)}`, hours: cumEarned, points: cgpa.toFixed(2), grade: cgpaToGrade(cgpa) },
       };
     },
   },

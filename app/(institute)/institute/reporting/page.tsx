@@ -164,19 +164,23 @@ function ResultView({ result }: { result: Any }) {
             ))}
           </div>
         )}
-        <div className="overflow-x-auto">
-          {(!result.rows || result.rows.length === 0) ? <p className="p-8 text-center text-muted-foreground">لا توجد بيانات</p> : (
-            <Table>
-              <TableHeader><TableRow>{cols.map((c: Any) => <TableHead key={c.key} className={c.align === "center" ? "text-center" : ""}>{c.label}</TableHead>)}</TableRow></TableHeader>
-              <TableBody>
-                {result.rows.map((row: Any, i: number) => (
-                  <TableRow key={i}>{cols.map((c: Any) => <TableCell key={c.key} className={`${c.align === "center" ? "text-center" : ""} ${c.numeric ? "font-mono" : ""}`}>{String(row[c.key] ?? "—")}</TableCell>)}</TableRow>
-                ))}
-                {result.totals && <TableRow className="bg-muted/50 font-bold">{cols.map((c: Any) => <TableCell key={c.key} className={c.align === "center" ? "text-center" : ""}>{result.totals[c.key] != null ? String(result.totals[c.key]) : ""}</TableCell>)}</TableRow>}
-              </TableBody>
-            </Table>
-          )}
-        </div>
+        {result.meta?.transcript ? (
+          <TranscriptView t={result.meta.transcript} />
+        ) : (
+          <div className="overflow-x-auto">
+            {(!result.rows || result.rows.length === 0) ? <p className="p-8 text-center text-muted-foreground">لا توجد بيانات</p> : (
+              <Table>
+                <TableHeader><TableRow>{cols.map((c: Any) => <TableHead key={c.key} className={c.align === "center" ? "text-center" : ""}>{c.label}</TableHead>)}</TableRow></TableHeader>
+                <TableBody>
+                  {result.rows.map((row: Any, i: number) => (
+                    <TableRow key={i}>{cols.map((c: Any) => <TableCell key={c.key} className={`${c.align === "center" ? "text-center" : ""} ${c.numeric ? "font-mono" : ""}`}>{String(row[c.key] ?? "—")}</TableCell>)}</TableRow>
+                  ))}
+                  {result.totals && <TableRow className="bg-muted/50 font-bold">{cols.map((c: Any) => <TableCell key={c.key} className={c.align === "center" ? "text-center" : ""}>{result.totals[c.key] != null ? String(result.totals[c.key]) : ""}</TableCell>)}</TableRow>}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        )}
         {isSheet && Array.isArray(result.footer) && result.footer.length > 0 && (
           <div className="px-6 py-4 border-t">
             <div className="text-sm font-semibold mb-2">مفتاح التقديرات</div>
@@ -189,5 +193,48 @@ function ResultView({ result }: { result: Any }) {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+// Dedicated academic-transcript layout (بيان حالة) — per-term sections + six-figure term footer,
+// matching the ministry/Mansoura sheet. Falls back to the generic table for non-transcript sheets.
+function TranscriptView({ t }: { t: Any }) {
+  return (
+    <div className="px-4 py-3 space-y-4">
+      {t.terms.map((term: Any, i: number) => (
+        <div key={i} className="border rounded overflow-hidden">
+          <div className="bg-muted px-3 py-1.5 font-bold text-sm">{term.label}</div>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>كود المقرر</TableHead><TableHead>اسم المقرر</TableHead>
+                <TableHead className="text-center">الساعات</TableHead><TableHead className="text-center">الدرجة</TableHead>
+                <TableHead className="text-center">النقاط</TableHead><TableHead className="text-center">التقدير</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {term.courses.map((c: Any, j: number) => (
+                  <TableRow key={j}><TableCell className="font-mono">{c.code}</TableCell><TableCell>{c.name}</TableCell>
+                    <TableCell className="text-center">{c.hours}</TableCell><TableCell className="text-center">{c.score}</TableCell>
+                    <TableCell className="text-center font-mono">{c.points}</TableCell><TableCell className="text-center">{c.grade}</TableCell></TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <div className="bg-muted/40 px-3 py-1.5 flex flex-wrap gap-x-5 gap-y-1 text-xs justify-center">
+            <span>المعدل الفصلي: <b>{term.footer.termGpa}</b></span>
+            <span>المعدل التراكمي: <b>{term.footer.cumulativeGpa}</b></span>
+            <span>الساعات المسجلة: <b>{term.footer.registeredHours}</b></span>
+            <span>الساعات الحاصل عليها: <b>{term.footer.earnedHours}</b></span>
+            <span>نقاط الجودة الفصلية: <b>{term.footer.qualityPoints}</b></span>
+            <span>النقاط الفصلية: <b>{term.footer.termPoints}</b></span>
+          </div>
+        </div>
+      ))}
+      <div className="border-2 rounded px-3 py-2 flex flex-wrap gap-x-6 gap-y-1 text-sm justify-center font-semibold">
+        <span>المعدل التراكمي النهائي: <b>{t.summary.cgpa}</b></span>
+        <span>الساعات المكتسبة: <b>{t.summary.earnedHours}</b></span>
+        <span>التقدير العام: <b>{t.summary.grade}</b></span>
+      </div>
+    </div>
   )
 }
