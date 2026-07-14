@@ -16,6 +16,7 @@ export type ReportCategory =
   | 'analytical'
   | 'predictive'
   | 'transcripts'
+  | 'annual'
   | 'hr'
   | 'audit';
 
@@ -32,6 +33,7 @@ export const CATEGORY_LABELS: Record<ReportCategory, string> = {
   analytical: 'تحليلات استراتيجية',
   predictive: 'تحليلات تنبؤية',
   transcripts: 'بيانات الحالة وكشوف النتائج',
+  annual: 'النتائج السنوية (النظام العادي)',
   hr: 'الموارد البشرية',
   audit: 'سجل التدقيق',
 };

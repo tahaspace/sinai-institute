@@ -16,6 +16,7 @@ import { predictiveReports } from '@/lib/reporting/reports/predictive';
 import { transcriptsReports } from '@/lib/reporting/reports/transcripts';
 import { hrReports } from '@/lib/reporting/reports/hr';
 import { hrPredictiveReports } from '@/lib/reporting/reports/hr-predictive';
+import { annualReports } from '@/lib/reporting/reports/annual';
 
 /**
  * Report registry (ClientR3 — R0). The single source of truth: every report is one ReportDef.
@@ -39,6 +40,7 @@ const ALL: ReportDef[] = [
   ...transcriptsReports,
   ...hrReports,
   ...hrPredictiveReports,
+  ...annualReports,
   ...auditReports,
 ];
 
@@ -50,7 +52,7 @@ export function getReport(id: string): ReportDef | undefined {
 
 /** Catalogue for the hub: categories (in display order) → their reports' metadata. */
 export function reportCatalogue(): { category: ReportCategory; label: string; reports: { id: string; nameAr: string; description?: string; filters: string[]; requires?: string[]; permission: string }[] }[] {
-  const order: ReportCategory[] = ['ministry', 'student-affairs', 'academic', 'attendance', 'results', 'faculty', 'advisor', 'financial', 'executive', 'analytical', 'predictive', 'transcripts', 'hr', 'audit'];
+  const order: ReportCategory[] = ['ministry', 'student-affairs', 'academic', 'attendance', 'results', 'faculty', 'advisor', 'financial', 'executive', 'analytical', 'predictive', 'transcripts', 'annual', 'hr', 'audit'];
   return order
     .map((cat) => ({
       category: cat,
