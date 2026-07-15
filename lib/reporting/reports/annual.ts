@@ -1,7 +1,7 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef, ReportColumn, ReportRow } from '@/lib/reporting/types';
 import { studentWhere } from '@/lib/reporting/filters';
-import { computeAnnualForStudents, computeAnnualResult, ANNUAL_GRADE_BANDS } from '@/lib/annual';
+import { computeAnnualForStudents, computeAnnualResult, getAnnualBands } from '@/lib/annual';
 
 /**
  * Annual (traditional) result reports (Dual-system Phase 3). Surface the `lib/annual.ts` engine as
@@ -18,8 +18,10 @@ async function instituteName(universityId: string | null): Promise<string> {
   const u = await prisma.university.findUnique({ where: { id: universityId }, select: { nameAr: true } });
   return u?.nameAr ?? INSTITUTE_FALLBACK;
 }
-// تقدير-band legend rendered in the sheet footer (same shape the hub footer expects).
-const gradeBandFooter: ReportRow[] = ANNUAL_GRADE_BANDS.map((b) => ({ code: b.label, name: `≥ ${b.min}%`, points: '—', minPercent: `${b.min}%` }));
+// تقدير-band legend for the sheet footer (from the configured bands; same shape the hub expects).
+async function bandFooter(): Promise<ReportRow[]> {
+  return (await getAnnualBands()).map((b) => ({ code: b.label, name: `≥ ${b.min}%`, points: '—', minPercent: `${b.min}%` }));
+}
 
 export const annualReports: ReportDef[] = [
   {
@@ -55,7 +57,7 @@ export const annualReports: ReportDef[] = [
         kind: 'sheet',
         title: `كشف النتيجة السنوية — الفرقة ${f.level} — ${f.academicYear}`,
         header: { المعهد: await instituteName(ctx.universityId), الفرقة: String(f.level), 'العام الجامعي': f.academicYear ?? '—' },
-        footer: gradeBandFooter,
+        footer: await bandFooter(),
         meta: { stats, courses: courseCols.map(([, c]) => `${c.code}: ${c.name}`), ministrySheet: { signatures: MINISTRY_SIGNATURES } },
         columns, rows,
         totals: { code: 'الإجمالي', name: `${rows.length} طالب` },
@@ -93,7 +95,7 @@ export const annualReports: ReportDef[] = [
         kind: 'sheet',
         title: `بيان حالة سنوي — ${student.nameAr}`,
         header: { المعهد: await instituteName(ctx.universityId), الطالب: student.nameAr, 'رقم الجلوس': student.studentCode, البرنامج: student.program?.nameAr ?? '—', القسم: student.department?.nameAr ?? '—', الفرقة: String(student.level) },
-        footer: gradeBandFooter,
+        footer: await bandFooter(),
         columns: [
           { key: 'year', label: 'العام' }, { key: 'code', label: 'كود المادة' }, { key: 'name', label: 'المادة' },
           { key: 'mark', label: 'النسبة %', align: 'center' }, { key: 'grade', label: 'التقدير', align: 'center' }, { key: 'outcome', label: 'النتيجة', align: 'center' },

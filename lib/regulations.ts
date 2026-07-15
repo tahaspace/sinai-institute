@@ -24,8 +24,11 @@ export const DEFAULT_REGULATIONS = {
   // minimum EARNED credit hours to be promoted INTO each level
   levelMinHours: { 1: 0, 2: 30, 3: 66, 4: 99 } as Record<string, number>,
   // ---- Traditional/annual system (النظام السنوي) — used only by ANNUAL programs (lib/annual.ts) ----
-  annualPassPercent: 50, // per-subject pass threshold (%) in the annual system
+  annualPassPercent: 50, // per-subject pass threshold (%) = مقبول floor; below → راسب
   maxCarryOverSubjects: 2, // failed subjects ≤ this → له دور ثانٍ (makeup); more → باقٍ للإعادة
+  annualExcellentMin: 85, // تقدير ممتاز ≥ this %
+  annualVeryGoodMin: 75, // تقدير جيد جداً ≥ this %
+  annualGoodMin: 65, // تقدير جيد ≥ this % (جيد جداً/ممتاز above; مقبول down to annualPassPercent)
 };
 export type Regulations = typeof DEFAULT_REGULATIONS;
 export const REGULATIONS_KEY = 'institute.regulations';

@@ -36,6 +36,9 @@ const DEFAULT_REGULATIONS = {
   levelMinHours: { "1": 0, "2": 30, "3": 66, "4": 99 } as Record<string, number>,
   annualPassPercent: 50,
   maxCarryOverSubjects: 2,
+  annualExcellentMin: 85,
+  annualVeryGoodMin: 75,
+  annualGoodMin: 65,
 }
 
 type RegKey = Exclude<keyof typeof DEFAULT_REGULATIONS, "levelMinHours">
@@ -97,6 +100,9 @@ const FIELD_GROUPS: { title: string; description: string; fields: FieldDef[] }[]
     fields: [
       { key: "annualPassPercent", label: "نسبة النجاح في المادة (%)", note: "أقل من هذه النسبة ← رسوب في المادة (النظام السنوي)" },
       { key: "maxCarryOverSubjects", label: "أقصى مواد للدور الثاني", note: "رسوب في عدد مواد ≤ هذا ← له دور ثانٍ؛ أكثر ← باقٍ للإعادة" },
+      { key: "annualExcellentMin", label: "حد تقدير ممتاز (%)", note: "المجموع/المادة ≥ هذه النسبة ← تقدير ممتاز" },
+      { key: "annualVeryGoodMin", label: "حد تقدير جيد جداً (%)", note: "≥ هذه النسبة (وأقل من ممتاز) ← تقدير جيد جداً" },
+      { key: "annualGoodMin", label: "حد تقدير جيد (%)", note: "≥ هذه النسبة (وأقل من جيد جداً) ← تقدير جيد؛ ومن نسبة النجاح حتى هنا ← مقبول" },
     ],
   },
 ]

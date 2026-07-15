@@ -13,8 +13,10 @@ import { getRegulations } from '@/lib/regulations';
  */
 export type AnnualGrade = 'ممتاز' | 'جيد جداً' | 'جيد' | 'مقبول' | 'راسب';
 
-// Standard Egyptian annual bands (configurable later; pass threshold comes from regulations).
-export const ANNUAL_GRADE_BANDS: { min: number; label: AnnualGrade }[] = [
+export type AnnualBand = { min: number; label: AnnualGrade };
+
+// Default Egyptian bands (used when the bylaw values are unset).
+export const DEFAULT_ANNUAL_BANDS: AnnualBand[] = [
   { min: 85, label: 'ممتاز' },
   { min: 75, label: 'جيد جداً' },
   { min: 65, label: 'جيد' },
@@ -22,9 +24,30 @@ export const ANNUAL_GRADE_BANDS: { min: number; label: AnnualGrade }[] = [
   { min: 0, label: 'راسب' },
 ];
 
-export function annualGrade(pct: number): AnnualGrade {
-  for (const b of ANNUAL_GRADE_BANDS) if (pct >= b.min) return b.label;
+// Build the تقدير band table from the (configurable) bylaw thresholds. مقبول floor = pass threshold.
+export function bandsFromRegulations(reg: { annualExcellentMin?: number; annualVeryGoodMin?: number; annualGoodMin?: number; annualPassPercent?: number }): AnnualBand[] {
+  return [
+    { min: reg.annualExcellentMin ?? 85, label: 'ممتاز' },
+    { min: reg.annualVeryGoodMin ?? 75, label: 'جيد جداً' },
+    { min: reg.annualGoodMin ?? 65, label: 'جيد' },
+    { min: reg.annualPassPercent ?? 50, label: 'مقبول' },
+    { min: 0, label: 'راسب' },
+  ];
+}
+
+export function gradeFromBands(pct: number, bands: AnnualBand[]): AnnualGrade {
+  for (const b of bands) if (pct >= b.min) return b.label;
   return 'راسب';
+}
+
+/** Grade using default bands (callers with regulations loaded should use bandsFromRegulations). */
+export function annualGrade(pct: number): AnnualGrade {
+  return gradeFromBands(pct, DEFAULT_ANNUAL_BANDS);
+}
+
+/** The configured تقدير band table (reads regulations) — used by the annual report legends. */
+export async function getAnnualBands(): Promise<AnnualBand[]> {
+  return bandsFromRegulations(await getRegulations());
 }
 
 export type AnnualCourseResult = { courseId: string; code: string; name: string; total: number | null; grade: AnnualGrade | null; passed: boolean; graded: boolean };
@@ -66,6 +89,7 @@ export async function computeAnnualForStudents(studentIds: string[], f: TermFilt
   const reg = await getRegulations();
   const passPct = reg.annualPassPercent ?? 50;
   const maxCarry = reg.maxCarryOverSubjects ?? 2;
+  const bands = bandsFromRegulations(reg);
 
   const [students, enrollments] = await Promise.all([
     prisma.student.findMany({ where: { id: { in: studentIds } }, select: { id: true, studentCode: true, nameAr: true, level: true } }),
@@ -84,7 +108,7 @@ export async function computeAnnualForStudents(studentIds: string[], f: TermFilt
       const total = courseTotalPct(e);
       const graded = total != null;
       const passed = graded && total! >= passPct;
-      return { courseId: e.courseId, code: e.course.code, name: e.course.nameAr, total, grade: graded ? annualGrade(total!) : null, passed, graded };
+      return { courseId: e.courseId, code: e.course.code, name: e.course.nameAr, total, grade: graded ? gradeFromBands(total!, bands) : null, passed, graded };
     });
     // aggregate percentage over graded subjects (Σ marks% ÷ n) — simple mean of subject percentages
     const gradedCourses = courses.filter((c) => c.graded);
@@ -98,7 +122,7 @@ export async function computeAnnualForStudents(studentIds: string[], f: TermFilt
     else result = 'باقٍ للإعادة';
     out.set(s.id, {
       studentId: s.id, studentCode: s.studentCode, name: s.nameAr, yearGroup: s.level,
-      courses, overallPct, overallGrade: overallPct != null ? annualGrade(overallPct) : null,
+      courses, overallPct, overallGrade: overallPct != null ? gradeFromBands(overallPct, bands) : null,
       failedCount: failed.length, failedCourses: failed.map((c) => c.code), result,
     });
   }
