@@ -74,11 +74,14 @@ export default function ReportingHub() {
     return options[map[key]] ?? []
   }
   const missingRequired = (active?.requires ?? []).some((r) => !filters[r])
+  // Official ministry export payload (export-only matrix) + its paper size.
+  const ministryMatrix = result?.meta?.ministrySheet?.matrix
+  const paper = ministryMatrix?.paper === "A3" ? "A3" : "A4"
 
   return (
     <div className="space-y-6">
       <style>{`@media print { .no-print { display: none !important; } .print-sheet { border: none !important; box-shadow: none !important; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } } .official-doc { display: none; }`}</style>
-      {officialPrint && <style>{`@page { size: A4 landscape; margin: 8mm; } @media print { body * { visibility: hidden !important; } .official-doc, .official-doc * { visibility: visible !important; } .official-doc { position: absolute; inset: 0; display: block !important; } }`}</style>}
+      {officialPrint && <style>{`@page { size: ${paper} landscape; margin: 6mm; } @media print { body * { visibility: hidden !important; } .official-doc, .official-doc * { visibility: visible !important; } .official-doc { position: absolute; inset: 0; display: block !important; } }`}</style>}
       <div className="flex items-center justify-between no-print">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><BarChart3 className="w-7 h-7 text-institute-blue" /> التقارير والتحليلات</h1>
@@ -89,7 +92,7 @@ export default function ReportingHub() {
           {result && <Button variant="outline" onClick={() => window.print()}><Printer className="w-4 h-4 ml-2" /> طباعة</Button>}
         </div>
       </div>
-      {officialPrint && result?.meta?.ministrySheet && <MinistrySheet result={result} />}
+      {officialPrint && (ministryMatrix ? <MinistryResultMatrix m={ministryMatrix} /> : result?.meta?.ministrySheet && <MinistrySheet result={result} />)}
       {error && <Card><CardContent className="p-4 text-center text-red-600">{error}</CardContent></Card>}
 
       <div className="grid md:grid-cols-[280px_1fr] gap-4">
@@ -288,6 +291,70 @@ function MinistrySheet({ result }: { result: Any }) {
       {Array.isArray(result.footer) && result.footer.length > 0 && <div style={{ marginTop: "6px", fontSize: "9px" }}>مفتاح التقديرات: {result.footer.map((g: Any) => `${g.code}=${g.name} (${g.points})`).join(" · ")}</div>}
       <div style={{ display: "flex", justifyContent: "space-around", marginTop: "26px", fontSize: "11px" }}>
         {sigs.map((s: string, i: number) => <div key={i} style={{ textAlign: "center" }}><div>{s}</div><div style={{ marginTop: "30px", borderTop: "1px solid #333", width: "150px" }} /></div>)}
+      </div>
+    </div>
+  )
+}
+
+// Official وزارة result matrix (ClientR4) — the export-only sheet the ministry certifies/signs. Faithful
+// to the client's PDFs: letterhead + grade-scale box + students×courses matrix where each course cell is
+// الدرجة over التقدير, trailing summary columns, distribution box, and signature block. Print-only,
+// inline styles for deterministic output. Works for both CREDIT_HOURS and ANNUAL matrices.
+function MinistryResultMatrix({ m }: { m: Any }) {
+  const border = "1px solid #333"
+  const cell: CSSProperties = { border, padding: "1px 3px", textAlign: "center", verticalAlign: "middle" }
+  const head: CSSProperties = { ...cell, background: "#e5e7eb", fontWeight: "bold" }
+  const title = m.system === "ANNUAL" ? "كشف نتيجة الفرقة (النظام السنوي)" : "كشف نتيجة المستوى الدراسي"
+  return (
+    <div className="official-doc" dir="rtl" style={{ padding: "2mm", color: "#000", fontSize: "9px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "4px" }}>
+        <table style={{ borderCollapse: "collapse", fontSize: "8px" }}>
+          <tbody><tr>{m.scale.map((g: Any, i: number) => <td key={i} style={{ border, padding: "1px 3px" }}><b>{g.code}</b> {g.range}</td>)}</tr></tbody>
+        </table>
+        <div style={{ textAlign: "center", flex: 1 }}>
+          <div style={{ fontWeight: "bold", fontSize: "15px" }}>{m.institute}</div>
+          {m.faculty ? <div style={{ fontSize: "11px" }}>{m.faculty}</div> : null}
+          <div style={{ fontWeight: "bold", fontSize: "12px", marginTop: "2px" }}>{title}</div>
+          <div style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: "12px", fontSize: "10px", marginTop: "2px" }}>
+            {m.letterhead.map((l: Any, i: number) => <span key={i}>{l.label}: <b>{l.value}</b></span>)}
+          </div>
+        </div>
+        <div style={{ width: "90px" }} />
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th style={head}>م</th>
+            <th style={head}>رقم الجلوس</th>
+            <th style={head}>الاسم</th>
+            {m.courses.map((c: Any) => <th key={c.code} style={head}>{c.code}</th>)}
+            {m.summaryCols.map((s: Any) => <th key={s.key} style={head}>{s.label}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {m.rows.map((r: Any) => (
+            <tr key={r.serial}>
+              <td style={cell}>{r.serial}</td>
+              <td style={cell}>{r.seat}</td>
+              <td style={{ ...cell, textAlign: "right" }}>{r.name}</td>
+              {m.courses.map((c: Any) => {
+                const d = r.cells[c.code]
+                return <td key={c.code} style={cell}>{d ? <><div style={{ fontWeight: "bold" }}>{d.mark}</div><div style={{ fontSize: "8px" }}>{d.grade}</div></> : ""}</td>
+              })}
+              {m.summaryCols.map((s: Any) => <td key={s.key} style={cell}>{r.summary?.[s.key] ?? ""}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ marginTop: "4px", fontSize: "8px" }}>المقررات: {m.courses.map((c: Any) => `${c.code} = ${c.name}`).join("  ·  ")}</div>
+      {Array.isArray(m.distribution) && m.distribution.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px", fontSize: "9px" }}>
+          {m.distribution.map((d: Any, i: number) => <span key={i} style={{ border, padding: "1px 5px" }}>{d.label}: <b>{String(d.value)}</b></span>)}
+        </div>
+      )}
+      {m.controlTitle ? <div style={{ textAlign: "center", fontWeight: "bold", marginTop: "16px", fontSize: "10px" }}>{m.controlTitle}</div> : null}
+      <div style={{ display: "flex", justifyContent: "space-around", marginTop: "6px", fontSize: "10px" }}>
+        {m.signatures.map((s: string, i: number) => <div key={i} style={{ textAlign: "center" }}><div>{s}</div><div style={{ marginTop: "26px", borderTop: border, width: "120px" }} /></div>)}
       </div>
     </div>
   )

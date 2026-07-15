@@ -724,6 +724,13 @@ model Student {
   holdReason              String?
   source                  String? // admissions/marketing source (مصدر الطالب)
   entryQualification      String? // ثانوية عامة | مدارس فنية | … → qualification filter
+  // ClientR4 ministry result-sheet + بيان حالة bio fields (additive) — feed the official وزارة sheet
+  seatNumber              String? // رقم الجلوس (exam seat number) — ministry sheets; falls back to studentCode
+  birthPlace              String? // محل الميلاد
+  priorSchool             String? // جهة/مدرسة المؤهل السابق
+  priorQualTotal          String? // مجموع المؤهل السابق (كما يُطبع على الشيت)
+  priorQualYear           String? // سنة الحصول على المؤهل السابق
+  admissionType           String? // نوع القبول
   universityId            String?
   facultyId               String?
   createdAt               DateTime                   @default(now())

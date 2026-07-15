@@ -1,7 +1,8 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef, ReportColumn, ReportRow } from '@/lib/reporting/types';
-import { studentWhere } from '@/lib/reporting/filters';
+import { studentWhere, academicSystemWhere } from '@/lib/reporting/filters';
 import { computeAnnualForStudents, computeAnnualResult, getAnnualBands } from '@/lib/annual';
+import { buildMinistryMatrix, rankByDesc } from '@/lib/reporting/ministry-matrix';
 
 /**
  * Annual (traditional) result reports (Dual-system Phase 3). Surface the `lib/annual.ts` engine as
@@ -29,8 +30,9 @@ export const annualReports: ReportDef[] = [
     description: 'مصفوفة نتائج الفرقة (النظام السنوي): طالب × مادة بالنِّسَب المئوية + التقدير والنتيجة — تُصدَّر بصيغة الوزارة للتوقيع',
     permission: VIEW, filters: ['level', 'academicYear', 'departmentId', 'programId'], requires: ['level', 'academicYear'],
     run: async (f, ctx) => {
-      const students = await prisma.student.findMany({ where: studentWhere(f, ctx.universityId ?? null), select: { id: true }, orderBy: { studentCode: 'asc' } });
+      const students = await prisma.student.findMany({ where: { AND: [studentWhere(f, ctx.universityId ?? null), academicSystemWhere('ANNUAL')] }, select: { id: true, seatNumber: true, studentCode: true }, orderBy: { studentCode: 'asc' } });
       if (!students.length) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا يوجد طلاب بهذه المعايير' } };
+      const seatById = new Map(students.map((s) => [s.id, s.seatNumber ?? s.studentCode]));
       const results = await computeAnnualForStudents(students.map((s) => s.id), { academicYear: f.academicYear });
       const courseMap = new Map<string, { code: string; name: string }>();
       for (const r of results.values()) for (const c of r.courses) if (!courseMap.has(c.courseId)) courseMap.set(c.courseId, { code: c.code, name: c.name });
@@ -53,12 +55,39 @@ export const annualReports: ReportDef[] = [
         ...courseCols.map(([id, c]) => ({ key: id, label: c.code, align: 'center' as const })),
         { key: 'overall', label: 'المجموع %', align: 'center', numeric: true }, { key: 'grade', label: 'التقدير', align: 'center' }, { key: 'result', label: 'النتيجة', align: 'center' },
       ];
+      // ---- Official ministry export matrix (annual فرقة sheet — %/تقدير, no GPA) ----
+      const [institute, dept, bands] = await Promise.all([
+        instituteName(ctx.universityId),
+        f.departmentId ? prisma.department.findUnique({ where: { id: f.departmentId }, select: { nameAr: true } }) : Promise.resolve(null),
+        getAnnualBands(),
+      ]);
+      const rankMap = rankByDesc(ordered, (r) => r.studentId, (r) => r.overallPct ?? 0);
+      const matrix = await buildMinistryMatrix({
+        system: 'ANNUAL', institute,
+        letterhead: [
+          ...(dept?.nameAr ? [{ label: 'القسم', value: dept.nameAr }] : []),
+          { label: 'الفرقة', value: String(f.level) },
+          { label: 'العام الجامعي', value: f.academicYear ?? '—' },
+        ],
+        courses: courseCols.map(([, c]) => ({ code: c.code, name: c.name })),
+        summaryCols: [
+          { key: 'pct', label: 'النسبة المئوية' }, { key: 'grade', label: 'التقدير العام' },
+          { key: 'result', label: 'الحالة' }, { key: 'rank', label: 'الترتيب' },
+        ],
+        rows: ordered.map((r, i) => ({
+          serial: i + 1, seat: seatById.get(r.studentId) ?? r.studentCode, name: r.name,
+          cells: Object.fromEntries(r.courses.map((c) => [c.code, { mark: c.total != null ? c.total.toFixed(0) : '—', grade: c.grade ?? '—' }])),
+          summary: { pct: r.overallPct != null ? r.overallPct.toFixed(1) : '—', grade: r.overallGrade ?? '—', result: r.result, rank: String(rankMap.get(r.studentId) ?? '—') },
+        })),
+        scale: bands.map((b) => ({ code: b.label, name: `≥ ${b.min}%`, range: `${b.min}+` })),
+        distribution: stats,
+      });
       return {
         kind: 'sheet',
         title: `كشف النتيجة السنوية — الفرقة ${f.level} — ${f.academicYear}`,
-        header: { المعهد: await instituteName(ctx.universityId), الفرقة: String(f.level), 'العام الجامعي': f.academicYear ?? '—' },
+        header: { المعهد: institute, الفرقة: String(f.level), 'العام الجامعي': f.academicYear ?? '—' },
         footer: await bandFooter(),
-        meta: { stats, courses: courseCols.map(([, c]) => `${c.code}: ${c.name}`), ministrySheet: { signatures: MINISTRY_SIGNATURES } },
+        meta: { stats, courses: courseCols.map(([, c]) => `${c.code}: ${c.name}`), ministrySheet: { signatures: MINISTRY_SIGNATURES, matrix } },
         columns, rows,
         totals: { code: 'الإجمالي', name: `${rows.length} طالب` },
       };
@@ -108,7 +137,7 @@ export const annualReports: ReportDef[] = [
 
 // Shared roster for a سنوي result status (دور ثانٍ / باقٍ للإعادة).
 async function annualStatusList(f: Record<string, string | undefined>, ctx: { universityId: string | null }, status: string) {
-  const students = await prisma.student.findMany({ where: studentWhere(f, ctx.universityId ?? null), select: { id: true }, orderBy: { studentCode: 'asc' } });
+  const students = await prisma.student.findMany({ where: { AND: [studentWhere(f, ctx.universityId ?? null), academicSystemWhere('ANNUAL')] }, select: { id: true }, orderBy: { studentCode: 'asc' } });
   if (!students.length) return { kind: 'table' as const, columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا يوجد طلاب بهذه المعايير' } };
   const results = await computeAnnualForStudents(students.map((s) => s.id), { academicYear: f.academicYear });
   const rows: ReportRow[] = [...results.values()].filter((r) => r.result === status).map((r) => ({ code: r.studentCode, name: r.name, failedCount: r.failedCount, failed: r.failedCourses.join('، '), overall: r.overallPct != null ? r.overallPct.toFixed(1) : '—' }));

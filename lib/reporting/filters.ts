@@ -43,6 +43,18 @@ export function studentWhere(f: Filters, universityId: string | null): Record<st
   return w;
 }
 
+/**
+ * Where-fragment restricting students to one academic system via their program. Needed because a dual-system
+ * institute shares level/فرقة numbers across a credit-hour AND an annual program — without this, a level-2
+ * annual student would leak into the credit-hour level sheet (and vice-versa). CREDIT_HOURS is the default,
+ * so students with no program count as credit-hours; ANNUAL requires an explicit ANNUAL program.
+ */
+export function academicSystemWhere(system: 'CREDIT_HOURS' | 'ANNUAL'): Record<string, unknown> {
+  return system === 'ANNUAL'
+    ? { program: { academicSystem: 'ANNUAL' } }
+    : { OR: [{ program: { academicSystem: 'CREDIT_HOURS' } }, { programId: null }] };
+}
+
 /** Option lists for the hub filter bar (tenant-scoped). */
 export async function filterOptions(universityId: string | null) {
   const scope = universityId ? { universityId } : {};

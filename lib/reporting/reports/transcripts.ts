@@ -1,8 +1,9 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef, ReportColumn, ReportRow } from '@/lib/reporting/types';
-import { SEMESTERS, studentWhere } from '@/lib/reporting/filters';
+import { SEMESTERS, studentWhere, academicSystemWhere } from '@/lib/reporting/filters';
 import { computeStandingForStudents } from '@/lib/standing';
 import { classify } from '@/lib/reports';
+import { buildMinistryMatrix, rankByDesc, type MinistryScaleRow } from '@/lib/reporting/ministry-matrix';
 
 /**
  * Detailed result sheets (ClientR4 — R4b). Three official documents modelled on the client's samples:
@@ -51,6 +52,21 @@ async function gradeScaleFooter(universityId: string | null): Promise<ReportRow[
     out.push({ code: g.code, name: g.name, points: g.points != null ? g.points.toFixed(2) : '—', minPercent: g.minPercent != null ? `${g.minPercent}%` : '—' });
   }
   return out;
+}
+
+async function departmentName(id?: string): Promise<string | null> {
+  if (!id) return null;
+  const d = await prisma.department.findUnique({ where: { id }, select: { nameAr: true } });
+  return d?.nameAr ?? null;
+}
+
+/** Grade-scale legend mapped into the ministry-matrix scale shape (code · name · min% · points). */
+async function ministryScale(universityId: string | null): Promise<MinistryScaleRow[]> {
+  return (await gradeScaleFooter(universityId)).map((g) => ({
+    code: String(g.code), name: String(g.name),
+    range: g.minPercent && g.minPercent !== '—' ? `${g.minPercent}+` : '—',
+    points: String(g.points),
+  }));
 }
 
 export const transcriptsReports: ReportDef[] = [
@@ -112,17 +128,29 @@ export const transcriptsReports: ReportDef[] = [
       }
       const cgpa = cumGpaHours ? cumQuality / cumGpaHours : 0;
 
+      // بيان حالة bio block (matches the client's screen photo) — only shows fields that are set.
+      const bio: Record<string, string> = {};
+      if (student.birthPlace) bio['محل الميلاد'] = student.birthPlace;
+      if (student.birthDate) bio['تاريخ الميلاد'] = student.birthDate.toISOString().slice(0, 10);
+      if (student.address) bio['العنوان'] = student.address;
+      if (student.entryQualification) bio['مؤهل القبول'] = student.entryQualification;
+      if (student.priorSchool) bio['المدرسة'] = student.priorSchool;
+      if (student.priorQualTotal) bio['المجموع'] = student.priorQualTotal;
+      if (student.priorQualYear) bio['سنة المؤهل'] = student.priorQualYear;
+      if (student.admissionType) bio['نوع القبول'] = student.admissionType;
+
       return {
         kind: 'sheet',
         title: `بيان حالة — ${student.nameAr}`,
         header: {
           المعهد: await instituteName(ctx.universityId),
           الطالب: student.nameAr,
-          'رقم الجلوس': student.studentCode,
+          'رقم الجلوس': student.seatNumber ?? student.studentCode,
           البرنامج: student.program?.nameAr ?? '—',
           القسم: student.department?.nameAr ?? '—',
           المستوى: String(student.level),
           الحالة: STATUS_AR[student.status] ?? student.status,
+          ...bio,
         },
         footer: await gradeScaleFooter(ctx.universityId),
         meta: { transcript: { terms, summary: { cgpa: cgpa.toFixed(2), earnedHours: cumEarned, grade: cgpaToGrade(cgpa) } } },
@@ -142,7 +170,7 @@ export const transcriptsReports: ReportDef[] = [
     permission: VIEW, filters: ['departmentId', 'programId'],
     run: async (f, ctx) => {
       const students = await prisma.student.findMany({
-        where: { universityId: ctx.universityId ?? undefined, status: 'GRADUATED', ...(f.departmentId ? { departmentId: f.departmentId } : {}), ...(f.programId ? { programId: f.programId } : {}) },
+        where: { AND: [{ universityId: ctx.universityId ?? undefined, status: 'GRADUATED', ...(f.departmentId ? { departmentId: f.departmentId } : {}), ...(f.programId ? { programId: f.programId } : {}) }, academicSystemWhere('CREDIT_HOURS')] },
         include: { program: { select: { nameAr: true } } },
         orderBy: { studentCode: 'asc' },
       });
@@ -177,8 +205,8 @@ export const transcriptsReports: ReportDef[] = [
     permission: VIEW, filters: ['level', 'academicYear', 'semester', 'departmentId', 'programId'], requires: ['level', 'academicYear', 'semester'],
     run: async (f, ctx) => {
       const students = await prisma.student.findMany({
-        where: studentWhere(f, ctx.universityId ?? null),
-        select: { id: true, studentCode: true, nameAr: true },
+        where: { AND: [studentWhere(f, ctx.universityId ?? null), academicSystemWhere('CREDIT_HOURS')] },
+        select: { id: true, studentCode: true, nameAr: true, seatNumber: true },
         orderBy: { studentCode: 'asc' },
       });
       if (!students.length) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا يوجد طلاب في هذا المستوى' } };
@@ -203,23 +231,36 @@ export const transcriptsReports: ReportDef[] = [
       for (const e of enrollments) (byStudent.get(e.studentId) ?? byStudent.set(e.studentId, []).get(e.studentId)!).push(e);
 
       let passed = 0, failed = 0, incomplete = 0;
+      // Per-student aggregate feeding BOTH the screen row and the ministry-matrix row.
+      type MRec = { id: string; seat: string; name: string; cells: Record<string, { mark: string; grade: string }>; regHours: number; earnedHours: number; quality: number; termGpa: number; cgpa: number; result: string };
+      const mrecs: MRec[] = [];
       const rows: ReportRow[] = students.map((s) => {
         const es = byStudent.get(s.id) ?? [];
         const row: ReportRow = { code: s.studentCode, name: s.nameAr };
-        let qp = 0, gpaHours = 0, hasFail = false, hasPending = false;
+        const cells: Record<string, { mark: string; grade: string }> = {};
+        let qp = 0, gpaHours = 0, regHours = 0, earnedHours = 0, hasFail = false, hasPending = false;
         for (const e of es) {
-          row[e.course.id] = e.letterGrade ?? e.gradeStatusCode ?? '—';
+          const grade = e.letterGrade ?? e.gradeStatusCode ?? '—';
+          row[e.course.id] = grade;
+          const comps = [e.midterm, e.final, e.practical, e.homework].filter((v): v is number => v != null);
+          const mark = comps.length ? comps.reduce((a, v) => a + v, 0).toFixed(0) : '—';
+          cells[e.course.code] = { mark, grade };
           const st = e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null;
           const cls = classify(st);
           if (cls === 'fail') hasFail = true;
           if (cls === 'incomplete' || e.resultPending) hasPending = true;
+          regHours += e.course.creditHours;
+          if (st?.isPass) earnedHours += e.course.creditHours;
           if (e.points != null && e.course.countsInGpa) { qp += e.points * e.course.creditHours; gpaHours += e.course.creditHours; }
         }
-        row.gpa = gpaHours > 0 ? (qp / gpaHours).toFixed(2) : '—';
-        row.cgpa = (standings.get(s.id)?.cgpa ?? 0).toFixed(2);
+        const termGpa = gpaHours > 0 ? qp / gpaHours : 0;
+        const cgpa = standings.get(s.id)?.cgpa ?? 0;
+        row.gpa = gpaHours > 0 ? termGpa.toFixed(2) : '—';
+        row.cgpa = cgpa.toFixed(2);
         const result = hasFail ? 'راسب' : hasPending ? 'غير مكتمل' : es.length ? 'ناجح' : '—';
         row.result = result;
         if (result === 'ناجح') passed++; else if (result === 'راسب') failed++; else if (result === 'غير مكتمل') incomplete++;
+        mrecs.push({ id: s.id, seat: s.seatNumber ?? s.studentCode, name: s.nameAr, cells, regHours, earnedHours, quality: qp, termGpa, cgpa, result });
         return row;
       });
 
@@ -245,12 +286,36 @@ export const transcriptsReports: ReportDef[] = [
         { label: 'نسبة النجاح', value: students.length ? `${Math.round((passed / students.length) * 100)}%` : '—' },
         ...gradeOrder.map((code) => ({ label: `تقدير ${code}`, value: gradeDist.get(code)! })),
       ];
+      // ---- Official ministry export matrix (درجة/تقدير per course + trailing summary cols) ----
+      const [institute, dept, scale] = await Promise.all([instituteName(ctx.universityId), departmentName(f.departmentId), ministryScale(ctx.universityId)]);
+      const rankMap = rankByDesc(mrecs, (r) => r.id, (r) => r.cgpa);
+      const summaryCols = [
+        { key: 'reg', label: 'س.مسجلة' }, { key: 'earned', label: 'س.مكتسبة' }, { key: 'quality', label: 'نقاط الجودة' },
+        { key: 'gpa', label: 'المعدل الفصلي' }, { key: 'cgpa', label: 'المعدل التراكمي' }, { key: 'grade', label: 'التقدير العام' },
+        { key: 'result', label: 'الحالة' }, { key: 'rank', label: 'الترتيب' },
+      ];
+      const matrix = await buildMinistryMatrix({
+        system: 'CREDIT_HOURS', institute,
+        letterhead: [
+          ...(dept ? [{ label: 'القسم', value: dept }] : []),
+          { label: 'المستوى', value: String(f.level) },
+          { label: 'العام الجامعي', value: f.academicYear ?? '—' },
+          { label: 'الفصل الدراسي', value: semLabel(f.semester ?? '') },
+        ],
+        courses: courseCols.map(([, c]) => ({ code: c.code, name: c.name })),
+        summaryCols,
+        rows: mrecs.map((r, i) => ({
+          serial: i + 1, seat: r.seat, name: r.name, cells: r.cells,
+          summary: { reg: String(r.regHours), earned: String(r.earnedHours), quality: r.quality.toFixed(1), gpa: r.termGpa.toFixed(2), cgpa: r.cgpa.toFixed(2), grade: cgpaToGrade(r.cgpa), result: r.result, rank: String(rankMap.get(r.id) ?? '—') },
+        })),
+        scale, distribution: stats,
+      });
       return {
         kind: 'sheet',
         title: `كشف نتيجة المستوى ${f.level} — ${termLabelOf(f.academicYear ?? '', f.semester ?? '')}`,
-        header: { المعهد: await instituteName(ctx.universityId), المستوى: String(f.level), 'العام الجامعي': f.academicYear ?? '—', 'الفصل الدراسي': semLabel(f.semester ?? '') },
+        header: { المعهد: institute, المستوى: String(f.level), 'العام الجامعي': f.academicYear ?? '—', 'الفصل الدراسي': semLabel(f.semester ?? '') },
         footer: await gradeScaleFooter(ctx.universityId),
-        meta: { stats, courses: courseCols.map(([, c]) => `${c.code}: ${c.name}`), ministrySheet: { signatures: MINISTRY_SIGNATURES } },
+        meta: { stats, courses: courseCols.map(([, c]) => `${c.code}: ${c.name}`), ministrySheet: { signatures: MINISTRY_SIGNATURES, matrix } },
         columns,
         rows,
         totals: { code: 'الإجمالي', name: `${students.length} طالب` },
@@ -263,7 +328,7 @@ export const transcriptsReports: ReportDef[] = [
     permission: VIEW, filters: ['academicYear', 'semester', 'departmentId', 'programId'], requires: ['academicYear', 'semester'],
     run: async (f, ctx) => {
       const uid = ctx.universityId ?? null;
-      const students = await prisma.student.findMany({ where: { ...studentWhere(f, uid), status: 'GRADUATED' }, select: { id: true, studentCode: true, nameAr: true }, orderBy: { studentCode: 'asc' } });
+      const students = await prisma.student.findMany({ where: { AND: [studentWhere(f, uid), academicSystemWhere('CREDIT_HOURS'), { status: 'GRADUATED' }] }, select: { id: true, studentCode: true, nameAr: true, seatNumber: true }, orderBy: { studentCode: 'asc' } });
       if (!students.length) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا يوجد خريجون بهذه المعايير' } };
       const ids = students.map((s) => s.id);
       const [enrollments, statuses, standings] = await Promise.all([
@@ -278,19 +343,26 @@ export const transcriptsReports: ReportDef[] = [
       const byStudent = new Map<string, typeof enrollments>();
       for (const e of enrollments) (byStudent.get(e.studentId) ?? byStudent.set(e.studentId, []).get(e.studentId)!).push(e);
       const gradeDist = new Map<string, number>();
+      type GRec = { id: string; seat: string; name: string; cells: Record<string, { mark: string; grade: string }>; cgpa: number; earned: number; result: string };
+      const grecs: GRec[] = [];
       const rows: ReportRow[] = students.map((s) => {
         const es = byStudent.get(s.id) ?? [];
         const row: ReportRow = { code: s.studentCode, name: s.nameAr };
+        const cells: Record<string, { mark: string; grade: string }> = {};
         let hasFail = false;
         for (const e of es) {
           const g = e.letterGrade ?? e.gradeStatusCode ?? '—';
           row[e.course.id] = g;
+          const comps = [e.midterm, e.final, e.practical, e.homework].filter((v): v is number => v != null);
+          cells[e.course.code] = { mark: comps.length ? comps.reduce((a, v) => a + v, 0).toFixed(0) : '—', grade: g };
           const st = e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null;
           if (classify(st) === 'fail') hasFail = true;
           if (g !== '—' && (!st || st.isLetter)) gradeDist.set(g, (gradeDist.get(g) ?? 0) + 1);
         }
         const cgpa = standings.get(s.id)?.cgpa ?? 0;
-        row.cgpa = cgpa.toFixed(2); row.grade = cgpaToGrade(cgpa); row.result = hasFail ? 'راسب' : 'ناجح';
+        const result = hasFail ? 'راسب' : 'ناجح';
+        row.cgpa = cgpa.toFixed(2); row.grade = cgpaToGrade(cgpa); row.result = result;
+        grecs.push({ id: s.id, seat: s.seatNumber ?? s.studentCode, name: s.nameAr, cells, cgpa, earned: standings.get(s.id)?.earnedHours ?? 0, result });
         return row;
       });
       const gradeOrder = [...gradeDist.keys()].sort((a, b) => (byCode.get(b)?.minPercent ?? -1) - (byCode.get(a)?.minPercent ?? -1));
@@ -300,12 +372,33 @@ export const transcriptsReports: ReportDef[] = [
         { key: 'cgpa', label: 'المعدل التراكمي', align: 'center', numeric: true }, { key: 'grade', label: 'التقدير العام', align: 'center' }, { key: 'result', label: 'النتيجة', align: 'center' },
       ];
       const stats = [{ label: 'إجمالي الخريجين', value: students.length }, ...gradeOrder.map((code) => ({ label: `تقدير ${code}`, value: gradeDist.get(code)! }))];
+      // ---- Official ministry export matrix (graduation results board) ----
+      const [institute, dept, scale] = await Promise.all([instituteName(uid), departmentName(f.departmentId), ministryScale(uid)]);
+      const rankMap = rankByDesc(grecs, (r) => r.id, (r) => r.cgpa);
+      const matrix = await buildMinistryMatrix({
+        system: 'CREDIT_HOURS', institute,
+        letterhead: [
+          ...(dept ? [{ label: 'القسم', value: dept }] : []),
+          { label: 'دفعة', value: f.academicYear ?? '—' },
+          { label: 'الفصل الدراسي', value: semLabel(f.semester ?? '') },
+        ],
+        courses: courseCols.map(([, c]) => ({ code: c.code, name: c.name })),
+        summaryCols: [
+          { key: 'cgpa', label: 'المعدل التراكمي' }, { key: 'earned', label: 'الساعات المكتسبة' },
+          { key: 'grade', label: 'التقدير العام' }, { key: 'result', label: 'الحالة' }, { key: 'rank', label: 'الترتيب' },
+        ],
+        rows: grecs.map((r, i) => ({
+          serial: i + 1, seat: r.seat, name: r.name, cells: r.cells,
+          summary: { cgpa: r.cgpa.toFixed(2), earned: String(r.earned), grade: cgpaToGrade(r.cgpa), result: r.result, rank: String(rankMap.get(r.id) ?? '—') },
+        })),
+        scale, distribution: stats,
+      });
       return {
         kind: 'sheet',
         title: `كشف نتيجة الخريجين — ${termLabelOf(f.academicYear ?? '', f.semester ?? '')}`,
-        header: { المعهد: await instituteName(uid), 'العام الجامعي': f.academicYear ?? '—', 'الفصل الدراسي': semLabel(f.semester ?? ''), 'عدد الخريجين': String(students.length) },
+        header: { المعهد: institute, 'العام الجامعي': f.academicYear ?? '—', 'الفصل الدراسي': semLabel(f.semester ?? ''), 'عدد الخريجين': String(students.length) },
         footer: await gradeScaleFooter(uid),
-        meta: { stats, courses: courseCols.map(([, c]) => `${c.code}: ${c.name}`), ministrySheet: { signatures: MINISTRY_SIGNATURES } },
+        meta: { stats, courses: courseCols.map(([, c]) => `${c.code}: ${c.name}`), ministrySheet: { signatures: MINISTRY_SIGNATURES, matrix } },
         columns, rows,
         totals: { code: 'الإجمالي', name: `${students.length} خريج` },
       };
