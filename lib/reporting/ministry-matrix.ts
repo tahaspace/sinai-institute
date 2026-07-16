@@ -7,7 +7,8 @@ import { getMinistrySheetConfig } from '@/lib/ministry-sheet';
  * at `meta.ministrySheet.matrix`; rendered by <MinistryResultMatrix/> in the reporting hub. Used by both
  * academic systems: CREDIT_HOURS (level/graduates, with GPA) and ANNUAL (فرقة, with %/تقدير, no GPA).
  */
-export type MinistryCell = { mark: string; grade: string }; // one course × one student: الدرجة over التقدير
+// One course × one student: the component parts (keyed by component key) + المجموع + التقدير.
+export type MinistryCell = { parts: Record<string, string>; total: string; grade: string };
 export type MinistryMatrixRow = {
   serial: number; // م
   seat: string; // رقم الجلوس
@@ -15,9 +16,26 @@ export type MinistryMatrixRow = {
   cells: Record<string, MinistryCell>; // keyed by course code
   summary: Record<string, string>; // keyed by summaryCol.key (trailing columns)
 };
-export type MinistryCourseCol = { code: string; name: string; hours?: number };
+// A course's internal mark distribution (التقسيمة الداخلية) — only the parts with a max > 0 appear.
+export type MinistryComponent = { key: string; label: string; max: number };
+export type MinistryCourseCol = { code: string; name: string; hours?: number; components: MinistryComponent[]; totalMax: number };
 export type MinistrySummaryCol = { key: string; label: string };
 export type MinistryScaleRow = { code: string; name: string; range: string; points?: string };
+
+// Canonical component order for the ministry sheet (أعمال السنة · نصفي · عملي · تحريري). Maps the
+// Enrollment mark fields + Course *Max fields to their Arabic sheet labels.
+export const MARK_COMPONENTS: { key: string; label: string; maxKey: 'homeworkMax' | 'midtermMax' | 'practicalMax' | 'finalMax' }[] = [
+  { key: 'homework', label: 'أعمال السنة', maxKey: 'homeworkMax' },
+  { key: 'midterm', label: 'نصفي', maxKey: 'midtermMax' },
+  { key: 'practical', label: 'عملي', maxKey: 'practicalMax' },
+  { key: 'final', label: 'تحريري', maxKey: 'finalMax' },
+];
+
+/** Build a course's visible component columns from its *Max fields (drops parts whose max is 0). */
+export function courseComponents(maxes: { homeworkMax: number; midtermMax: number; practicalMax: number; finalMax: number }): { components: MinistryComponent[]; totalMax: number } {
+  const components = MARK_COMPONENTS.map((c) => ({ key: c.key, label: c.label, max: maxes[c.maxKey] })).filter((c) => c.max > 0);
+  return { components, totalMax: components.reduce((s, c) => s + c.max, 0) };
+}
 
 export type MinistryMatrix = {
   system: 'CREDIT_HOURS' | 'ANNUAL';
@@ -47,6 +65,10 @@ export async function buildMinistryMatrix(input: {
   distribution: { label: string; value: string | number }[];
 }): Promise<MinistryMatrix> {
   const cfg = await getMinistrySheetConfig();
+  // Auto-widen to A3 when the component sub-columns push the sheet past what A4 landscape can hold.
+  // Leaf columns = م + جلوس + اسم (3) + Σ(course parts + المجموع + التقدير) + trailing summary cols.
+  const leafCols = 3 + input.summaryCols.length + input.courses.reduce((s, c) => s + c.components.length + 2, 0);
+  const paper: 'A4' | 'A3' = leafCols > 18 ? 'A3' : cfg.paper;
   return {
     system: input.system,
     institute: input.institute,
@@ -59,7 +81,7 @@ export async function buildMinistryMatrix(input: {
     scale: input.scale,
     distribution: input.distribution,
     signatures: cfg.signatures,
-    paper: cfg.paper,
+    paper,
     showQualityPoints: cfg.showQualityPoints,
   };
 }

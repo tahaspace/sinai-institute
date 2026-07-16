@@ -3,7 +3,7 @@ import type { ReportDef, ReportColumn, ReportRow } from '@/lib/reporting/types';
 import { SEMESTERS, studentWhere, academicSystemWhere } from '@/lib/reporting/filters';
 import { computeStandingForStudents } from '@/lib/standing';
 import { classify } from '@/lib/reports';
-import { buildMinistryMatrix, rankByDesc, type MinistryScaleRow } from '@/lib/reporting/ministry-matrix';
+import { buildMinistryMatrix, rankByDesc, courseComponents, MARK_COMPONENTS, type MinistryScaleRow, type MinistryComponent } from '@/lib/reporting/ministry-matrix';
 
 /**
  * Detailed result sheets (ClientR4 — R4b). Three official documents modelled on the client's samples:
@@ -214,16 +214,16 @@ export const transcriptsReports: ReportDef[] = [
       const [enrollments, statuses, standings] = await Promise.all([
         prisma.enrollment.findMany({
           where: { studentId: { in: ids }, academicYear: f.academicYear, semester: f.semester },
-          include: { course: { select: { id: true, code: true, nameAr: true, creditHours: true, countsInGpa: true } } },
+          include: { course: { select: { id: true, code: true, nameAr: true, creditHours: true, countsInGpa: true, midtermMax: true, finalMax: true, practicalMax: true, homeworkMax: true } } },
         }),
         prisma.gradeStatus.findMany({ where: ctx.universityId ? { universityId: ctx.universityId } : {} }),
         computeStandingForStudents(ids),
       ]);
       const byCode = new Map(statuses.map((s) => [s.code, s]));
 
-      // distinct courses in this term → dynamic columns
-      const courses = new Map<string, { code: string; name: string }>();
-      for (const e of enrollments) if (!courses.has(e.course.id)) courses.set(e.course.id, { code: e.course.code, name: e.course.nameAr });
+      // distinct courses in this term → dynamic columns, each carrying its internal mark split
+      const courses = new Map<string, { code: string; name: string; components: MinistryComponent[]; totalMax: number }>();
+      for (const e of enrollments) if (!courses.has(e.course.id)) { const cc = courseComponents(e.course); courses.set(e.course.id, { code: e.course.code, name: e.course.nameAr, components: cc.components, totalMax: cc.totalMax }); }
       const courseCols = [...courses.entries()].sort((a, b) => a[1].code.localeCompare(b[1].code));
 
       // per-student: course grade map + term GPA + result
@@ -232,19 +232,25 @@ export const transcriptsReports: ReportDef[] = [
 
       let passed = 0, failed = 0, incomplete = 0;
       // Per-student aggregate feeding BOTH the screen row and the ministry-matrix row.
-      type MRec = { id: string; seat: string; name: string; cells: Record<string, { mark: string; grade: string }>; regHours: number; earnedHours: number; quality: number; termGpa: number; cgpa: number; result: string };
+      type MCell = { parts: Record<string, string>; total: string; grade: string };
+      type MRec = { id: string; seat: string; name: string; cells: Record<string, MCell>; regHours: number; earnedHours: number; quality: number; termGpa: number; cgpa: number; result: string };
       const mrecs: MRec[] = [];
       const rows: ReportRow[] = students.map((s) => {
         const es = byStudent.get(s.id) ?? [];
         const row: ReportRow = { code: s.studentCode, name: s.nameAr };
-        const cells: Record<string, { mark: string; grade: string }> = {};
+        const cells: Record<string, MCell> = {};
         let qp = 0, gpaHours = 0, regHours = 0, earnedHours = 0, hasFail = false, hasPending = false;
         for (const e of es) {
           const grade = e.letterGrade ?? e.gradeStatusCode ?? '—';
           row[e.course.id] = grade;
           const comps = [e.midterm, e.final, e.practical, e.homework].filter((v): v is number => v != null);
           const mark = comps.length ? comps.reduce((a, v) => a + v, 0).toFixed(0) : '—';
-          cells[e.course.code] = { mark, grade };
+          // per-component marks (only the parts the course actually has)
+          const partVals: Record<string, number | null> = { homework: e.homework, midterm: e.midterm, practical: e.practical, final: e.final };
+          const partMax: Record<string, number> = { homework: e.course.homeworkMax, midterm: e.course.midtermMax, practical: e.course.practicalMax, final: e.course.finalMax };
+          const parts: Record<string, string> = {};
+          for (const comp of MARK_COMPONENTS) if (partMax[comp.key] > 0) parts[comp.key] = partVals[comp.key] != null ? String(partVals[comp.key]) : '—';
+          cells[e.course.code] = { parts, total: mark, grade };
           const st = e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null;
           const cls = classify(st);
           if (cls === 'fail') hasFail = true;
@@ -302,7 +308,7 @@ export const transcriptsReports: ReportDef[] = [
           { label: 'العام الجامعي', value: f.academicYear ?? '—' },
           { label: 'الفصل الدراسي', value: semLabel(f.semester ?? '') },
         ],
-        courses: courseCols.map(([, c]) => ({ code: c.code, name: c.name })),
+        courses: courseCols.map(([, c]) => ({ code: c.code, name: c.name, components: c.components, totalMax: c.totalMax })),
         summaryCols,
         rows: mrecs.map((r, i) => ({
           serial: i + 1, seat: r.seat, name: r.name, cells: r.cells,
@@ -332,29 +338,34 @@ export const transcriptsReports: ReportDef[] = [
       if (!students.length) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا يوجد خريجون بهذه المعايير' } };
       const ids = students.map((s) => s.id);
       const [enrollments, statuses, standings] = await Promise.all([
-        prisma.enrollment.findMany({ where: { studentId: { in: ids }, academicYear: f.academicYear, semester: f.semester }, include: { course: { select: { id: true, code: true, nameAr: true } } } }),
+        prisma.enrollment.findMany({ where: { studentId: { in: ids }, academicYear: f.academicYear, semester: f.semester }, include: { course: { select: { id: true, code: true, nameAr: true, midtermMax: true, finalMax: true, practicalMax: true, homeworkMax: true } } } }),
         prisma.gradeStatus.findMany({ where: ctx.universityId ? { universityId: ctx.universityId } : {} }),
         computeStandingForStudents(ids),
       ]);
       const byCode = new Map(statuses.map((s) => [s.code, s]));
-      const courses = new Map<string, { code: string; name: string }>();
-      for (const e of enrollments) if (!courses.has(e.course.id)) courses.set(e.course.id, { code: e.course.code, name: e.course.nameAr });
+      const courses = new Map<string, { code: string; name: string; components: MinistryComponent[]; totalMax: number }>();
+      for (const e of enrollments) if (!courses.has(e.course.id)) { const cc = courseComponents(e.course); courses.set(e.course.id, { code: e.course.code, name: e.course.nameAr, components: cc.components, totalMax: cc.totalMax }); }
       const courseCols = [...courses.entries()].sort((a, b) => a[1].code.localeCompare(b[1].code));
       const byStudent = new Map<string, typeof enrollments>();
       for (const e of enrollments) (byStudent.get(e.studentId) ?? byStudent.set(e.studentId, []).get(e.studentId)!).push(e);
       const gradeDist = new Map<string, number>();
-      type GRec = { id: string; seat: string; name: string; cells: Record<string, { mark: string; grade: string }>; cgpa: number; earned: number; result: string };
+      type GCell = { parts: Record<string, string>; total: string; grade: string };
+      type GRec = { id: string; seat: string; name: string; cells: Record<string, GCell>; cgpa: number; earned: number; result: string };
       const grecs: GRec[] = [];
       const rows: ReportRow[] = students.map((s) => {
         const es = byStudent.get(s.id) ?? [];
         const row: ReportRow = { code: s.studentCode, name: s.nameAr };
-        const cells: Record<string, { mark: string; grade: string }> = {};
+        const cells: Record<string, GCell> = {};
         let hasFail = false;
         for (const e of es) {
           const g = e.letterGrade ?? e.gradeStatusCode ?? '—';
           row[e.course.id] = g;
           const comps = [e.midterm, e.final, e.practical, e.homework].filter((v): v is number => v != null);
-          cells[e.course.code] = { mark: comps.length ? comps.reduce((a, v) => a + v, 0).toFixed(0) : '—', grade: g };
+          const partVals: Record<string, number | null> = { homework: e.homework, midterm: e.midterm, practical: e.practical, final: e.final };
+          const partMax: Record<string, number> = { homework: e.course.homeworkMax, midterm: e.course.midtermMax, practical: e.course.practicalMax, final: e.course.finalMax };
+          const parts: Record<string, string> = {};
+          for (const comp of MARK_COMPONENTS) if (partMax[comp.key] > 0) parts[comp.key] = partVals[comp.key] != null ? String(partVals[comp.key]) : '—';
+          cells[e.course.code] = { parts, total: comps.length ? comps.reduce((a, v) => a + v, 0).toFixed(0) : '—', grade: g };
           const st = e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null;
           if (classify(st) === 'fail') hasFail = true;
           if (g !== '—' && (!st || st.isLetter)) gradeDist.set(g, (gradeDist.get(g) ?? 0) + 1);
@@ -382,7 +393,7 @@ export const transcriptsReports: ReportDef[] = [
           { label: 'دفعة', value: f.academicYear ?? '—' },
           { label: 'الفصل الدراسي', value: semLabel(f.semester ?? '') },
         ],
-        courses: courseCols.map(([, c]) => ({ code: c.code, name: c.name })),
+        courses: courseCols.map(([, c]) => ({ code: c.code, name: c.name, components: c.components, totalMax: c.totalMax })),
         summaryCols: [
           { key: 'cgpa', label: 'المعدل التراكمي' }, { key: 'earned', label: 'الساعات المكتسبة' },
           { key: 'grade', label: 'التقدير العام' }, { key: 'result', label: 'الحالة' }, { key: 'rank', label: 'الترتيب' },

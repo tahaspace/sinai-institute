@@ -2,7 +2,7 @@ import prisma from '@/lib/prisma';
 import type { ReportDef, ReportColumn, ReportRow } from '@/lib/reporting/types';
 import { studentWhere, academicSystemWhere } from '@/lib/reporting/filters';
 import { computeAnnualForStudents, computeAnnualResult, getAnnualBands } from '@/lib/annual';
-import { buildMinistryMatrix, rankByDesc } from '@/lib/reporting/ministry-matrix';
+import { buildMinistryMatrix, rankByDesc, courseComponents, MARK_COMPONENTS, type MinistryComponent } from '@/lib/reporting/ministry-matrix';
 
 /**
  * Annual (traditional) result reports (Dual-system Phase 3). Surface the `lib/annual.ts` engine as
@@ -34,8 +34,8 @@ export const annualReports: ReportDef[] = [
       if (!students.length) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا يوجد طلاب بهذه المعايير' } };
       const seatById = new Map(students.map((s) => [s.id, s.seatNumber ?? s.studentCode]));
       const results = await computeAnnualForStudents(students.map((s) => s.id), { academicYear: f.academicYear });
-      const courseMap = new Map<string, { code: string; name: string }>();
-      for (const r of results.values()) for (const c of r.courses) if (!courseMap.has(c.courseId)) courseMap.set(c.courseId, { code: c.code, name: c.name });
+      const courseMap = new Map<string, { code: string; name: string; components: MinistryComponent[]; totalMax: number }>();
+      for (const r of results.values()) for (const c of r.courses) if (!courseMap.has(c.courseId)) { const cc = courseComponents(c); courseMap.set(c.courseId, { code: c.code, name: c.name, components: cc.components, totalMax: cc.totalMax }); }
       const courseCols = [...courseMap.entries()].sort((a, b) => a[1].code.localeCompare(b[1].code));
 
       const ordered = students.map((s) => results.get(s.id)).filter((r): r is NonNullable<typeof r> => !!r);
@@ -69,14 +69,21 @@ export const annualReports: ReportDef[] = [
           { label: 'الفرقة', value: String(f.level) },
           { label: 'العام الجامعي', value: f.academicYear ?? '—' },
         ],
-        courses: courseCols.map(([, c]) => ({ code: c.code, name: c.name })),
+        courses: courseCols.map(([, c]) => ({ code: c.code, name: c.name, components: c.components, totalMax: c.totalMax })),
         summaryCols: [
           { key: 'pct', label: 'النسبة المئوية' }, { key: 'grade', label: 'التقدير العام' },
           { key: 'result', label: 'الحالة' }, { key: 'rank', label: 'الترتيب' },
         ],
         rows: ordered.map((r, i) => ({
           serial: i + 1, seat: seatById.get(r.studentId) ?? r.studentCode, name: r.name,
-          cells: Object.fromEntries(r.courses.map((c) => [c.code, { mark: c.total != null ? c.total.toFixed(0) : '—', grade: c.grade ?? '—' }])),
+          cells: Object.fromEntries(r.courses.map((c) => {
+            const partVals: Record<string, number | null> = { homework: c.homework, midterm: c.midterm, practical: c.practical, final: c.final };
+            const partMax: Record<string, number> = { homework: c.homeworkMax, midterm: c.midtermMax, practical: c.practicalMax, final: c.finalMax };
+            const parts: Record<string, string> = {};
+            let rawSum = 0, any = false;
+            for (const comp of MARK_COMPONENTS) if (partMax[comp.key] > 0) { const v = partVals[comp.key]; parts[comp.key] = v != null ? String(v) : '—'; if (v != null) { rawSum += v; any = true; } }
+            return [c.code, { parts, total: any ? String(rawSum) : '—', grade: c.grade ?? '—' }];
+          })),
           summary: { pct: r.overallPct != null ? r.overallPct.toFixed(1) : '—', grade: r.overallGrade ?? '—', result: r.result, rank: String(rankMap.get(r.studentId) ?? '—') },
         })),
         scale: bands.map((b) => ({ code: b.label, name: `≥ ${b.min}%`, range: `${b.min}+` })),

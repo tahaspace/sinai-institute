@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, type CSSProperties } from "react"
+import { useState, useEffect, useCallback, Fragment, type CSSProperties } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -302,9 +302,9 @@ function MinistrySheet({ result }: { result: Any }) {
 }
 
 // Official وزارة result matrix (ClientR4) — the export-only sheet the ministry certifies/signs. Faithful
-// to the client's PDFs: letterhead + grade-scale box + students×courses matrix where each course cell is
-// الدرجة over التقدير, trailing summary columns, distribution box, and signature block. Print-only,
-// inline styles for deterministic output. Works for both CREDIT_HOURS and ANNUAL matrices.
+// to the client's PDFs: letterhead + grade-scale box + students×courses matrix where EACH course expands
+// into its component sub-columns (أعمال/نصفي/عملي/تحريري + المجموع + التقدير, each with its max), trailing
+// summary columns, distribution box, and signatures. Print-only, inline styles. Both CREDIT_HOURS & ANNUAL.
 function MinistryResultMatrix({ m }: { m: Any }) {
   const border = "1px solid #333"
   const cell: CSSProperties = { border, padding: "1px 3px", textAlign: "center", verticalAlign: "middle" }
@@ -326,14 +326,25 @@ function MinistryResultMatrix({ m }: { m: Any }) {
         </div>
         <div style={{ width: "90px" }} />
       </div>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "8px" }}>
         <thead>
+          {/* Row 1: fixed cols + course groups (each spanning its parts) + summary cols */}
           <tr>
-            <th style={head}>م</th>
-            <th style={head}>رقم الجلوس</th>
-            <th style={head}>الاسم</th>
-            {m.courses.map((c: Any) => <th key={c.code} style={head}>{c.code}</th>)}
-            {m.summaryCols.map((s: Any) => <th key={s.key} style={head}>{s.label}</th>)}
+            <th style={head} rowSpan={2}>م</th>
+            <th style={head} rowSpan={2}>رقم الجلوس</th>
+            <th style={head} rowSpan={2}>الاسم</th>
+            {m.courses.map((c: Any) => <th key={c.code} style={head} colSpan={c.components.length + 2}>{c.code}</th>)}
+            {m.summaryCols.map((s: Any) => <th key={s.key} style={head} rowSpan={2}>{s.label}</th>)}
+          </tr>
+          {/* Row 2: per-course component sub-headers (with max) + المجموع + التقدير */}
+          <tr>
+            {m.courses.map((c: Any) => (
+              <Fragment key={c.code}>
+                {c.components.map((comp: Any) => <th key={comp.key} style={head}>{comp.label}<div style={{ fontWeight: "normal", fontSize: "7px" }}>/{comp.max}</div></th>)}
+                <th style={head}>المجموع<div style={{ fontWeight: "normal", fontSize: "7px" }}>/{c.totalMax}</div></th>
+                <th style={head}>التقدير</th>
+              </Fragment>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -341,10 +352,16 @@ function MinistryResultMatrix({ m }: { m: Any }) {
             <tr key={r.serial}>
               <td style={cell}>{r.serial}</td>
               <td style={cell}>{r.seat}</td>
-              <td style={{ ...cell, textAlign: "right" }}>{r.name}</td>
+              <td style={{ ...cell, textAlign: "right", whiteSpace: "nowrap" }}>{r.name}</td>
               {m.courses.map((c: Any) => {
                 const d = r.cells[c.code]
-                return <td key={c.code} style={cell}>{d ? <><div style={{ fontWeight: "bold" }}>{d.mark}</div><div style={{ fontSize: "8px" }}>{d.grade}</div></> : ""}</td>
+                return (
+                  <Fragment key={c.code}>
+                    {c.components.map((comp: Any) => <td key={comp.key} style={cell}>{d?.parts?.[comp.key] ?? ""}</td>)}
+                    <td style={{ ...cell, fontWeight: "bold" }}>{d?.total ?? ""}</td>
+                    <td style={cell}>{d?.grade ?? ""}</td>
+                  </Fragment>
+                )
               })}
               {m.summaryCols.map((s: Any) => <td key={s.key} style={cell}>{r.summary?.[s.key] ?? ""}</td>)}
             </tr>

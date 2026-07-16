@@ -50,7 +50,12 @@ export async function getAnnualBands(): Promise<AnnualBand[]> {
   return bandsFromRegulations(await getRegulations());
 }
 
-export type AnnualCourseResult = { courseId: string; code: string; name: string; total: number | null; grade: AnnualGrade | null; passed: boolean; graded: boolean };
+export type AnnualCourseResult = {
+  courseId: string; code: string; name: string; total: number | null; grade: AnnualGrade | null; passed: boolean; graded: boolean;
+  // raw component marks + their maxes — drive the ministry sheet's per-course sub-columns (التقسيمة الداخلية)
+  midterm: number | null; final: number | null; practical: number | null; homework: number | null;
+  midtermMax: number; finalMax: number; practicalMax: number; homeworkMax: number;
+};
 export type AnnualResultStatus = 'منقول' | 'له دور ثانٍ' | 'باقٍ للإعادة' | 'قيد الرصد';
 export type AnnualStudentResult = {
   studentId: string;
@@ -108,7 +113,11 @@ export async function computeAnnualForStudents(studentIds: string[], f: TermFilt
       const total = courseTotalPct(e);
       const graded = total != null;
       const passed = graded && total! >= passPct;
-      return { courseId: e.courseId, code: e.course.code, name: e.course.nameAr, total, grade: graded ? gradeFromBands(total!, bands) : null, passed, graded };
+      return {
+        courseId: e.courseId, code: e.course.code, name: e.course.nameAr, total, grade: graded ? gradeFromBands(total!, bands) : null, passed, graded,
+        midterm: e.midterm, final: e.final, practical: e.practical, homework: e.homework,
+        midtermMax: e.course.midtermMax, finalMax: e.course.finalMax, practicalMax: e.course.practicalMax, homeworkMax: e.course.homeworkMax,
+      };
     });
     // aggregate percentage over graded subjects (Σ marks% ÷ n) — simple mean of subject percentages
     const gradedCourses = courses.filter((c) => c.graded);
