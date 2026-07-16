@@ -383,7 +383,7 @@ export const transcriptsReports: ReportDef[] = [
       const courseCols = [...courses.entries()].sort((a, b) => a[1].code.localeCompare(b[1].code));
 
       type GCell = { parts: Record<string, string>; total: string; grade: string };
-      type GRec = { id: string; seat: string; name: string; leading: Record<string, string>; cells: Record<string, GCell>; cgpa: number };
+      type GRec = { id: string; seat: string; name: string; leading: Record<string, string>; cells: Record<string, GCell>; cgpa: number; gtotal: number; gavg: number; gpct: number };
       const gradeDist = new Map<string, number>();
       const grecs: GRec[] = grads.map((s) => {
         const es = byStudent.get(s.id) ?? [];
@@ -408,9 +408,15 @@ export const transcriptsReports: ReportDef[] = [
         const cgpa = standings.get(s.id)?.cgpa ?? 0;
         const gr = cgpaToGrade(cgpa);
         gradeDist.set(gr, (gradeDist.get(gr) ?? 0) + 1);
-        return { id: s.id, seat: s.seatNumber ?? s.studentCode, name: s.nameAr, leading, cells, cgpa };
+        // cumulative over ALL years: grand total of marks, its average per year, and its percentage
+        let grandTotal = 0, grandMax = 0;
+        for (const e of es) { const t = totalMark(e); if (t != null) { grandTotal += t; grandMax += e.course.midtermMax + e.course.finalMax + e.course.practicalMax + e.course.homeworkMax; } }
+        const nY = new Set(es.filter((e) => totalMark(e) != null).map((e) => e.academicYear)).size || 1;
+        const gavg = grandTotal / nY;
+        const gpct = grandMax > 0 ? (grandTotal / grandMax) * 100 : 0;
+        return { id: s.id, seat: s.seatNumber ?? s.studentCode, name: s.nameAr, leading, cells, cgpa, gtotal: grandTotal, gavg, gpct };
       });
-      const rankMap = rankByDesc(grecs, (r) => r.id, (r) => r.cgpa);
+      const rankMap = rankByDesc(grecs, (r) => r.id, (r) => r.gpct);
       const stats = [{ label: 'إجمالي الخريجين', value: grecs.length }, ...[...gradeDist.entries()].map(([label, value]) => ({ label: `تقدير ${label}`, value }))];
 
       // screen (photo) columns/rows: prior-year per-course totals + final-year course grades + cumulative
@@ -421,12 +427,12 @@ export const transcriptsReports: ReportDef[] = [
           { key: `y${g.i}_grade`, label: `ف${g.i + 1} تقدير`, align: 'center' as const },
         ]),
         ...courseCols.map(([, c]) => ({ key: `c_${c.code}`, label: c.code, align: 'center' as const })),
-        { key: 'cgpa', label: 'المعدل التراكمي', align: 'center', numeric: true }, { key: 'grade', label: 'تقدير التخرج', align: 'center' }, { key: 'rank', label: 'الترتيب', align: 'center', numeric: true },
+        { key: 'gtotal', label: 'المجموع التراكمي', align: 'center', numeric: true }, { key: 'gavg', label: 'المعدل التراكمي', align: 'center', numeric: true }, { key: 'gpct', label: 'النسبة المئوية', align: 'center', numeric: true }, { key: 'grade', label: 'تقدير التخرج', align: 'center' }, { key: 'rank', label: 'الترتيب', align: 'center', numeric: true },
       ];
       const rows: ReportRow[] = grecs.map((r) => {
         const row: ReportRow = { code: r.seat, name: r.name, ...r.leading };
         for (const [, c] of courseCols) row[`c_${c.code}`] = r.cells[c.code]?.grade ?? '—';
-        row.cgpa = r.cgpa.toFixed(2); row.grade = cgpaToGrade(r.cgpa); row.rank = String(rankMap.get(r.id) ?? '—');
+        row.gtotal = String(r.gtotal); row.gavg = r.gavg.toFixed(1); row.gpct = `${r.gpct.toFixed(1)}%`; row.grade = cgpaToGrade(r.cgpa); row.rank = String(rankMap.get(r.id) ?? '—');
         return row;
       });
 
@@ -441,11 +447,11 @@ export const transcriptsReports: ReportDef[] = [
         leadingGroups: priorGroups.map((g) => ({ title: `${g.firqa} — ${g.yr}`, cols: [{ key: `y${g.i}_total`, label: `المجموع /${g.yearMax}` }, { key: `y${g.i}_grade`, label: 'التقدير' }] })),
         courses: courseCols.map(([, c]) => ({ code: c.code, name: c.name, components: c.components, totalMax: c.totalMax })),
         summaryCols: [
-          { key: 'cgpa', label: 'المعدل التراكمي' }, { key: 'grade', label: 'تقدير التخرج' }, { key: 'rank', label: 'الترتيب' },
+          { key: 'gtotal', label: 'المجموع التراكمي' }, { key: 'gavg', label: 'المعدل التراكمي' }, { key: 'gpct', label: 'النسبة المئوية' }, { key: 'grade', label: 'تقدير التخرج' }, { key: 'rank', label: 'الترتيب' },
         ],
         rows: grecs.map((r, i) => ({
           serial: i + 1, seat: r.seat, name: r.name, leading: r.leading, cells: r.cells,
-          summary: { cgpa: r.cgpa.toFixed(2), grade: cgpaToGrade(r.cgpa), rank: String(rankMap.get(r.id) ?? '—') },
+          summary: { gtotal: String(r.gtotal), gavg: r.gavg.toFixed(1), gpct: `${r.gpct.toFixed(1)}%`, grade: cgpaToGrade(r.cgpa), rank: String(rankMap.get(r.id) ?? '—') },
         })),
         scale, distribution: stats,
       });
