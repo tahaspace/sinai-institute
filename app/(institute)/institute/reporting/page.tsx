@@ -27,11 +27,11 @@ export default function ReportingHub() {
   const [error, setError] = useState<string | null>(null)
   const [officialPrint, setOfficialPrint] = useState(false)
   const activeSystem = useActiveProgramSystem()
-  // Show the result family that matches the active program's system: annual sheets for ANNUAL,
-  // the credit-hour transcript family for CREDIT_HOURS. Everything else shows in both.
-  const shownCatalogue = catalogue.filter((cat) =>
-    cat.category === "annual" ? activeSystem === "ANNUAL" : cat.category === "transcripts" ? activeSystem === "CREDIT_HOURS" : true,
-  )
+  // Reports hub shows ALL result families at once (credit-hour + annual). Earlier we hid the family
+  // that didn't match the header's active-program system, but that made the ministry sheets hard to
+  // find (the annual family disappeared unless you flipped the header chip). A reports center should
+  // let staff print either system's sheets regardless of the working context, so we show everything.
+  const shownCatalogue = catalogue
 
   useEffect(() => {
     (async () => {
@@ -99,7 +99,7 @@ export default function ReportingHub() {
         {/* category tree */}
         <Card className="h-fit no-print">
           <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><FolderTree className="w-4 h-4" /> أنواع التقارير</CardTitle>
-            <p className="text-xs text-muted-foreground">النظام النشط: {activeSystem === "ANNUAL" ? "النظام السنوي (العادي)" : "نظام الساعات المعتمدة"}</p>
+            <p className="text-xs text-muted-foreground">كشوف النظامين متاحة هنا · السياق الحالي: {activeSystem === "ANNUAL" ? "النظام السنوي" : "الساعات المعتمدة"}</p>
           </CardHeader>
           <CardContent className="space-y-3">
             {shownCatalogue.length === 0 ? <p className="text-sm text-muted-foreground">جارٍ التحميل…</p> : shownCatalogue.map((cat) => (
@@ -192,7 +192,12 @@ function ResultView({ result }: { result: Any }) {
           <TranscriptView t={result.meta.transcript} />
         ) : (
           <div className="overflow-x-auto">
-            {(!result.rows || result.rows.length === 0) ? <p className="p-8 text-center text-muted-foreground">لا توجد بيانات</p> : (
+            {(!result.rows || result.rows.length === 0) ? (
+              <div className="p-8 text-center text-muted-foreground">
+                <p className="font-medium">لا توجد بيانات مطابقة للفلاتر المحددة</p>
+                <p className="text-xs mt-1">تأكد من اختيار الفلاتر الصحيحة — بيانات العرض التجريبي: المستوى/الفرقة <b>2</b> · العام <b>2024-2025</b> · الفصل <b>الأول</b></p>
+              </div>
+            ) : (
               <Table>
                 <TableHeader><TableRow>{cols.map((c: Any) => <TableHead key={c.key} className={c.align === "center" ? "text-center" : ""}>{c.label}</TableHead>)}</TableRow></TableHeader>
                 <TableBody>
