@@ -82,9 +82,9 @@ Rendered by `MinistryResultMatrix` in `app/(institute)/institute/reporting/page.
 
 **Paper:** auto **A3** landscape when the component columns exceed what A4 can hold (>18 leaf columns); otherwise A4. Set on the page via `@page { size: <A4|A3> landscape }`.
 
-**Payload:** `lib/reporting/ministry-matrix.ts` — `buildMinistryMatrix()` assembles `{ leadingCols, courses[{code,name,components[],totalMax}], rows[{serial,seat,name,leading,cells{code→{parts,total,grade}},summary}], summaryCols, scale, distribution, signatures, paper }`. `courseComponents(maxes)` + `MARK_COMPONENTS` map the `Course.*Max` / `Enrollment.*` fields to the Arabic labels. `rankByDesc()` computes الترتيب. `leadingCols` = columns rendered BEFORE the course block (used by the graduation board for prior-year totals).
+**Payload:** `lib/reporting/ministry-matrix.ts` — `buildMinistryMatrix()` assembles `{ leadingGroups, courses[{code,name,components[],totalMax}], rows[{serial,seat,name,leading,cells{code→{parts,total,grade}},summary}], summaryCols, scale, distribution, signatures, paper }`. `courseComponents(maxes)` + `MARK_COMPONENTS` map the `Course.*Max` / `Enrollment.*` fields to the Arabic labels. `rankByDesc()` computes الترتيب. `leadingGroups` = grouped columns rendered BEFORE the course block (two-row header: a title spanning its cols), used by the graduation board for the prior-year sections.
 
-**Graduation board (`graduates-result-sheet`) special layout:** the **final year** (الفرقة النهائية) shows the full per-course component detail; **each prior year** shows as **one معدل column** (الفرقة 1..n, via `leadingCols`); trailing = المعدل التراكمي · تقدير التخرج · الترتيب. Final year = the `academicYear` filter if given, else the latest recorded year; prior years are auto-derived from each graduate's enrollment history.
+**Graduation board (`graduates-result-sheet`) special layout:** the **final year** (الفرقة النهائية) shows the full per-course component detail; **each prior year** is a group «الفرقة N — YEAR» with **one column per course showing that course's TOTAL mark** (اجمالي درجات المادة — راقام لا نِسَب) out of the course's total; trailing = المعدل التراكمي · تقدير التخرج · الترتيب. Final year = the `academicYear` filter if given, else the latest recorded year; prior years + their courses are auto-derived from each graduate's enrollment history.
 
 ---
 

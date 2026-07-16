@@ -13,7 +13,7 @@ export type MinistryMatrixRow = {
   serial: number; // م
   seat: string; // رقم الجلوس
   name: string; // الاسم
-  leading?: Record<string, string>; // keyed by leadingCol.key (columns BEFORE the course block, e.g. prior-year totals)
+  leading?: Record<string, string>; // keyed by leadingGroup col key (columns BEFORE the course block, e.g. prior-year per-course totals)
   cells: Record<string, MinistryCell>; // keyed by course code
   summary: Record<string, string>; // keyed by summaryCol.key (trailing columns)
 };
@@ -22,6 +22,9 @@ export type MinistryComponent = { key: string; label: string; max: number };
 export type MinistryCourseCol = { code: string; name: string; hours?: number; components: MinistryComponent[]; totalMax: number };
 export type MinistrySummaryCol = { key: string; label: string };
 export type MinistryScaleRow = { code: string; name: string; range: string; points?: string };
+// A grouped block of columns rendered BEFORE the course block (a two-row header: title spans its cols).
+// Used by the graduation board for prior years: title = «الفرقة N — YEAR», one col per course = total mark.
+export type MinistryLeadingGroup = { title: string; cols: MinistrySummaryCol[] };
 
 // Canonical component order for the ministry sheet (أعمال السنة · نصفي · عملي · تحريري). Maps the
 // Enrollment mark fields + Course *Max fields to their Arabic sheet labels.
@@ -44,7 +47,7 @@ export type MinistryMatrix = {
   faculty: string;
   controlTitle: string;
   letterhead: { label: string; value: string }[]; // القسم / الفرقة/المستوى / العام / الفصل …
-  leadingCols: MinistrySummaryCol[]; // columns before the course block (prior-year totals on the graduation sheet)
+  leadingGroups: MinistryLeadingGroup[]; // grouped columns before the course block (prior years on the graduation sheet)
   courses: MinistryCourseCol[];
   summaryCols: MinistrySummaryCol[];
   rows: MinistryMatrixRow[];
@@ -60,7 +63,7 @@ export async function buildMinistryMatrix(input: {
   system: 'CREDIT_HOURS' | 'ANNUAL';
   institute: string;
   letterhead: { label: string; value: string }[];
-  leadingCols?: MinistrySummaryCol[];
+  leadingGroups?: MinistryLeadingGroup[];
   courses: MinistryCourseCol[];
   summaryCols: MinistrySummaryCol[];
   rows: MinistryMatrixRow[];
@@ -68,10 +71,10 @@ export async function buildMinistryMatrix(input: {
   distribution: { label: string; value: string | number }[];
 }): Promise<MinistryMatrix> {
   const cfg = await getMinistrySheetConfig();
-  const leadingCols = input.leadingCols ?? [];
-  // Auto-widen to A3 when the component sub-columns push the sheet past what A4 landscape can hold.
-  // Leaf columns = م + جلوس + اسم (3) + leading cols + Σ(course parts + المجموع + التقدير) + trailing summary cols.
-  const leafCols = 3 + leadingCols.length + input.summaryCols.length + input.courses.reduce((s, c) => s + c.components.length + 2, 0);
+  const leadingGroups = input.leadingGroups ?? [];
+  // Auto-widen to A3 when the columns push the sheet past what A4 landscape can hold.
+  // Leaf columns = م + جلوس + اسم (3) + Σ leading-group cols + Σ(course parts + المجموع + التقدير) + summary cols.
+  const leafCols = 3 + leadingGroups.reduce((s, g) => s + g.cols.length, 0) + input.summaryCols.length + input.courses.reduce((s, c) => s + c.components.length + 2, 0);
   const paper: 'A4' | 'A3' = leafCols > 18 ? 'A3' : cfg.paper;
   return {
     system: input.system,
@@ -79,7 +82,7 @@ export async function buildMinistryMatrix(input: {
     faculty: cfg.faculty,
     controlTitle: cfg.controlTitle,
     letterhead: input.letterhead,
-    leadingCols,
+    leadingGroups,
     courses: input.courses,
     summaryCols: input.summaryCols,
     rows: input.rows,

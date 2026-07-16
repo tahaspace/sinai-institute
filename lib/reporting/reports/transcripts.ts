@@ -349,30 +349,40 @@ export const transcriptsReports: ReportDef[] = [
       for (const e of enrollments) (byStudent.get(e.studentId) ?? byStudent.set(e.studentId, []).get(e.studentId)!).push(e);
       const grads = students.filter((s) => (byStudent.get(s.id) ?? []).some((e) => e.academicYear === finalYear));
       if (!grads.length) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا يوجد خريجون في هذا العام' } };
-      // prior years across the cohort (oldest→newest) → labelled الفرقة 1..n; final year = الفرقة (n+1)
+      // prior years across the cohort (oldest→newest) → الفرقة 1..n; final year = الفرقة (n+1)
       const priorYears = [...new Set(grads.flatMap((s) => (byStudent.get(s.id) ?? []).map((e) => e.academicYear)))].filter((y) => y < finalYear).sort();
-      const priorCols = priorYears.map((yr, i) => ({ key: `y_${i}`, firqa: `الفرقة ${i + 1}`, yr }));
       const finalFirqa = priorYears.length + 1;
+
+      // total mark (sum of recorded components — درجات، not %) for one enrollment, or null if nothing recorded
+      const totalMark = (e: (typeof enrollments)[number]): number | null => {
+        const comps = [e.midterm, e.final, e.practical, e.homework].filter((v): v is number => v != null);
+        return comps.length ? comps.reduce((a, v) => a + v, 0) : null;
+      };
+
+      // prior-year groups: one group per فرقة, one column per course showing that course's TOTAL mark
+      const priorGroups = priorYears.map((yr, i) => {
+        const cmap = new Map<string, number>(); // course code → total max (out of)
+        for (const s of grads) for (const e of byStudent.get(s.id) ?? []) if (e.academicYear === yr) cmap.set(e.course.code, e.course.midtermMax + e.course.finalMax + e.course.practicalMax + e.course.homeworkMax);
+        return { i, yr, firqa: `الفرقة ${i + 1}`, codes: [...cmap.keys()].sort(), cmap };
+      });
 
       // final-year course columns (with the internal mark split)
       const courses = new Map<string, { code: string; name: string; components: MinistryComponent[]; totalMax: number }>();
       for (const s of grads) for (const e of byStudent.get(s.id) ?? []) if (e.academicYear === finalYear && !courses.has(e.course.id)) { const cc = courseComponents(e.course); courses.set(e.course.id, { code: e.course.code, name: e.course.nameAr, components: cc.components, totalMax: cc.totalMax }); }
       const courseCols = [...courses.entries()].sort((a, b) => a[1].code.localeCompare(b[1].code));
 
-      // a single year's GPA for one student (quality points ÷ gpa hours over that year)
-      const yearGpa = (es: typeof enrollments, yr: string): number | null => {
-        let qp = 0, h = 0;
-        for (const e of es) if (e.academicYear === yr && e.points != null && e.course.countsInGpa) { qp += e.points * e.course.creditHours; h += e.course.creditHours; }
-        return h > 0 ? qp / h : null;
-      };
-
       type GCell = { parts: Record<string, string>; total: string; grade: string };
       type GRec = { id: string; seat: string; name: string; leading: Record<string, string>; cells: Record<string, GCell>; cgpa: number };
       const gradeDist = new Map<string, number>();
       const grecs: GRec[] = grads.map((s) => {
         const es = byStudent.get(s.id) ?? [];
+        // prior-year per-course TOTAL marks (درجات)
         const leading: Record<string, string> = {};
-        for (const p of priorCols) { const g = yearGpa(es, p.yr); leading[p.key] = g != null ? g.toFixed(2) : '—'; }
+        for (const g of priorGroups) for (const code of g.codes) {
+          const e = es.find((x) => x.academicYear === g.yr && x.course.code === code);
+          const t = e ? totalMark(e) : null;
+          leading[`y${g.i}_${code}`] = t != null ? String(t) : '—';
+        }
         const cells: Record<string, GCell> = {};
         for (const e of es) if (e.academicYear === finalYear) {
           const g = e.letterGrade ?? e.gradeStatusCode ?? '—';
@@ -391,10 +401,10 @@ export const transcriptsReports: ReportDef[] = [
       const rankMap = rankByDesc(grecs, (r) => r.id, (r) => r.cgpa);
       const stats = [{ label: 'إجمالي الخريجين', value: grecs.length }, ...[...gradeDist.entries()].map(([label, value]) => ({ label: `تقدير ${label}`, value }))];
 
-      // screen (photo) columns/rows: prior-year averages + final-year course grades + cumulative
+      // screen (photo) columns/rows: prior-year per-course totals + final-year course grades + cumulative
       const columns: ReportColumn[] = [
         { key: 'code', label: 'رقم الجلوس' }, { key: 'name', label: 'الاسم' },
-        ...priorCols.map((p) => ({ key: p.key, label: `${p.firqa} (معدل)`, align: 'center' as const, numeric: true })),
+        ...priorGroups.flatMap((g) => g.codes.map((code) => ({ key: `y${g.i}_${code}`, label: `${code} (ف${g.i + 1})`, align: 'center' as const, numeric: true }))),
         ...courseCols.map(([, c]) => ({ key: `c_${c.code}`, label: c.code, align: 'center' as const })),
         { key: 'cgpa', label: 'المعدل التراكمي', align: 'center', numeric: true }, { key: 'grade', label: 'تقدير التخرج', align: 'center' }, { key: 'rank', label: 'الترتيب', align: 'center', numeric: true },
       ];
@@ -413,7 +423,7 @@ export const transcriptsReports: ReportDef[] = [
           { label: 'دفعة التخرج', value: finalYear },
           { label: 'الفرقة النهائية', value: String(finalFirqa) },
         ],
-        leadingCols: priorCols.map((p) => ({ key: p.key, label: `${p.firqa} — ${p.yr} (معدل)` })),
+        leadingGroups: priorGroups.map((g) => ({ title: `${g.firqa} — ${g.yr}`, cols: g.codes.map((code) => ({ key: `y${g.i}_${code}`, label: `${code} /${g.cmap.get(code)}` })) })),
         courses: courseCols.map(([, c]) => ({ code: c.code, name: c.name, components: c.components, totalMax: c.totalMax })),
         summaryCols: [
           { key: 'cgpa', label: 'المعدل التراكمي' }, { key: 'grade', label: 'تقدير التخرج' }, { key: 'rank', label: 'الترتيب' },

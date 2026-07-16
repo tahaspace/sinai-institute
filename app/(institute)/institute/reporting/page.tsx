@@ -333,12 +333,15 @@ function MinistryResultMatrix({ m }: { m: Any }) {
             <th style={head} rowSpan={2}>م</th>
             <th style={head} rowSpan={2}>رقم الجلوس</th>
             <th style={head} rowSpan={2}>الاسم</th>
-            {(m.leadingCols ?? []).map((s: Any) => <th key={s.key} style={head} rowSpan={2}>{s.label}</th>)}
+            {(m.leadingGroups ?? []).map((g: Any) => <th key={g.title} style={head} colSpan={g.cols.length}>{g.title}</th>)}
             {m.courses.map((c: Any) => <th key={c.code} style={head} colSpan={c.components.length + 2}>{c.code}</th>)}
             {m.summaryCols.map((s: Any) => <th key={s.key} style={head} rowSpan={2}>{s.label}</th>)}
           </tr>
-          {/* Row 2: per-course component sub-headers (with max) + المجموع + التقدير */}
+          {/* Row 2: prior-year per-course totals, then per-course component sub-headers (with max) + المجموع + التقدير */}
           <tr>
+            {(m.leadingGroups ?? []).map((g: Any) => (
+              <Fragment key={g.title}>{g.cols.map((col: Any) => <th key={col.key} style={head}>{col.label}</th>)}</Fragment>
+            ))}
             {m.courses.map((c: Any) => (
               <Fragment key={c.code}>
                 {c.components.map((comp: Any) => <th key={comp.key} style={head}>{comp.label}<div style={{ fontWeight: "normal", fontSize: "7px" }}>/{comp.max}</div></th>)}
@@ -354,7 +357,9 @@ function MinistryResultMatrix({ m }: { m: Any }) {
               <td style={cell}>{r.serial}</td>
               <td style={cell}>{r.seat}</td>
               <td style={{ ...cell, textAlign: "right", whiteSpace: "nowrap" }}>{r.name}</td>
-              {(m.leadingCols ?? []).map((s: Any) => <td key={s.key} style={cell}>{r.leading?.[s.key] ?? ""}</td>)}
+              {(m.leadingGroups ?? []).map((g: Any) => (
+                <Fragment key={g.title}>{g.cols.map((col: Any) => <td key={col.key} style={cell}>{r.leading?.[col.key] ?? ""}</td>)}</Fragment>
+              ))}
               {m.courses.map((c: Any) => {
                 const d = r.cells[c.code]
                 return (
