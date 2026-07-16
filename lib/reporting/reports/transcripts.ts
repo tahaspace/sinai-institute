@@ -330,88 +330,108 @@ export const transcriptsReports: ReportDef[] = [
   },
   {
     id: 'graduates-result-sheet', category: 'transcripts', nameAr: 'كشف نتيجة الخريجين (مصفوفة)',
-    description: 'مصفوفة نتائج الخريجين: طالب × مقرر مع المعدل التراكمي والتقدير العام والتوزيع — تُصدَّر بصيغة الوزارة للتوقيع',
-    permission: VIEW, filters: ['academicYear', 'semester', 'departmentId', 'programId'], requires: ['academicYear', 'semester'],
+    description: 'كشف التخرج: الفرقة النهائية بتقسيمة كل مادة بالكامل، والسنوات السابقة كمعدل إجمالي لكل فرقة، مع المعدل التراكمي وتقدير التخرج — تُصدَّر بصيغة الوزارة للتوقيع',
+    permission: VIEW, filters: ['academicYear', 'departmentId', 'programId'],
     run: async (f, ctx) => {
       const uid = ctx.universityId ?? null;
       const students = await prisma.student.findMany({ where: { AND: [studentWhere(f, uid), academicSystemWhere('CREDIT_HOURS'), { status: 'GRADUATED' }] }, select: { id: true, studentCode: true, nameAr: true, seatNumber: true }, orderBy: { studentCode: 'asc' } });
       if (!students.length) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا يوجد خريجون بهذه المعايير' } };
       const ids = students.map((s) => s.id);
-      const [enrollments, statuses, standings] = await Promise.all([
-        prisma.enrollment.findMany({ where: { studentId: { in: ids }, academicYear: f.academicYear, semester: f.semester }, include: { course: { select: { id: true, code: true, nameAr: true, midtermMax: true, finalMax: true, practicalMax: true, homeworkMax: true } } } }),
-        prisma.gradeStatus.findMany({ where: ctx.universityId ? { universityId: ctx.universityId } : {} }),
+      const [enrollments, standings] = await Promise.all([
+        prisma.enrollment.findMany({ where: { studentId: { in: ids } }, include: { course: { select: { id: true, code: true, nameAr: true, creditHours: true, countsInGpa: true, midtermMax: true, finalMax: true, practicalMax: true, homeworkMax: true } } } }),
         computeStandingForStudents(ids),
       ]);
-      const byCode = new Map(statuses.map((s) => [s.code, s]));
-      const courses = new Map<string, { code: string; name: string; components: MinistryComponent[]; totalMax: number }>();
-      for (const e of enrollments) if (!courses.has(e.course.id)) { const cc = courseComponents(e.course); courses.set(e.course.id, { code: e.course.code, name: e.course.nameAr, components: cc.components, totalMax: cc.totalMax }); }
-      const courseCols = [...courses.entries()].sort((a, b) => a[1].code.localeCompare(b[1].code));
+      // graduation (final) year = the filter year if given, else the latest recorded year
+      const allYears = [...new Set(enrollments.map((e) => e.academicYear))].sort();
+      const finalYear = f.academicYear && allYears.includes(f.academicYear) ? f.academicYear : allYears[allYears.length - 1];
+      if (!finalYear) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا توجد نتائج مسجلة للخريجين' } };
       const byStudent = new Map<string, typeof enrollments>();
       for (const e of enrollments) (byStudent.get(e.studentId) ?? byStudent.set(e.studentId, []).get(e.studentId)!).push(e);
-      const gradeDist = new Map<string, number>();
+      const grads = students.filter((s) => (byStudent.get(s.id) ?? []).some((e) => e.academicYear === finalYear));
+      if (!grads.length) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا يوجد خريجون في هذا العام' } };
+      // prior years across the cohort (oldest→newest) → labelled الفرقة 1..n; final year = الفرقة (n+1)
+      const priorYears = [...new Set(grads.flatMap((s) => (byStudent.get(s.id) ?? []).map((e) => e.academicYear)))].filter((y) => y < finalYear).sort();
+      const priorCols = priorYears.map((yr, i) => ({ key: `y_${i}`, firqa: `الفرقة ${i + 1}`, yr }));
+      const finalFirqa = priorYears.length + 1;
+
+      // final-year course columns (with the internal mark split)
+      const courses = new Map<string, { code: string; name: string; components: MinistryComponent[]; totalMax: number }>();
+      for (const s of grads) for (const e of byStudent.get(s.id) ?? []) if (e.academicYear === finalYear && !courses.has(e.course.id)) { const cc = courseComponents(e.course); courses.set(e.course.id, { code: e.course.code, name: e.course.nameAr, components: cc.components, totalMax: cc.totalMax }); }
+      const courseCols = [...courses.entries()].sort((a, b) => a[1].code.localeCompare(b[1].code));
+
+      // a single year's GPA for one student (quality points ÷ gpa hours over that year)
+      const yearGpa = (es: typeof enrollments, yr: string): number | null => {
+        let qp = 0, h = 0;
+        for (const e of es) if (e.academicYear === yr && e.points != null && e.course.countsInGpa) { qp += e.points * e.course.creditHours; h += e.course.creditHours; }
+        return h > 0 ? qp / h : null;
+      };
+
       type GCell = { parts: Record<string, string>; total: string; grade: string };
-      type GRec = { id: string; seat: string; name: string; cells: Record<string, GCell>; cgpa: number; earned: number; result: string };
-      const grecs: GRec[] = [];
-      const rows: ReportRow[] = students.map((s) => {
+      type GRec = { id: string; seat: string; name: string; leading: Record<string, string>; cells: Record<string, GCell>; cgpa: number };
+      const gradeDist = new Map<string, number>();
+      const grecs: GRec[] = grads.map((s) => {
         const es = byStudent.get(s.id) ?? [];
-        const row: ReportRow = { code: s.studentCode, name: s.nameAr };
+        const leading: Record<string, string> = {};
+        for (const p of priorCols) { const g = yearGpa(es, p.yr); leading[p.key] = g != null ? g.toFixed(2) : '—'; }
         const cells: Record<string, GCell> = {};
-        let hasFail = false;
-        for (const e of es) {
+        for (const e of es) if (e.academicYear === finalYear) {
           const g = e.letterGrade ?? e.gradeStatusCode ?? '—';
-          row[e.course.id] = g;
           const comps = [e.midterm, e.final, e.practical, e.homework].filter((v): v is number => v != null);
           const partVals: Record<string, number | null> = { homework: e.homework, midterm: e.midterm, practical: e.practical, final: e.final };
           const partMax: Record<string, number> = { homework: e.course.homeworkMax, midterm: e.course.midtermMax, practical: e.course.practicalMax, final: e.course.finalMax };
           const parts: Record<string, string> = {};
           for (const comp of MARK_COMPONENTS) if (partMax[comp.key] > 0) parts[comp.key] = partVals[comp.key] != null ? String(partVals[comp.key]) : '—';
           cells[e.course.code] = { parts, total: comps.length ? comps.reduce((a, v) => a + v, 0).toFixed(0) : '—', grade: g };
-          const st = e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null;
-          if (classify(st) === 'fail') hasFail = true;
-          if (g !== '—' && (!st || st.isLetter)) gradeDist.set(g, (gradeDist.get(g) ?? 0) + 1);
         }
         const cgpa = standings.get(s.id)?.cgpa ?? 0;
-        const result = hasFail ? 'راسب' : 'ناجح';
-        row.cgpa = cgpa.toFixed(2); row.grade = cgpaToGrade(cgpa); row.result = result;
-        grecs.push({ id: s.id, seat: s.seatNumber ?? s.studentCode, name: s.nameAr, cells, cgpa, earned: standings.get(s.id)?.earnedHours ?? 0, result });
-        return row;
+        const gr = cgpaToGrade(cgpa);
+        gradeDist.set(gr, (gradeDist.get(gr) ?? 0) + 1);
+        return { id: s.id, seat: s.seatNumber ?? s.studentCode, name: s.nameAr, leading, cells, cgpa };
       });
-      const gradeOrder = [...gradeDist.keys()].sort((a, b) => (byCode.get(b)?.minPercent ?? -1) - (byCode.get(a)?.minPercent ?? -1));
+      const rankMap = rankByDesc(grecs, (r) => r.id, (r) => r.cgpa);
+      const stats = [{ label: 'إجمالي الخريجين', value: grecs.length }, ...[...gradeDist.entries()].map(([label, value]) => ({ label: `تقدير ${label}`, value }))];
+
+      // screen (photo) columns/rows: prior-year averages + final-year course grades + cumulative
       const columns: ReportColumn[] = [
         { key: 'code', label: 'رقم الجلوس' }, { key: 'name', label: 'الاسم' },
-        ...courseCols.map(([id, c]) => ({ key: id, label: c.code, align: 'center' as const })),
-        { key: 'cgpa', label: 'المعدل التراكمي', align: 'center', numeric: true }, { key: 'grade', label: 'التقدير العام', align: 'center' }, { key: 'result', label: 'النتيجة', align: 'center' },
+        ...priorCols.map((p) => ({ key: p.key, label: `${p.firqa} (معدل)`, align: 'center' as const, numeric: true })),
+        ...courseCols.map(([, c]) => ({ key: `c_${c.code}`, label: c.code, align: 'center' as const })),
+        { key: 'cgpa', label: 'المعدل التراكمي', align: 'center', numeric: true }, { key: 'grade', label: 'تقدير التخرج', align: 'center' }, { key: 'rank', label: 'الترتيب', align: 'center', numeric: true },
       ];
-      const stats = [{ label: 'إجمالي الخريجين', value: students.length }, ...gradeOrder.map((code) => ({ label: `تقدير ${code}`, value: gradeDist.get(code)! }))];
-      // ---- Official ministry export matrix (graduation results board) ----
+      const rows: ReportRow[] = grecs.map((r) => {
+        const row: ReportRow = { code: r.seat, name: r.name, ...r.leading };
+        for (const [, c] of courseCols) row[`c_${c.code}`] = r.cells[c.code]?.grade ?? '—';
+        row.cgpa = r.cgpa.toFixed(2); row.grade = cgpaToGrade(r.cgpa); row.rank = String(rankMap.get(r.id) ?? '—');
+        return row;
+      });
+
       const [institute, dept, scale] = await Promise.all([instituteName(uid), departmentName(f.departmentId), ministryScale(uid)]);
-      const rankMap = rankByDesc(grecs, (r) => r.id, (r) => r.cgpa);
       const matrix = await buildMinistryMatrix({
         system: 'CREDIT_HOURS', institute,
         letterhead: [
           ...(dept ? [{ label: 'القسم', value: dept }] : []),
-          { label: 'دفعة', value: f.academicYear ?? '—' },
-          { label: 'الفصل الدراسي', value: semLabel(f.semester ?? '') },
+          { label: 'دفعة التخرج', value: finalYear },
+          { label: 'الفرقة النهائية', value: String(finalFirqa) },
         ],
+        leadingCols: priorCols.map((p) => ({ key: p.key, label: `${p.firqa} — ${p.yr} (معدل)` })),
         courses: courseCols.map(([, c]) => ({ code: c.code, name: c.name, components: c.components, totalMax: c.totalMax })),
         summaryCols: [
-          { key: 'cgpa', label: 'المعدل التراكمي' }, { key: 'earned', label: 'الساعات المكتسبة' },
-          { key: 'grade', label: 'التقدير العام' }, { key: 'result', label: 'الحالة' }, { key: 'rank', label: 'الترتيب' },
+          { key: 'cgpa', label: 'المعدل التراكمي' }, { key: 'grade', label: 'تقدير التخرج' }, { key: 'rank', label: 'الترتيب' },
         ],
         rows: grecs.map((r, i) => ({
-          serial: i + 1, seat: r.seat, name: r.name, cells: r.cells,
-          summary: { cgpa: r.cgpa.toFixed(2), earned: String(r.earned), grade: cgpaToGrade(r.cgpa), result: r.result, rank: String(rankMap.get(r.id) ?? '—') },
+          serial: i + 1, seat: r.seat, name: r.name, leading: r.leading, cells: r.cells,
+          summary: { cgpa: r.cgpa.toFixed(2), grade: cgpaToGrade(r.cgpa), rank: String(rankMap.get(r.id) ?? '—') },
         })),
         scale, distribution: stats,
       });
       return {
         kind: 'sheet',
-        title: `كشف نتيجة الخريجين — ${termLabelOf(f.academicYear ?? '', f.semester ?? '')}`,
-        header: { المعهد: institute, 'العام الجامعي': f.academicYear ?? '—', 'الفصل الدراسي': semLabel(f.semester ?? ''), 'عدد الخريجين': String(students.length) },
+        title: `كشف نتيجة الخريجين — دفعة ${finalYear}`,
+        header: { المعهد: institute, 'دفعة التخرج': finalYear, 'الفرقة النهائية': String(finalFirqa), 'عدد الخريجين': String(grecs.length) },
         footer: await gradeScaleFooter(uid),
         meta: { stats, courses: courseCols.map(([, c]) => `${c.code}: ${c.name}`), ministrySheet: { signatures: MINISTRY_SIGNATURES, matrix } },
         columns, rows,
-        totals: { code: 'الإجمالي', name: `${students.length} خريج` },
+        totals: { code: 'الإجمالي', name: `${grecs.length} خريج` },
       };
     },
   },

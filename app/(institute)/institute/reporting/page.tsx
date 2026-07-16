@@ -333,6 +333,7 @@ function MinistryResultMatrix({ m }: { m: Any }) {
             <th style={head} rowSpan={2}>م</th>
             <th style={head} rowSpan={2}>رقم الجلوس</th>
             <th style={head} rowSpan={2}>الاسم</th>
+            {(m.leadingCols ?? []).map((s: Any) => <th key={s.key} style={head} rowSpan={2}>{s.label}</th>)}
             {m.courses.map((c: Any) => <th key={c.code} style={head} colSpan={c.components.length + 2}>{c.code}</th>)}
             {m.summaryCols.map((s: Any) => <th key={s.key} style={head} rowSpan={2}>{s.label}</th>)}
           </tr>
@@ -353,6 +354,7 @@ function MinistryResultMatrix({ m }: { m: Any }) {
               <td style={cell}>{r.serial}</td>
               <td style={cell}>{r.seat}</td>
               <td style={{ ...cell, textAlign: "right", whiteSpace: "nowrap" }}>{r.name}</td>
+              {(m.leadingCols ?? []).map((s: Any) => <td key={s.key} style={cell}>{r.leading?.[s.key] ?? ""}</td>)}
               {m.courses.map((c: Any) => {
                 const d = r.cells[c.code]
                 return (

@@ -13,6 +13,7 @@ export type MinistryMatrixRow = {
   serial: number; // م
   seat: string; // رقم الجلوس
   name: string; // الاسم
+  leading?: Record<string, string>; // keyed by leadingCol.key (columns BEFORE the course block, e.g. prior-year totals)
   cells: Record<string, MinistryCell>; // keyed by course code
   summary: Record<string, string>; // keyed by summaryCol.key (trailing columns)
 };
@@ -43,6 +44,7 @@ export type MinistryMatrix = {
   faculty: string;
   controlTitle: string;
   letterhead: { label: string; value: string }[]; // القسم / الفرقة/المستوى / العام / الفصل …
+  leadingCols: MinistrySummaryCol[]; // columns before the course block (prior-year totals on the graduation sheet)
   courses: MinistryCourseCol[];
   summaryCols: MinistrySummaryCol[];
   rows: MinistryMatrixRow[];
@@ -58,6 +60,7 @@ export async function buildMinistryMatrix(input: {
   system: 'CREDIT_HOURS' | 'ANNUAL';
   institute: string;
   letterhead: { label: string; value: string }[];
+  leadingCols?: MinistrySummaryCol[];
   courses: MinistryCourseCol[];
   summaryCols: MinistrySummaryCol[];
   rows: MinistryMatrixRow[];
@@ -65,9 +68,10 @@ export async function buildMinistryMatrix(input: {
   distribution: { label: string; value: string | number }[];
 }): Promise<MinistryMatrix> {
   const cfg = await getMinistrySheetConfig();
+  const leadingCols = input.leadingCols ?? [];
   // Auto-widen to A3 when the component sub-columns push the sheet past what A4 landscape can hold.
-  // Leaf columns = م + جلوس + اسم (3) + Σ(course parts + المجموع + التقدير) + trailing summary cols.
-  const leafCols = 3 + input.summaryCols.length + input.courses.reduce((s, c) => s + c.components.length + 2, 0);
+  // Leaf columns = م + جلوس + اسم (3) + leading cols + Σ(course parts + المجموع + التقدير) + trailing summary cols.
+  const leafCols = 3 + leadingCols.length + input.summaryCols.length + input.courses.reduce((s, c) => s + c.components.length + 2, 0);
   const paper: 'A4' | 'A3' = leafCols > 18 ? 'A3' : cfg.paper;
   return {
     system: input.system,
@@ -75,6 +79,7 @@ export async function buildMinistryMatrix(input: {
     faculty: cfg.faculty,
     controlTitle: cfg.controlTitle,
     letterhead: input.letterhead,
+    leadingCols,
     courses: input.courses,
     summaryCols: input.summaryCols,
     rows: input.rows,
