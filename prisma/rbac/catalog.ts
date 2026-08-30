@@ -25,6 +25,10 @@ export const PERMISSION_KEYS: string[] = [
   'advising.view', 'advising.edit', 'warning.view', 'warning.create',
   'attendance.view', 'attendance.edit', 'graduation.view', 'graduation.approve',
   'certificate.view', 'certificate.issue',
+  // ClientR5 — Student Holds & Blocks (حجب الطلاب): view/apply/release/cancel + manager override + config
+  'hold.view', 'hold.apply', 'hold.release', 'hold.cancel', 'hold.override', 'hold.config',
+  // ClientR6 — bulk student import + promotion (rollover). student.* covers import/promote (REGISTRAR); promotion.approve is the manager gate.
+  'student.import', 'student.promote', 'promotion.approve',
   // Admission
   'admission.application.view', 'admission.application.review', 'admission.application.decide',
   'admission.registration.view', 'admission.registration.edit',
@@ -36,6 +40,8 @@ export const PERMISSION_KEYS: string[] = [
   // ClientR2 — exceptional-case state workflow (executor = control; approver = control head / student affairs)
   'exam.exception.view', 'exam.exception.set', 'exam.exception.approve',
   'onlineexam.view', 'onlineexam.manage', 'onlineexam.grade',
+  // ClientR7 — الرأفة + رفع التقدير (grade adjustments): view/apply/config (control) + approve (control head)
+  'gradeadjust.view', 'gradeadjust.apply', 'gradeadjust.approve', 'gradeadjust.config',
   // Finance
   'finance.view', 'finance.tuition.view', 'finance.tuition.edit',
   'finance.collection.view', 'finance.collection.edit',
@@ -79,6 +85,8 @@ export const PERMISSION_KEYS: string[] = [
   'reports.predictive.view', 'reports.audit.view',
   // ClientR4 — detailed result sheets (transcript / graduates / level roster)
   'reports.transcripts.view',
+  // ClientR5 — student holds & blocks reports
+  'reports.holds.view',
   // CMS
   'cms.page.view', 'cms.page.edit', 'cms.news.edit', 'cms.news.publish',
   'cms.result.edit', 'cms.schedule.edit', 'cms.application.view',
@@ -129,9 +137,9 @@ export const SYSTEM_ROLES: RoleDef[] = [
     'finance.gl.account.view', 'finance.gl.account.edit', 'finance.gl.journal.view', 'finance.gl.journal.create',
     'finance.period.view', 'finance.invoice.*', 'finance.receipt.*', 'finance.creditnote.create',
     'finance.einvoice.*', 'finance.vendor.*', 'finance.expense.view', 'finance.expense.edit', 'banking.reconciliation.*', 'finance.costcenter.view', 'finance.costcenter.edit'] },
-  { key: 'REGISTRAR', nameAr: 'شؤون الطلاب / المسجل', nameEn: 'Registrar / Student Affairs', permissions: ['student.*', 'advising.*', 'warning.*', 'attendance.*', 'graduation.*', 'certificate.*', 'admission.registration.*', 'transfer.*', 'equivalence.*', 'cms.result.edit', 'cms.schedule.edit', 'reports.view', 'reports.transcripts.view', 'exam.exception.view', 'exam.exception.approve'] },
+  { key: 'REGISTRAR', nameAr: 'شؤون الطلاب / المسجل', nameEn: 'Registrar / Student Affairs', permissions: ['student.*', 'advising.*', 'warning.*', 'attendance.*', 'graduation.*', 'certificate.*', 'hold.view', 'hold.apply', 'hold.release', 'hold.cancel', 'hold.config', 'admission.registration.*', 'transfer.*', 'equivalence.*', 'cms.result.edit', 'cms.schedule.edit', 'reports.view', 'reports.transcripts.view', 'reports.holds.view', 'exam.exception.view', 'exam.exception.approve'] },
   { key: 'ADMISSIONS', nameAr: 'موظف القبول', nameEn: 'Admissions Officer', permissions: ['admission.*', 'student.view', 'student.create', 'cms.application.view', 'reports.view'] },
-  { key: 'EXAMS_CONTROL', nameAr: 'الكنترول', nameEn: 'Exams Control', permissions: ['exam.*', 'onlineexam.*', 'cms.result.edit', 'reports.view', 'reports.transcripts.view'] },
+  { key: 'EXAMS_CONTROL', nameAr: 'الكنترول', nameEn: 'Exams Control', permissions: ['exam.*', 'onlineexam.*', 'gradeadjust.view', 'gradeadjust.apply', 'gradeadjust.config', 'cms.result.edit', 'reports.view', 'reports.transcripts.view'] },
   { key: 'LIBRARIAN', nameAr: 'أمين المكتبة', nameEn: 'Librarian', permissions: ['library.*', 'reports.view'] },
   { key: 'QUALITY', nameAr: 'ضمان الجودة', nameEn: 'Quality', permissions: ['quality.*', 'institute.reports.view', 'reports.view', 'reports.export'] },
   { key: 'HR', nameAr: 'الموارد البشرية', nameEn: 'Human Resources', permissions: ['hr.*', 'workload.*', 'payroll.view', 'reports.view'] },

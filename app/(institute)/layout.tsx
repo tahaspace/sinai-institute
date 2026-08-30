@@ -91,6 +91,9 @@ const navItems = [
     badge: 2500,
     children: [
       { title: "قائمة الطلاب", href: "/institute/students" },
+      { title: "تسجيل الطلاب الجدد", href: "/institute/students/import" },
+      { title: "ترحيل الطلاب الناجحين", href: "/institute/students/promotion" },
+      { title: "حجب الطلاب", href: "/institute/students/holds" },
       { title: "الإرشاد الأكاديمي", href: "/institute/students/advising" },
       { title: "الإنذارات الأكاديمية", href: "/institute/students/warnings" },
       { title: "التخرج", href: "/institute/students/graduation" },
@@ -126,6 +129,7 @@ const navItems = [
       { title: "الحالات الاستثنائية", href: "/institute/exams/exceptions" },
       { title: "حالات وقواعد النتائج", href: "/institute/exams/result-states" },
       { title: "النتائج", href: "/institute/exams/results" },
+      { title: "الرأفة ورفع التقدير", href: "/institute/exams/grade-adjustments" },
       { title: "التظلمات", href: "/institute/exams/appeals" },
     ],
   },
@@ -223,6 +227,7 @@ const navItems = [
     icon: Settings,
     children: [
       { title: "الإعدادات العامة", href: "/institute/settings" },
+      { title: "السنوات الدراسية", href: "/institute/settings/academic-years" },
       { title: "النظام الأكاديمي للبرامج", href: "/institute/settings/academic-system" },
       { title: "إعدادات الساعات المعتمدة", href: "/institute/settings/credit-hours" },
       { title: "إعدادات الذكاء الاصطناعي", href: "/institute/settings/ai" },

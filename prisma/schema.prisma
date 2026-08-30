@@ -731,6 +731,15 @@ model Student {
   priorQualTotal          String? // مجموع المؤهل السابق (كما يُطبع على الشيت)
   priorQualYear           String? // سنة الحصول على المؤهل السابق
   admissionType           String? // نوع القبول
+  // ClientR6 — new-student bulk-import fields (additive)
+  gender                  String? // ذكر | أنثى
+  nationality             String?
+  religion                String?
+  maritalStatus           String? // الحالة الاجتماعية
+  governorate             String? // المحافظة
+  city                    String? // المدينة
+  admissionDate           DateTime? // تاريخ القبول
+  enrollmentRef           String? // إحالة القيد
   universityId            String?
   facultyId               String?
   createdAt               DateTime                   @default(now())
@@ -757,6 +766,7 @@ model Student {
   examAttempts            ExamAttempt[]
   invoices                Invoice[]
   receipts                Receipt[]
+  holds                   StudentHold[]
 
   @@index([departmentId])
   @@index([studentCode])
@@ -889,6 +899,7 @@ model Enrollment {
   final               Float?
   practical           Float?
   homework            Float?
+  graceMarks          Int?      @default(0) // ClientR7 — رأفة grace marks added to this course (added to total; can flip fail→pass)
   letterGrade         String?
   gradeStatusCode     String? // result-state code (A/B+/.../W/E/I/NE/FW/BL/DN/DS) → GradeStatus
   points              Float? // GPA points earned for this course
@@ -995,12 +1006,97 @@ model Guardian {
   name        String
   phone       String?
   job         String?
+  email       String? // ClientR6 import
+  address     String? // ClientR6 import
   bankAccount String? // ClientR3: guardian financial data report
   createdAt   DateTime @default(now())
   student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@index([studentId])
   @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ClientR5 — Student Holds & Blocks (نظام حجب الطلاب)
+// A hold NEVER deletes/edits a result or touches GPA/academic status; it only
+// controls VISIBILITY/access via scope flags. The result stays in the DB.
+// ─────────────────────────────────────────────────────────────────────────
+
+// Configurable hold reason (سبب الحجب — إعدادات الحجب). Distinct from the fixed
+// hold TYPE; one type can have many reasons. Powers the "holds by reason" report.
+model HoldReason {
+  id           String        @id @default(cuid())
+  code         String // stable code (unique within a tenant)
+  nameAr       String
+  nameEn       String?
+  defaultType  String        @default("ADMINISTRATIVE") // suggested hold type for this reason
+  active       Boolean       @default(true)
+  order        Int           @default(0)
+  universityId String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  holds        StudentHold[]
+
+  @@unique([universityId, code])
+  @@index([universityId])
+}
+
+// One hold on a student. type = what the student sees; scope flags = what it blocks.
+model StudentHold {
+  id                    String      @id @default(cuid())
+  studentId             String
+  universityId          String?
+  type                  String      @default("ADMINISTRATIVE") // FINANCIAL|DOCUMENT|DISCIPLINARY|ACADEMIC|ADMINISTRATIVE|GRADUATION|LIBRARY|CUSTOM
+  reasonId              String? // configurable HoldReason
+  reasonText            String? // free-text detail (esp. CUSTOM)
+  // النطاق (Scope) — what the hold blocks. Login / schedule / messages are NEVER blocked.
+  blockResult           Boolean     @default(true) // ظهور النتيجة (most common/used)
+  blockRegistration     Boolean     @default(false) // تسجيل المقررات
+  blockEnrollmentLetter Boolean     @default(false) // استخراج إفادة
+  blockTranscript       Boolean     @default(false) // استخراج بيان درجات
+  blockCertificate      Boolean     @default(false) // استخراج شهادة
+  blockGraduation       Boolean     @default(false) // التقديم للتخرج
+  status                String      @default("ACTIVE") // PENDING|ACTIVE|RELEASED|CANCELLED|EXPIRED
+  source                String      @default("MANUAL") // MANUAL | AUTOMATIC (finance-linked)
+  messageAr             String? // per-hold student-message override (else derived from type)
+  messageEn             String?
+  startDate             DateTime    @default(now())
+  endDate               DateTime?
+  appliedById           String? // who placed the hold (User id)
+  approvedById          String? // Approved By (manager override)
+  releasedById          String? // who lifted it
+  releasedAt            DateTime?
+  releaseReason         String?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  student               Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  reason                HoldReason? @relation(fields: [reasonId], references: [id])
+  events                HoldEvent[]
+
+  @@index([studentId])
+  @@index([universityId])
+  @@index([status])
+  @@index([type])
+}
+
+// Immutable lifecycle log for a hold (APPLY/APPROVE/RELEASE/CANCEL/EXPIRE) —
+// powers the "released holds" + "automatic holds" reports and the audit trail.
+model HoldEvent {
+  id           String      @id @default(cuid())
+  holdId       String
+  studentId    String
+  universityId String?
+  action       String // APPLY | APPROVE | RELEASE | CANCEL | EXPIRE
+  source       String      @default("MANUAL") // MANUAL | AUTOMATIC
+  actorUserId  String?
+  note         String?
+  at           DateTime    @default(now())
+  hold         StudentHold @relation(fields: [holdId], references: [id], onDelete: Cascade)
+
+  @@index([holdId])
+  @@index([studentId])
+  @@index([universityId])
+  @@index([action])
 }
 
 model ExamSession {
@@ -2813,4 +2909,131 @@ model PerformanceScore {
   review      PerformanceReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
 
   @@index([reviewId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ClientR6 — Student Registration (bulk import) + Student Promotion (rollover)
+// Import creates students+accounts from Excel; promotion rolls successful
+// students up a level into the new year. Prior enrollments stay as immutable
+// history; the batch/items below are the promotion archive + audit.
+// ─────────────────────────────────────────────────────────────────────────
+
+// One bulk-import run (for auditability). The actual students land in Student.
+model StudentImportBatch {
+  id           String   @id @default(cuid())
+  universityId String?
+  fileName     String?
+  academicYear String
+  semester     String
+  programId    String?
+  facultyId    String?
+  level        Int?
+  total        Int      @default(0)
+  imported     Int      @default(0)
+  failed       Int      @default(0)
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  @@index([universityId])
+}
+
+// One promotion run. Goes DRAFT → APPROVED (manager) → EXECUTED (locked).
+model PromotionBatch {
+  id            String          @id @default(cuid())
+  universityId  String?
+  fromYear      String
+  toYear        String
+  fromSemester  String?
+  toSemester    String?
+  programId     String?
+  departmentId  String?
+  fromLevel     Int?
+  toLevel       Int?
+  status        String          @default("DRAFT") // DRAFT | APPROVED | EXECUTED | CANCELLED
+  eligibleCount Int             @default(0)
+  promotedCount Int             @default(0)
+  approvedById  String?
+  approvedAt    DateTime?
+  executedById  String?
+  executedAt    DateTime?
+  createdById   String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  items         PromotionItem[]
+
+  @@index([universityId])
+  @@index([status])
+}
+
+// One student's line in a promotion batch (the archive of what happened to them).
+model PromotionItem {
+  id          String         @id @default(cuid())
+  batchId     String
+  studentId   String
+  studentCode String
+  studentName String
+  action      String // PROMOTE | GRADUATE | STAY | SKIP
+  fromLevel   Int?
+  toLevel     Int?
+  cgpa        Float?
+  resultGrade String?
+  reason      String? // why STAY/SKIP (راسب/منسحب/مفصول/مديون/محوّل…)
+  createdAt   DateTime       @default(now())
+  batch       PromotionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+  @@index([studentId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ClientR7 — الرأفة (Rafaa/leniency) + رفع التقدير (grade improvement)
+// Bylaw-configurable adjustments applied AFTER control grade entry, per فرقة/
+// year. Rafaa flips a failing status (grace marks per course → Enrollment.graceMarks);
+// improvement bumps an already-passing student's تقدير band. A batch is reviewed
+// then approved by control (اعتماد الكنترول), then it overlays the annual results.
+// ─────────────────────────────────────────────────────────────────────────
+
+model GradeAdjustmentBatch {
+  id               String                @id @default(cuid())
+  universityId     String?
+  academicYear     String
+  yearGroup        Int // الفرقة (= Student.level)
+  programId        String?
+  departmentId     String?
+  status           String                @default("DRAFT") // DRAFT | APPROVED | CANCELLED
+  rafaaCount       Int                   @default(0)
+  improvementCount Int                   @default(0)
+  approvedById     String?
+  approvedAt       DateTime?
+  createdById      String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  items            GradeAdjustmentItem[]
+
+  @@index([universityId])
+  @@index([status])
+}
+
+model GradeAdjustmentItem {
+  id                   String               @id @default(cuid())
+  batchId              String
+  studentId            String
+  studentCode          String
+  studentName          String
+  // رأفة
+  rafaaMarks           Int                  @default(0) // total grace marks added
+  rafaaCourses         String? // JSON: [{code, marks}]
+  fromStatus           String? // original year result (راسب/باقٍ للإعادة/له دور ثانٍ)
+  toStatus             String? // result after رأفة
+  benefitedRafaa       Boolean              @default(false)
+  // رفع التقدير
+  improvementMarks     Int                  @default(0) // % points added to overall
+  fromGrade            String? // original تقدير
+  toGrade              String? // تقدير after رفع
+  benefitedImprovement Boolean              @default(false)
+  createdAt            DateTime             @default(now())
+  batch                GradeAdjustmentBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+  @@index([studentId])
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { resolveStudent } from '@/lib/student';
 import { computeStanding } from '@/lib/gpa';
+import { scopeBlock } from '@/lib/holds';
 
 // GET /api/student/grades?studentCode=&academicYear=&semester=
 // Returns the grade breakdown + stats for one student.
@@ -15,6 +16,21 @@ export async function GET(request: NextRequest) {
 
     if (!student) {
       return NextResponse.json({ error: 'الطالب غير موجود' }, { status: 404 });
+    }
+
+    // ClientR5 — result-visibility hold. The result stays in the DB untouched;
+    // it is simply hidden from the student, who instead sees the hold message.
+    const rBlock = await scopeBlock(student.id, 'blockResult');
+    if (rBlock.blocked) {
+      return NextResponse.json({
+        held: true,
+        holdType: rBlock.type,
+        holdMessage: rBlock.message,
+        student: { id: student.id, studentCode: student.studentCode, name: student.nameAr, level: student.level },
+        subjects: [],
+        exams: [],
+        stats: null,
+      });
     }
 
     const [enrollments, statuses] = await Promise.all([

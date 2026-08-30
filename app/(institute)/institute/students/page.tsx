@@ -42,6 +42,7 @@ import {
   Building2,
   Clock,
   Award,
+  Lock,
 } from "lucide-react"
 
 interface StudentRow {
@@ -304,7 +305,15 @@ export default function StudentsPage() {
       </Card>
 
       {/* Quick Links */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <Button variant="outline" className="h-auto py-4" asChild>
+          <Link href="/institute/students/holds">
+            <div className="text-center">
+              <Lock className="w-6 h-6 mx-auto mb-2 text-red-600" />
+              <span>حجب الطلاب</span>
+            </div>
+          </Link>
+        </Button>
         <Button variant="outline" className="h-auto py-4" asChild>
           <Link href="/institute/students/advising">
             <div className="text-center">

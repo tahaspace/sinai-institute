@@ -52,6 +52,7 @@ export async function getAnnualBands(): Promise<AnnualBand[]> {
 
 export type AnnualCourseResult = {
   courseId: string; code: string; name: string; total: number | null; grade: AnnualGrade | null; passed: boolean; graded: boolean;
+  graceMarks: number; // ClientR7 — رأفة grace applied to this course (0 if none)
   // raw component marks + their maxes — drive the ministry sheet's per-course sub-columns (التقسيمة الداخلية)
   midterm: number | null; final: number | null; practical: number | null; homework: number | null;
   midtermMax: number; finalMax: number; practicalMax: number; homeworkMax: number;
@@ -73,22 +74,24 @@ export type AnnualStudentResult = {
 type EnrollmentWithCourse = {
   courseId: string;
   midterm: number | null; final: number | null; practical: number | null; homework: number | null;
+  graceMarks?: number | null; // ClientR7 — رأفة grace
   course: { code: string; nameAr: string; midtermMax: number; finalMax: number; practicalMax: number; homeworkMax: number };
 };
 
-/** Subject total percentage from recorded components (null when nothing is recorded yet). */
-export function courseTotalPct(e: EnrollmentWithCourse): number | null {
+/** Subject total percentage from recorded components (null when nothing recorded). Adds رأفة grace unless ignoreGrace. */
+export function courseTotalPct(e: EnrollmentWithCourse, opts?: { ignoreGrace?: boolean }): number | null {
   const max = e.course.midtermMax + e.course.finalMax + e.course.practicalMax + e.course.homeworkMax;
   const comps: (number | null)[] = [e.midterm, e.final, e.practical, e.homework];
   if (max <= 0 || !comps.some((v) => v != null)) return null;
-  const got = comps.reduce<number>((s, v) => s + (v ?? 0), 0);
+  const grace = opts?.ignoreGrace ? 0 : (e.graceMarks ?? 0);
+  const got = comps.reduce<number>((s, v) => s + (v ?? 0), 0) + grace;
   return Math.round(((got / max) * 100) * 10) / 10;
 }
 
 type TermFilter = { academicYear?: string; semester?: string };
 
 /** Compute the annual result for a set of students (one academic year / cohort). Batch: one regs read. */
-export async function computeAnnualForStudents(studentIds: string[], f: TermFilter = {}): Promise<Map<string, AnnualStudentResult>> {
+export async function computeAnnualForStudents(studentIds: string[], f: TermFilter = {}, opts: { ignoreGrace?: boolean; applyApprovedImprovement?: boolean } = {}): Promise<Map<string, AnnualStudentResult>> {
   const out = new Map<string, AnnualStudentResult>();
   if (!studentIds.length) return out;
   const reg = await getRegulations();
@@ -100,7 +103,7 @@ export async function computeAnnualForStudents(studentIds: string[], f: TermFilt
     prisma.student.findMany({ where: { id: { in: studentIds } }, select: { id: true, studentCode: true, nameAr: true, level: true } }),
     prisma.enrollment.findMany({
       where: { studentId: { in: studentIds }, ...(f.academicYear ? { academicYear: f.academicYear } : {}), ...(f.semester ? { semester: f.semester } : {}) },
-      select: { studentId: true, courseId: true, midterm: true, final: true, practical: true, homework: true, course: { select: { code: true, nameAr: true, midtermMax: true, finalMax: true, practicalMax: true, homeworkMax: true } } },
+      select: { studentId: true, courseId: true, midterm: true, final: true, practical: true, homework: true, graceMarks: true, course: { select: { code: true, nameAr: true, midtermMax: true, finalMax: true, practicalMax: true, homeworkMax: true } } },
     }),
   ]);
 
@@ -110,11 +113,12 @@ export async function computeAnnualForStudents(studentIds: string[], f: TermFilt
   for (const s of students) {
     const es = byStudent.get(s.id) ?? [];
     const courses: AnnualCourseResult[] = es.map((e) => {
-      const total = courseTotalPct(e);
+      const total = courseTotalPct(e, { ignoreGrace: opts.ignoreGrace });
       const graded = total != null;
       const passed = graded && total! >= passPct;
       return {
         courseId: e.courseId, code: e.course.code, name: e.course.nameAr, total, grade: graded ? gradeFromBands(total!, bands) : null, passed, graded,
+        graceMarks: opts.ignoreGrace ? 0 : (e.graceMarks ?? 0),
         midterm: e.midterm, final: e.final, practical: e.practical, homework: e.homework,
         midtermMax: e.course.midtermMax, finalMax: e.course.finalMax, practicalMax: e.course.practicalMax, homeworkMax: e.course.homeworkMax,
       };
@@ -134,6 +138,17 @@ export async function computeAnnualForStudents(studentIds: string[], f: TermFilt
       courses, overallPct, overallGrade: overallPct != null ? gradeFromBands(overallPct, bands) : null,
       failedCount: failed.length, failedCourses: failed.map((c) => c.code), result,
     });
+  }
+  // ClientR7 — overlay an approved رفع التقدير (band override) onto the final grade.
+  if (opts.applyApprovedImprovement && f.academicYear) {
+    const items = await prisma.gradeAdjustmentItem.findMany({
+      where: { studentId: { in: studentIds }, toGrade: { not: null }, batch: { status: 'APPROVED', academicYear: f.academicYear } },
+      select: { studentId: true, toGrade: true },
+    });
+    for (const it of items) {
+      const r = out.get(it.studentId);
+      if (r && it.toGrade) r.overallGrade = it.toGrade as AnnualGrade;
+    }
   }
   return out;
 }

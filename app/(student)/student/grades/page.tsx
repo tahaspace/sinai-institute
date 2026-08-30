@@ -8,6 +8,7 @@ import {
   TrendingDown,
   Award,
   FileText,
+  Lock,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -61,9 +62,13 @@ interface GradesStats {
 }
 interface GradesResponse {
   student: { id: string; studentCode: string; name: string; level: number }
-  stats: GradesStats
+  stats: GradesStats | null
   subjects: SubjectGrade[]
   exams: ExamResult[]
+  // ClientR5 — result-visibility hold: when true the marks are withheld and only the message shows.
+  held?: boolean
+  holdType?: string | null
+  holdMessage?: string | null
 }
 interface StandingData {
   cgpa: number
@@ -172,6 +177,21 @@ export default function StudentGradesPage() {
       {error && (
         <Card>
           <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+
+      {/* ClientR5 — result held: show the hold message instead of the marks (result is NOT deleted). */}
+      {data?.held && (
+        <Card className="border-r-4 border-r-amber-500 bg-amber-50/60">
+          <CardContent className="p-6 flex items-start gap-3">
+            <Lock className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-bold text-amber-800 mb-1">النتيجة غير متاحة حاليًا</h3>
+              <p className="text-sm text-amber-900/90">
+                {data.holdMessage ?? "يوجد قيد على حسابك يمنع عرض النتيجة. يرجى مراجعة شؤون الطلاب."}
+              </p>
+            </div>
+          </CardContent>
         </Card>
       )}
 

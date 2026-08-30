@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requirePermission } from '@/lib/authz';
+import { currentUserId } from '@/lib/student';
+import { releaseFinancialHoldsIfPaid } from '@/lib/holds';
 
 // GET /api/institute/finance/collection — recent payments (collection feed).
 export async function GET() {
@@ -120,7 +122,11 @@ export async function POST(request: NextRequest) {
         paidAt: new Date(),
       },
     });
-    return NextResponse.json(payment, { status: 201 });
+
+    // ClientR5 — finance link: if this payment clears the balance, auto-release the
+    // student's active financial hold(s) (source=AUTOMATIC). Never re-holds automatically.
+    const holdsReleased = await releaseFinancialHoldsIfPaid(student.id, await currentUserId());
+    return NextResponse.json({ ...payment, holdsReleased }, { status: 201 });
   } catch (error) {
     console.error('Error recording payment:', error);
     return NextResponse.json({ error: 'فشل في تسجيل الدفعة' }, { status: 500 });

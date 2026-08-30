@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { resolveStudent } from '@/lib/student';
 import { validateRegistration } from '@/lib/registration';
 import { computeAcademicStanding } from '@/lib/standing';
+import { scopeBlock } from '@/lib/holds';
 
 const DEFAULT_TERM = { academicYear: '2024-2025', semester: 'second' };
 
@@ -45,6 +46,7 @@ export async function GET(request: NextRequest) {
 
     const currentSectionIds = current?.items.map((i) => i.sectionId) ?? [];
     const validation = await validateRegistration(student.id, academicYear, semester, currentSectionIds);
+    const regBlockGet = await scopeBlock(student.id, 'blockRegistration');
 
     return NextResponse.json({
       term: { academicYear, semester },
@@ -78,6 +80,7 @@ export async function GET(request: NextRequest) {
         sectionIds: currentSectionIds,
         items: current.items.map((i) => ({ sectionId: i.sectionId, code: i.section.offering.course.code, name: i.section.offering.course.nameAr, creditHours: i.section.offering.course.creditHours, sectionCode: i.section.code })),
       },
+      hold: regBlockGet.blocked ? { blocked: true, message: regBlockGet.message, type: regBlockGet.type } : null,
       validation,
     });
   } catch (error) {
@@ -98,6 +101,14 @@ export async function POST(request: NextRequest) {
     const semester = body.semester || DEFAULT_TERM.semester;
     const action: string = body.action || 'save';
     const sectionIds: string[] = Array.isArray(body.sectionIds) ? body.sectionIds : [];
+
+    // ClientR5 — a registration hold blocks saving/submitting a registration (cancel is still allowed).
+    if (action !== 'cancel') {
+      const regBlock = await scopeBlock(student.id, 'blockRegistration');
+      if (regBlock.blocked) {
+        return NextResponse.json({ ok: false, held: true, error: regBlock.message ?? 'تسجيل المقررات محجوب حاليًا' }, { status: 403 });
+      }
+    }
 
     if (action === 'cancel') {
       const existing = await prisma.registrationRequest.findUnique({ where: { studentId_academicYear_semester: { studentId: student.id, academicYear, semester } } });

@@ -6,6 +6,7 @@
 export type ReportCategory =
   | 'ministry'
   | 'student-affairs'
+  | 'holds'
   | 'academic'
   | 'attendance'
   | 'results'
@@ -23,6 +24,7 @@ export type ReportCategory =
 export const CATEGORY_LABELS: Record<ReportCategory, string> = {
   ministry: 'كشوف الوزارة',
   'student-affairs': 'شؤون الطلاب',
+  holds: 'حجب الطلاب',
   academic: 'التقارير الأكاديمية',
   attendance: 'الحضور والغياب',
   results: 'النتائج ومتابعة الرصد',

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { resolveStudent } from '@/lib/student';
+import { scopeBlock } from '@/lib/holds';
 
 const DAY_NAMES = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 
@@ -105,13 +106,19 @@ export async function GET(request: NextRequest) {
       })),
     ].slice(0, 4);
 
+    // ClientR5 — result-visibility hold: hide recent grades + grade notifications
+    // (the cumulative GPA summary stays; the withheld thing is the term result detail).
+    const rBlock = await scopeBlock(student.id, 'blockResult');
+
     return NextResponse.json({
       student: { id: student.id, studentCode: student.studentCode, name: student.nameAr },
       stats: { attendance: attendancePct, gpa: student.gpa, completedAssignments, totalAssignments },
       todaySchedule,
       upcomingAssignments,
-      recentGrades,
-      notifications,
+      recentGrades: rBlock.blocked ? [] : recentGrades,
+      notifications: rBlock.blocked ? notifications.filter((n) => n.type !== 'grade') : notifications,
+      resultHeld: rBlock.blocked,
+      holdMessage: rBlock.message,
     });
   } catch (error) {
     console.error('Error fetching dashboard:', error);
