@@ -38,3 +38,35 @@ Both run **after** control grade entry, per فرقة/year, on the **combined-sem
 ## Notes
 - Scope = the annual system (النظام السنوي), where رأفة/رفع تقدير live. A credit-hour F→D grace variant can be added later.
 - `requireNoPriorFail` uses approved-adjustment history; the deep prior-year فرقة-fail check is a light approximation (defaults off).
+
+---
+
+## Follow-up fixes (R7 notes — 2026-08-30)
+
+Client feedback on the الرأفة/رفع التقدير sub-module (three points), all DEPLOYED LIVE
+(Vercel-only, no schema change — the toggle is Setting-based):
+
+1. **Multi-select checkboxes missing.** The results table rendered a checkbox only for
+   auto-eligible rows and had no select-all — so when nobody qualified, the whole select
+   column vanished. Now: a **select-all** header checkbox + a checkbox on **every** row,
+   enabled for students who clear the bylaw rules and **disabled/greyed with «لا يستوفي
+   شروط اللائحة»** for the rest (enforces «بشرط عدم تخطي القواعد»).
+2. **Approve button didn't activate.** It was downstream of #1 (no selection → «إنشاء دفعة»
+   / «اعتماد» stayed disabled). Fixed with #1; the batch card now also fetches the batch
+   detail (`GET …/grade-adjustments/[id]`) and **renders the students by name** (code / name /
+   rafaa from→to (+marks) / رفع from→to (+marks)), so control sees who is being approved.
+   After اعتماد the card refreshes to «معتمدة» (loadBatch, not a full re-evaluate).
+3. **Per-institute enable/disable.** Added a master **«تفعيل موديول الرأفة ورفع التقدير»**
+   toggle (`Setting["institute.gradeAdjustModule"]` `{enabled}`, `getModuleConfig`/`saveModuleConfig`
+   in `lib/rafaa.ts`), on top of the existing per-feature تفعيل الرأفة / تفعيل رفع التقدير.
+   When OFF: the review screen shows a «غير مُفعّل حسب لائحة المعهد» banner and disables
+   «عرض النتائج»; the GET evaluate returns `{moduleEnabled:false, rows:[]}`; POST create
+   returns 403; `createAdjustmentBatch` also throws. Covers credit-hour institutes that
+   don't apply rafaa/raise at all (both / neither / one, via master + two sub-toggles).
+
+Files: `lib/rafaa.ts` (+ModuleConfig/getModuleConfig/saveModuleConfig + create guard),
+`app/api/institute/grade-adjustments/{route,config/route}.ts` (moduleEnabled flag + 403 guard),
+`app/(institute)/institute/exams/grade-adjustments/page.tsx` (select-all + per-row checkboxes,
+batch-items name table, module banner, master toggle in config tab). tsc 42/0, eslint 0.
+Verified local: 3 eligible (R7-1/R7-2/R7-5) → checkboxes + batch names + approve→APPROVED;
+toggle OFF → evaluate empty + create 403. Prod: module exposed+enabled, endpoints 200.

@@ -52,8 +52,14 @@ export const DEFAULT_IMPROVEMENT: ImprovementConfig = {
   requirePassedAll: true, requireNoPriorFail: false, requireNoRafaa: true,
 };
 
+// Master module toggle — some institutes (نظام الساعات المعتمدة) don't apply رأفة/رفع at all,
+// so the whole sub-module can be turned off per the institute's bylaw.
+export type ModuleConfig = { enabled: boolean };
+export const DEFAULT_MODULE: ModuleConfig = { enabled: true };
+
 export const RAFAA_KEY = 'institute.rafaa';
 export const IMPROVEMENT_KEY = 'institute.gradeImprovement';
+export const MODULE_KEY = 'institute.gradeAdjustModule';
 
 async function readSetting<T>(key: string, def: T): Promise<T> {
   const row = await prisma.setting.findFirst({ where: { key } });
@@ -70,6 +76,8 @@ export const getRafaaConfig = () => readSetting<RafaaConfig>(RAFAA_KEY, DEFAULT_
 export const getImprovementConfig = () => readSetting<ImprovementConfig>(IMPROVEMENT_KEY, DEFAULT_IMPROVEMENT);
 export async function saveRafaaConfig(patch: Partial<RafaaConfig>) { return saveSetting(RAFAA_KEY, { ...(await getRafaaConfig()), ...patch }); }
 export async function saveImprovementConfig(patch: Partial<ImprovementConfig>) { return saveSetting(IMPROVEMENT_KEY, { ...(await getImprovementConfig()), ...patch }); }
+export const getModuleConfig = () => readSetting<ModuleConfig>(MODULE_KEY, DEFAULT_MODULE);
+export async function saveModuleConfig(patch: Partial<ModuleConfig>) { return saveSetting(MODULE_KEY, { ...(await getModuleConfig()), ...patch }); }
 
 // ───────────────────────── Preview ─────────────────────────
 export type RafaaCourseApplied = { courseId: string; code: string; marks: number };
@@ -183,6 +191,7 @@ export async function createAdjustmentBatch(
   opts: { academicYear: string; yearGroup: number; programId?: string | null; departmentId?: string | null; universityId?: string | null },
   selectedStudentIds: string[], actorId?: string | null
 ) {
+  if (!(await getModuleConfig()).enabled) throw new Error('موديول الرأفة ورفع التقدير غير مُفعّل حسب لائحة المعهد');
   const rows = await previewAdjustments(opts);
   const selected = new Set(selectedStudentIds);
   const chosen = (selectedStudentIds.length ? rows.filter((r) => selected.has(r.studentId)) : rows).filter((r) => r.benefitedRafaa || r.benefitedImprovement);

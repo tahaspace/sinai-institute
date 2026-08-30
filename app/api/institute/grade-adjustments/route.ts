@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/authz';
 import { currentUserId } from '@/lib/student';
-import { previewAdjustments, createAdjustmentBatch } from '@/lib/rafaa';
+import { previewAdjustments, createAdjustmentBatch, getModuleConfig } from '@/lib/rafaa';
 
 // GET /api/institute/grade-adjustments?academicYear=&yearGroup=&programId=&departmentId= — رأفة/رفع preview for a فرقة.
 export async function GET(request: NextRequest) {
@@ -14,8 +14,14 @@ export async function GET(request: NextRequest) {
     if (!academicYear || !yearGroup) return NextResponse.json({ error: 'العام الدراسي والفرقة مطلوبان' }, { status: 400 });
     const g = (k: string) => { const v = searchParams.get(k); return v && v !== 'all' ? v : null; };
 
+    // Master toggle: if the institute's bylaw disables the module, return an empty, flagged result.
+    if (!(await getModuleConfig()).enabled) {
+      return NextResponse.json({ moduleEnabled: false, rows: [], stats: { total: 0, rafaa: 0, improvement: 0, rescued: 0 } });
+    }
+
     const rows = await previewAdjustments({ academicYear, yearGroup, programId: g('programId'), departmentId: g('departmentId') });
     return NextResponse.json({
+      moduleEnabled: true,
       rows,
       stats: {
         total: rows.length,
@@ -37,6 +43,7 @@ export async function POST(request: NextRequest) {
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
     const b = await request.json().catch(() => ({}));
     if (!b.academicYear || !b.yearGroup) return NextResponse.json({ error: 'العام الدراسي والفرقة مطلوبان' }, { status: 400 });
+    if (!(await getModuleConfig()).enabled) return NextResponse.json({ error: 'موديول الرأفة ورفع التقدير غير مُفعّل حسب لائحة المعهد' }, { status: 403 });
 
     const batch = await createAdjustmentBatch(
       { academicYear: String(b.academicYear), yearGroup: parseInt(String(b.yearGroup), 10), programId: b.programId ?? null, departmentId: b.departmentId ?? null, universityId: guard.ctx.universityId },
