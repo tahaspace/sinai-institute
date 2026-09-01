@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 
 const LEVELS = ['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة'];
@@ -51,12 +52,17 @@ export async function GET(request: NextRequest) {
       level: levelLabel(s.level),
       levelNum: s.level,
       gpa: s.gpa,
+      // Program-driven, resolved server-side — the client filters/renders on this, never guesses it.
+      system: normalizeSystem(s.program?.academicSystem),
       creditHours: s.enrollments.reduce((sum, e) => sum + (e.course?.creditHours ?? 0), 0),
       status: statusLabel(s.status),
       statusCode: s.status,
     }));
 
-    const avgGpa = rows.length ? rows.reduce((a, r) => a + r.gpa, 0) / rows.length : 0;
+    // Annual-system students have no CGPA at all (lib/gpa.ts stores raw marks only for them), so
+    // their stored 0 must not enter the average — including them silently drags the institute mean down.
+    const creditRows = rows.filter((r) => r.system === 'CREDIT_HOURS');
+    const avgGpa = creditRows.length ? creditRows.reduce((a, r) => a + r.gpa, 0) / creditRows.length : 0;
     return NextResponse.json({
       students: rows,
       stats: { total: rows.length, avgGpa: Number(avgGpa.toFixed(2)) },

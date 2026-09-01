@@ -18,6 +18,38 @@ export function normalizeSystem(v: string | null | undefined): AcademicSystem {
   return v === 'ANNUAL' ? 'ANNUAL' : 'CREDIT_HOURS';
 }
 
+/**
+ * Coerce a *filter* value. Unlike normalizeSystem this keeps "all"/empty as undefined so a
+ * missing or 'all' filter means EVERYTHING — the display filter must never auto-hide rows.
+ */
+export function normalizeSystemFilter(v: string | null | undefined): AcademicSystem | undefined {
+  if (v === 'ANNUAL' || v === 'CREDIT_HOURS') return v;
+  return undefined; // '', 'all', null, anything else → no filtering
+}
+
+// ───────────────────────── Shared where-fragments (the ONE filter primitive) ─────────────────────────
+// Three shapes cover every list in the platform. Pass `undefined` for "الكل" and you get `{}` —
+// i.e. no filtering at all, which is the required default everywhere (Finance included).
+
+/** STUDENT-scoped: use on any `prisma.student` query. */
+export function academicSystemWhere(system?: AcademicSystem | null): Record<string, unknown> {
+  if (!system) return {};
+  return system === 'ANNUAL'
+    ? { program: { academicSystem: 'ANNUAL' } }
+    // credit-hours is the default, so students with no program count as credit-hours
+    : { OR: [{ program: { academicSystem: 'CREDIT_HOURS' } }, { programId: null }] };
+}
+
+/** ENROLLMENT-scoped: use on any model that has a `student` relation (Enrollment, Invoice, Hold…). */
+export function studentSystemWhere(system?: AcademicSystem | null): Record<string, unknown> {
+  return system ? { student: academicSystemWhere(system) } : {};
+}
+
+/** PROGRAM-scoped: use on `prisma.program` queries. */
+export function programSystemWhere(system?: AcademicSystem | null): Record<string, unknown> {
+  return system ? { academicSystem: system } : {};
+}
+
 /** The academic system of a program (CREDIT_HOURS when unknown/unset). */
 export async function getProgramSystem(programId: string | null | undefined): Promise<AcademicSystem> {
   if (!programId) return 'CREDIT_HOURS';

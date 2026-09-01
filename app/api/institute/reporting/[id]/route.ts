@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requirePermission } from '@/lib/authz';
 import { getReport } from '@/lib/reporting/registry';
 import { parseFilters } from '@/lib/reporting/filters';
-import { getProgramSystem } from '@/lib/academic-system';
+import { getProgramSystem, normalizeSystemFilter } from '@/lib/academic-system';
 import { toCsv, csvResponseHeaders, toExcelXml, excelResponseHeaders } from '@/lib/reporting/export';
 
 // Run a single report by id (ClientR3 — R0). ?format=csv → download. Each report carries its own
@@ -25,7 +25,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // Resolve the active academic system server-side from the selected program (if any), so
     // "both"-system reports can branch credit-hours vs annual. No program selected → undefined
     // (the report spans both / segregates per-row via academicSystemWhere).
-    const academicSystem = filters.programId ? await getProgramSystem(filters.programId) : undefined;
+    // Precedence: an explicit ?academicSystem= wins; otherwise it is derived from the chosen program.
+    const academicSystem =
+      normalizeSystemFilter(filters.academicSystem) ??
+      (filters.programId ? await getProgramSystem(filters.programId) : undefined);
     const result = await report.run(filters, { universityId: guard.ctx.universityId ?? null, academicSystem });
 
     const format = sp.get('format');

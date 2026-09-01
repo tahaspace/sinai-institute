@@ -319,6 +319,12 @@ model Application {
   firstChoice       String
   secondChoice      String?
   thirdChoice       String?
+  // firstChoice/secondChoice/thirdChoice are free text typed by the applicant. programId is the
+  // resolved choice, set at review/acceptance — the only join path to Program.academicSystem, so
+  // without it admissions reports cannot be narrowed by academic system at all. Nullable and
+  // additive: legacy rows keep the free text and simply fall outside a system filter.
+  programId         String?
+  program           Program? @relation(fields: [programId], references: [id], onDelete: SetNull)
   documentsUrl      String?
   status            String   @default("PENDING")
   notes             String?
@@ -333,6 +339,7 @@ model Application {
   @@index([status])
   @@index([email])
   @@index([universityId])
+  @@index([programId])
 }
 
 model Complaint {
@@ -1640,59 +1647,59 @@ model ExpenseClaim {
 // ===== Finance v2 — Phase 6: Payroll v2 =====
 
 model Employee {
-  id           String                    @id @default(cuid())
-  universityId String?
-  code         String
-  nameAr       String
-  nameEn       String?
-  userId       String? // soft link to User (login)
-  instructorId String? // soft link to Instructor
-  jobTitle     String? // legacy denormalized label (kept for back-compat; jobTitleId is canonical)
-  department   String? // legacy denormalized label (kept; adminDepartmentId is canonical)
-  baseSalary   Decimal                   @default(0) @db.Decimal(18, 4)
-  bankAccount  String?
-  taxCardNo    String?
-  insuranceNo  String?
-  hireDate     DateTime?
-  isActive     Boolean                   @default(true)
+  id                 String                    @id @default(cuid())
+  universityId       String?
+  code               String
+  nameAr             String
+  nameEn             String?
+  userId             String? // soft link to User (login)
+  instructorId       String? // soft link to Instructor
+  jobTitle           String? // legacy denormalized label (kept for back-compat; jobTitleId is canonical)
+  department         String? // legacy denormalized label (kept; adminDepartmentId is canonical)
+  baseSalary         Decimal                   @default(0) @db.Decimal(18, 4)
+  bankAccount        String?
+  taxCardNo          String?
+  insuranceNo        String?
+  hireDate           DateTime?
+  isActive           Boolean                   @default(true)
   // --- ClientR4 HR (R4c-1): 360 profile + org placement. Config entities (type/title/position/
   // dept/section/manager) are soft refs — resolved by lookup, like costCenterId/gradeStatusCode.
-  nationalId        String?
-  birthDate         DateTime?
-  gender            String? // male | female
-  maritalStatus     String?
-  phone             String?
-  email             String?
-  address           String?
-  employeeTypeId    String?
-  jobTitleId        String?
-  positionId        String?
-  adminDepartmentId String?
-  sectionId         String?
-  managerId         String? // soft ref → Employee.id (direct manager)
-  contractType      String? // permanent | temporary | partial | seasonal | consultant | fulltime_faculty | seconded_faculty
-  contractStart     DateTime?
-  contractEnd       DateTime?
-  hrStatus          String                    @default("ACTIVE") // NEW|UNDER_REVIEW|ACCEPTED|PROBATION|SUSPENDED|INVESTIGATION|RESIGNED|TERMINATED|RETIRED|DECEASED|CONTRACT_ENDED
-  iban              String?
-  payMethod         String? // bank | cash | cheque
-  createdAt    DateTime                  @default(now())
-  updatedAt    DateTime                  @updatedAt
-  components     EmployeeSalaryComponent[]
-  payslips       Payslip[]
-  assignments    EmployeeAssignment[]
-  qualifications EmployeeQualification[]
-  experiences    EmployeeExperience[]
-  documents      EmployeeDocument[]
-  jobHistory     EmployeeJobHistory[]
-  custody        AssetCustody[]
-  attendanceRecords EmployeeAttendance[]
-  leaveRequests     LeaveRequest[]
-  leaveBalances     LeaveBalance[]
-  penalties         Penalty[]
-  overtimeRecords   Overtime[]
-  permissions       AttendancePermission[]
-  loans             Loan[]
+  nationalId         String?
+  birthDate          DateTime?
+  gender             String? // male | female
+  maritalStatus      String?
+  phone              String?
+  email              String?
+  address            String?
+  employeeTypeId     String?
+  jobTitleId         String?
+  positionId         String?
+  adminDepartmentId  String?
+  sectionId          String?
+  managerId          String? // soft ref → Employee.id (direct manager)
+  contractType       String? // permanent | temporary | partial | seasonal | consultant | fulltime_faculty | seconded_faculty
+  contractStart      DateTime?
+  contractEnd        DateTime?
+  hrStatus           String                    @default("ACTIVE") // NEW|UNDER_REVIEW|ACCEPTED|PROBATION|SUSPENDED|INVESTIGATION|RESIGNED|TERMINATED|RETIRED|DECEASED|CONTRACT_ENDED
+  iban               String?
+  payMethod          String? // bank | cash | cheque
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  components         EmployeeSalaryComponent[]
+  payslips           Payslip[]
+  assignments        EmployeeAssignment[]
+  qualifications     EmployeeQualification[]
+  experiences        EmployeeExperience[]
+  documents          EmployeeDocument[]
+  jobHistory         EmployeeJobHistory[]
+  custody            AssetCustody[]
+  attendanceRecords  EmployeeAttendance[]
+  leaveRequests      LeaveRequest[]
+  leaveBalances      LeaveBalance[]
+  penalties          Penalty[]
+  overtimeRecords    Overtime[]
+  permissions        AttendancePermission[]
+  loans              Loan[]
   performanceReviews PerformanceReview[]
 
   @@unique([universityId, code])
@@ -2245,22 +2252,23 @@ model Scholarship {
 }
 
 model Program {
-  id               String      @id @default(cuid())
+  id               String        @id @default(cuid())
   nameAr           String
   nameEn           String?
   departmentId     String?
   degree           String? // بكالوريوس | دبلوم | ماجستير
-  years            Int         @default(4)
-  totalCreditHours Int         @default(0)
-  academicSystem   String      @default("CREDIT_HOURS") // CREDIT_HOURS | ANNUAL (dual-mode, per program)
+  years            Int           @default(4)
+  totalCreditHours Int           @default(0)
+  academicSystem   String        @default("CREDIT_HOURS") // CREDIT_HOURS | ANNUAL (dual-mode, per program)
   description      String?
-  isActive         Boolean     @default(true)
+  isActive         Boolean       @default(true)
   universityId     String?
   facultyId        String?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-  department       Department? @relation(fields: [departmentId], references: [id])
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  department       Department?   @relation(fields: [departmentId], references: [id])
   students         Student[]
+  applications     Application[]
 
   @@index([departmentId])
   @@index([universityId])
@@ -2499,16 +2507,16 @@ model ResearchOutput {
 // Administrative department — distinct from the academic `Department`. Self-nesting; manager is a
 // soft ref → Employee.id. isAcademic flags teaching-side admin units.
 model AdminDepartment {
-  id                String          @id @default(cuid())
+  id                String         @id @default(cuid())
   universityId      String?
   code              String
   nameAr            String
   nameEn            String?
   parentId          String?
   managerEmployeeId String?
-  isAcademic        Boolean         @default(false)
-  isActive          Boolean         @default(true)
-  createdAt         DateTime        @default(now())
+  isAcademic        Boolean        @default(false)
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
   sections          AdminSection[]
 
   @@unique([universityId, code])
@@ -2533,12 +2541,12 @@ model AdminSection {
 
 // Employee category (أعضاء هيئة تدريس / هيئة معاونة / إداريين / عمال / أمن / فنيين / قيادات).
 model EmployeeType {
-  id           String   @id @default(cuid())
+  id           String  @id @default(cuid())
   universityId String?
   code         String
   nameAr       String
-  order        Int      @default(0)
-  isActive     Boolean  @default(true)
+  order        Int     @default(0)
+  isActive     Boolean @default(true)
 
   @@unique([universityId, code])
   @@index([universityId])
@@ -2546,16 +2554,16 @@ model EmployeeType {
 
 // Job title with a level (سلم المسمى الوظيفي). isAcademic/isManagerial drive career-path + workflow.
 model JobTitle {
-  id             String   @id @default(cuid())
+  id             String  @id @default(cuid())
   universityId   String?
   code           String
   nameAr         String
   nameEn         String?
   employeeTypeId String?
-  jobLevel       Int      @default(1)
-  isAcademic     Boolean  @default(false)
-  isManagerial   Boolean  @default(false)
-  isActive       Boolean  @default(true)
+  jobLevel       Int     @default(1)
+  isAcademic     Boolean @default(false)
+  isManagerial   Boolean @default(false)
+  isActive       Boolean @default(true)
 
   @@unique([universityId, code])
   @@index([universityId])
@@ -2564,12 +2572,12 @@ model JobTitle {
 // Administrative position/appointment (رئيس قسم / مدير إدارة / وكيل / عميد / أمين عام) — distinct
 // from JobTitle: a person holds a title AND may occupy a position.
 model Position {
-  id           String   @id @default(cuid())
+  id           String  @id @default(cuid())
   universityId String?
   code         String
   nameAr       String
   nameEn       String?
-  isActive     Boolean  @default(true)
+  isActive     Boolean @default(true)
 
   @@unique([universityId, code])
   @@index([universityId])
@@ -2878,22 +2886,22 @@ model EvaluationCriterion {
 
 // One performance review of an employee against a template. evaluatorType supports 360 reviews.
 model PerformanceReview {
-  id            String             @id @default(cuid())
-  universityId  String?
-  employeeId    String
-  templateId    String?
-  period        String // free label e.g. "2026 - سنوي"
-  periodType    String             @default("ANNUAL") // MONTHLY | QUARTERLY | SEMI | ANNUAL
-  evaluatorType String             @default("MANAGER") // MANAGER | PEER | SUBORDINATE | SELF
-  evaluatorId   String?
-  totalScore    Float              @default(0)
-  grade         String? // ممتاز | جيد جداً | جيد | مقبول | يحتاج تطوير
+  id             String             @id @default(cuid())
+  universityId   String?
+  employeeId     String
+  templateId     String?
+  period         String // free label e.g. "2026 - سنوي"
+  periodType     String             @default("ANNUAL") // MONTHLY | QUARTERLY | SEMI | ANNUAL
+  evaluatorType  String             @default("MANAGER") // MANAGER | PEER | SUBORDINATE | SELF
+  evaluatorId    String?
+  totalScore     Float              @default(0)
+  grade          String? // ممتاز | جيد جداً | جيد | مقبول | يحتاج تطوير
   recommendation String? // PROMOTION | BONUS | TRAINING | WARNING | FOLLOWUP
-  note          String?
-  status        String             @default("SUBMITTED") // DRAFT | SUBMITTED
-  createdAt     DateTime           @default(now())
-  employee      Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  scores        PerformanceScore[]
+  note           String?
+  status         String             @default("SUBMITTED") // DRAFT | SUBMITTED
+  createdAt      DateTime           @default(now())
+  employee       Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  scores         PerformanceScore[]
 
   @@index([universityId])
   @@index([employeeId])

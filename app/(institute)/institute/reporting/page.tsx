@@ -15,7 +15,7 @@ type Any = any
 interface RepMeta { id: string; nameAr: string; description?: string; filters: string[]; requires?: string[] }
 interface Cat { category: string; label: string; reports: RepMeta[] }
 
-const FILTER_LABEL: Record<string, string> = { academicYear: "السنة الدراسية", semester: "الفصل", facultyId: "الكلية", departmentId: "القسم", programId: "البرنامج", level: "المستوى", courseId: "المقرر", advisorId: "المرشد", instructorId: "الدكتور", studentCode: "رقم الطالب", dateFrom: "من تاريخ", dateTo: "إلى تاريخ", status: "الحالة", qualification: "المؤهل" }
+const FILTER_LABEL: Record<string, string> = { academicYear: "السنة الدراسية", semester: "الفصل", facultyId: "الكلية", departmentId: "القسم", programId: "البرنامج", level: "المستوى", courseId: "المقرر", advisorId: "المرشد", instructorId: "الدكتور", studentCode: "رقم الطالب", dateFrom: "من تاريخ", dateTo: "إلى تاريخ", status: "الحالة", qualification: "المؤهل", academicSystem: "النظام الأكاديمي" }
 
 export default function ReportingHub() {
   const [catalogue, setCatalogue] = useState<Cat[]>([])
@@ -70,7 +70,7 @@ export default function ReportingHub() {
 
   const optsFor = (key: string): { value: string; label: string }[] => {
     if (!options) return []
-    const map: Record<string, string> = { academicYear: "academicYears", semester: "semesters", facultyId: "faculties", departmentId: "departments", programId: "programs", courseId: "courses", advisorId: "advisors", level: "levels" }
+    const map: Record<string, string> = { academicYear: "academicYears", semester: "semesters", facultyId: "faculties", departmentId: "departments", programId: "programs", courseId: "courses", advisorId: "advisors", level: "levels", academicSystem: "academicSystems" }
     return options[map[key]] ?? []
   }
   const missingRequired = (active?.requires ?? []).some((r) => !filters[r])

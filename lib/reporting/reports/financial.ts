@@ -4,6 +4,7 @@ import { trialBalance, incomeStatement, balanceSheet, cashFlow } from '@/lib/fin
 import { arAging } from '@/lib/finance/billing';
 import { listBudgets, budgetVsActual } from '@/lib/finance/budget';
 import { profitabilityByCostCentre, profitabilityByProgram, profitabilityByFaculty, profitabilityByBranch, studentUnitCost } from '@/lib/finance/profitability';
+import { studentSystemWhere } from '@/lib/academic-system';
 
 /**
  * Financial reports (ClientR3 — R3). Thin registry wrappers over the finance engines we already
@@ -108,22 +109,36 @@ export const financialReports: ReportDef[] = [
     },
   },
   {
-    id: 'fin-ar-aging', category: 'financial', nameAr: 'أعمار الديون (Receivables Aging)', permission: FIN, filters: [],
+    id: 'fin-ar-aging', category: 'financial', nameAr: 'أعمار الديون (Receivables Aging)', permission: FIN, filters: [], systemAware: true,
     run: async (_f, ctx) => {
       const r = await arAging(ctx.universityId);
+      // student-scoped list: optionally keep only invoices of students in the selected academic
+      // system. No filter selected → untouched engine output (all students).
+      let rows = r.rows;
+      let grandTotal = r.grandTotal;
+      if (ctx.academicSystem) {
+        const allowed = await prisma.invoice.findMany({
+          where: { universityId: ctx.universityId ?? undefined, ...studentSystemWhere(ctx.academicSystem) },
+          select: { number: true },
+        });
+        const keep = new Set(allowed.map((i) => i.number));
+        rows = rows.filter((x) => keep.has(x.number));
+        grandTotal = Number(rows.reduce((s, x) => s + x.balance, 0).toFixed(2));
+      }
       return {
         kind: 'table',
         columns: [{ key: 'number', label: 'الفاتورة' }, { key: 'student', label: 'الطالب' }, { key: 'balance', label: 'الرصيد', align: 'center', numeric: true }, { key: 'daysOverdue', label: 'أيام التأخير', align: 'center', numeric: true }, { key: 'bucket', label: 'الفئة', align: 'center' }],
-        rows: r.rows.map((x) => ({ number: x.number, student: x.student, balance: x.balance.toFixed(2), daysOverdue: x.daysOverdue, bucket: x.bucket })),
-        totals: { number: 'إجمالي المتأخرات', student: '', balance: r.grandTotal.toFixed(2) },
+        rows: rows.map((x) => ({ number: x.number, student: x.student, balance: x.balance.toFixed(2), daysOverdue: x.daysOverdue, bucket: x.bucket })),
+        totals: { number: 'إجمالي المتأخرات', student: '', balance: grandTotal.toFixed(2) },
       };
     },
   },
   {
-    id: 'fin-defaulters', category: 'financial', nameAr: 'الطلاب المتعثرون (المستحق عليهم أقساط)', permission: FIN, filters: ['departmentId'],
+    id: 'fin-defaulters', category: 'financial', nameAr: 'الطلاب المتعثرون (المستحق عليهم أقساط)', permission: FIN, filters: ['departmentId'], systemAware: true,
     run: async (_f, ctx) => {
       const invoices = await prisma.invoice.findMany({
-        where: { universityId: ctx.universityId ?? undefined, status: { in: ['ISSUED', 'PARTIAL'] } },
+        // student list → optional academic-system narrowing ({} when no filter selected)
+        where: { universityId: ctx.universityId ?? undefined, status: { in: ['ISSUED', 'PARTIAL'] }, ...studentSystemWhere(ctx.academicSystem) },
         include: { student: { select: { studentCode: true, nameAr: true, department: { select: { nameAr: true } } } } },
         orderBy: { balance: 'desc' },
       });
@@ -137,9 +152,10 @@ export const financialReports: ReportDef[] = [
     },
   },
   {
-    id: 'fin-revenue-by-program', category: 'financial', nameAr: 'الإيرادات حسب البرنامج', permission: FIN, filters: [],
+    id: 'fin-revenue-by-program', category: 'financial', nameAr: 'الإيرادات حسب البرنامج', permission: FIN, filters: [], systemAware: true,
     run: async (_f, ctx) => {
-      const receipts = await prisma.receipt.findMany({ where: { universityId: ctx.universityId ?? undefined }, include: { student: { select: { program: { select: { nameAr: true } } } } } });
+      // aggregate of student receipts → optional academic-system narrowing ({} when no filter selected)
+      const receipts = await prisma.receipt.findMany({ where: { universityId: ctx.universityId ?? undefined, ...studentSystemWhere(ctx.academicSystem) }, include: { student: { select: { program: { select: { nameAr: true } } } } } });
       const m = new Map<string, number>();
       for (const r of receipts) { const k = r.student.program?.nameAr ?? 'غير محدد'; m.set(k, (m.get(k) ?? 0) + Number(r.amount)); }
       const rows = [...m.entries()].map(([program, amount]) => ({ program, amount: amount.toFixed(2) })).sort((a, b) => Number(b.amount) - Number(a.amount));

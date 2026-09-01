@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { resolveApplicationProgramId } from '@/lib/admission-program';
 
 // GET - الحصول على جميع الطلبات
 export async function GET(request: NextRequest) {
@@ -90,6 +91,8 @@ export async function POST(request: NextRequest) {
         firstChoice,
         secondChoice: secondChoice || null,
         thirdChoice: thirdChoice || null,
+        // Best-effort link to a real Program (exact name match only); staff can correct it at review.
+        programId: await resolveApplicationProgramId(firstChoice),
         status: 'PENDING',
       },
     });

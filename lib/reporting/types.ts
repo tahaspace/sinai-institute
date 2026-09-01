@@ -44,7 +44,9 @@ export const CATEGORY_LABELS: Record<ReportCategory, string> = {
 export type FilterKey =
   | 'academicYear' | 'semester' | 'facultyId' | 'departmentId' | 'programId'
   | 'level' | 'courseId' | 'advisorId' | 'instructorId' | 'studentCode'
-  | 'dateFrom' | 'dateTo' | 'status' | 'qualification';
+  | 'dateFrom' | 'dateTo' | 'status' | 'qualification'
+  // academicSystem: CREDIT_HOURS | ANNUAL. Absent/'all' = both (never auto-hides).
+  | 'academicSystem';
 
 export type Filters = Partial<Record<FilterKey, string>>;
 
@@ -80,5 +82,9 @@ export type ReportDef = {
   permission: string;
   filters: FilterKey[]; // ordered; the hub renders these
   requires?: FilterKey[]; // hard-required before running
+  // systemAware: this report's query actually narrows by ctx.academicSystem, so the hub may offer
+  // the «النظام الأكاديمي» filter. Declared explicitly — never inferred — because a filter shown on
+  // a report that ignores it silently lies to the user (they pick a system and nothing changes).
+  systemAware?: boolean;
   run: (filters: Filters, ctx: ReportContext) => Promise<ReportResult>;
 };

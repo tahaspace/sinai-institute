@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef } from '@/lib/reporting/types';
 import { courseAttendance } from '@/lib/attendance';
+import { academicSystemWhere, studentSystemWhere } from '@/lib/academic-system';
 
 /**
  * Attendance reports (ClientR3 — R2). Daily attendance, absence aggregation, deprivation
@@ -11,9 +12,9 @@ const VIEW = 'reports.attendance.view';
 export const attendanceReports: ReportDef[] = [
   {
     id: 'attendance-day', category: 'attendance', nameAr: 'حضور / غياب / تأخر اليوم',
-    permission: VIEW, filters: ['dateFrom', 'dateTo', 'courseId'],
-    run: async (f) => {
-      const where: Record<string, unknown> = {};
+    permission: VIEW, filters: ['dateFrom', 'dateTo', 'courseId'], systemAware: true,
+    run: async (f, ctx) => {
+      const where: Record<string, unknown> = { ...studentSystemWhere(ctx.academicSystem) };
       if (f.courseId) where.courseId = f.courseId;
       if (f.dateFrom || f.dateTo) where.date = { ...(f.dateFrom ? { gte: new Date(f.dateFrom) } : {}), ...(f.dateTo ? { lte: new Date(f.dateTo) } : {}) };
       const recs = await prisma.attendance.groupBy({ by: ['status'], where, _count: { _all: true } });
@@ -46,9 +47,10 @@ export const attendanceReports: ReportDef[] = [
   },
   {
     id: 'most-absent-courses', category: 'attendance', nameAr: 'أكثر المقررات غياباً',
-    description: 'المقررات الأعلى نسبة غياب (مؤشر مبكر للرسوب)', permission: VIEW, filters: ['academicYear', 'semester'],
-    run: async (f) => {
-      const where: Record<string, unknown> = {};
+    description: 'المقررات الأعلى نسبة غياب (مؤشر مبكر للرسوب)', permission: VIEW, filters: ['academicYear', 'semester'], systemAware: true,
+    run: async (f, ctx) => {
+      // narrow the attendance records to the students of the selected system
+      const where: Record<string, unknown> = { ...studentSystemWhere(ctx.academicSystem) };
       if (f.academicYear) where.academicYear = f.academicYear;
       if (f.semester) where.semester = f.semester;
       const [att, courses] = await Promise.all([
@@ -64,9 +66,10 @@ export const attendanceReports: ReportDef[] = [
   },
   {
     id: 'retention-level', category: 'attendance', nameAr: 'احتفاظ الطلاب من مستوى لمستوى',
-    description: 'نسبة الانتقال 1→2، 2→3، 3→4', permission: VIEW, filters: ['programId'],
+    description: 'نسبة الانتقال 1→2، 2→3، 3→4', permission: VIEW, filters: ['programId'], systemAware: true,
     run: async (_f, ctx) => {
-      const students = await prisma.student.findMany({ where: { universityId: ctx.universityId ?? undefined }, select: { level: true, status: true } });
+      // Optional system narrowing — composed under AND because the CREDIT_HOURS fragment is an `OR`.
+      const students = await prisma.student.findMany({ where: { universityId: ctx.universityId ?? undefined, ...(ctx.academicSystem ? { AND: [academicSystemWhere(ctx.academicSystem)] } : {}) }, select: { level: true, status: true } });
       const byLevel = new Map<number, { total: number; active: number }>();
       for (const s of students) { const g = byLevel.get(s.level) ?? { total: 0, active: 0 }; g.total++; if (!['WITHDRAWN', 'DISMISSED'].includes(s.status)) g.active++; byLevel.set(s.level, g); }
       const rows = [1, 2, 3].map((l) => {
@@ -78,9 +81,9 @@ export const attendanceReports: ReportDef[] = [
   },
   {
     id: 'attendance-indicators', category: 'attendance', nameAr: 'مؤشرات الحضور (Attendance/Absence/Warning/Deprivation Rate)',
-    permission: VIEW, filters: ['academicYear', 'semester'],
-    run: async (f) => {
-      const where: Record<string, unknown> = {};
+    permission: VIEW, filters: ['academicYear', 'semester'], systemAware: true,
+    run: async (f, ctx) => {
+      const where: Record<string, unknown> = { ...studentSystemWhere(ctx.academicSystem) };
       if (f.academicYear) where.academicYear = f.academicYear;
       if (f.semester) where.semester = f.semester;
       const recs = await prisma.attendance.groupBy({ by: ['status'], where, _count: { _all: true } });

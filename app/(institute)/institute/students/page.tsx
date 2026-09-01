@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -55,6 +56,7 @@ interface StudentRow {
   level: string
   levelNum: number
   gpa: number
+  system: string
   creditHours: number
   status: string
 }
@@ -63,6 +65,7 @@ export default function StudentsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [levelFilter, setLevelFilter] = useState("all")
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [allStudents, setAllStudents] = useState<StudentRow[]>([])
   const [apiStats, setApiStats] = useState<{ total: number; avgGpa: number }>({ total: 0, avgGpa: 0 })
   const [loading, setLoading] = useState(true)
@@ -91,14 +94,14 @@ export default function StudentsPage() {
   const students = allStudents.filter((s) => {
     const matchesSearch = !searchQuery || s.name.includes(searchQuery) || s.studentCode.includes(searchQuery)
     const matchesLevel = levelFilter === "all" || String(s.levelNum) === levelFilter
-    return matchesSearch && matchesLevel
+    return matchesSearch && matchesLevel && matchesSystem(s.system, systemFilter)
   })
 
   const stats = [
     { label: "إجمالي الطلاب", value: String(apiStats.total), icon: Users, color: "text-institute-blue" },
     { label: "الأقسام", value: String(new Set(allStudents.map((s) => s.department)).size), icon: Building2, color: "text-institute-blue" },
     { label: "متوسط GPA", value: apiStats.avgGpa.toFixed(2), icon: Award, color: "text-institute-gold" },
-    { label: "تحت الملاحظة", value: String(allStudents.filter((s) => s.gpa < 2).length), icon: Clock, color: "text-institute-gold" },
+    { label: "تحت الملاحظة", value: String(allStudents.filter((s) => s.system === "CREDIT_HOURS" && s.gpa < 2).length), icon: Clock, color: "text-institute-gold" },
   ]
 
   const getStatusBadge = (status: string) => {
@@ -201,6 +204,7 @@ export default function StudentsPage() {
                 <SelectItem value="accounting">المحاسبة</SelectItem>
               </SelectContent>
             </Select>
+            <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full md:w-48" />
             <Select value={levelFilter} onValueChange={setLevelFilter}>
               <SelectTrigger className="w-full md:w-48">
                 <GraduationCap className="w-4 h-4 ml-2" />
@@ -267,8 +271,9 @@ export default function StudentsPage() {
                     <span className="text-muted-foreground text-sm"> ساعة</span>
                   </TableCell>
                   <TableCell>
-                    <span className={`font-bold ${getGPAColor(student.gpa)}`}>
-                      {student.gpa.toFixed(2)}
+                    <span className={`font-bold ${student.system === "ANNUAL" ? "text-muted-foreground" : getGPAColor(student.gpa)}`}>
+                      {/* annual students are graded by percentage/تقدير, not CGPA — showing 0.00 would be a lie */}
+                      {student.system === "ANNUAL" ? "—" : student.gpa.toFixed(2)}
                     </span>
                   </TableCell>
                   <TableCell>{getStatusBadge(student.status)}</TableCell>

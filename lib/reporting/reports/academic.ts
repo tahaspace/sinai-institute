@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef, TableResult } from '@/lib/reporting/types';
 import { termWhere } from '@/lib/reporting/filters';
+import { academicSystemWhere, programSystemWhere, studentSystemWhere } from '@/lib/academic-system';
 import { classify } from '@/lib/reports';
 import { computeStandingForStudents } from '@/lib/standing';
 
@@ -13,9 +14,10 @@ const VIEW = 'reports.academic.view';
 export const academicReports: ReportDef[] = [
   {
     id: 'programs-most-registered', category: 'academic', nameAr: 'البرامج الأكثر تسجيلاً',
-    permission: VIEW, filters: ['academicYear'],
+    permission: VIEW, filters: ['academicYear'], systemAware: true,
     run: async (_f, ctx) => {
-      const students = await prisma.student.findMany({ where: { universityId: ctx.universityId ?? undefined, status: { notIn: ['GRADUATED', 'WITHDRAWN', 'DISMISSED'] } }, select: { program: { select: { nameAr: true } } } });
+      // Optional system narrowing — composed under AND because the CREDIT_HOURS fragment is an `OR`.
+      const students = await prisma.student.findMany({ where: { universityId: ctx.universityId ?? undefined, status: { notIn: ['GRADUATED', 'WITHDRAWN', 'DISMISSED'] }, ...(ctx.academicSystem ? { AND: [academicSystemWhere(ctx.academicSystem)] } : {}) }, select: { program: { select: { nameAr: true } } } });
       const m = new Map<string, number>();
       for (const s of students) { const k = s.program?.nameAr ?? 'غير محدد'; m.set(k, (m.get(k) ?? 0) + 1); }
       const rows = [...m.entries()].map(([program, count]) => ({ program, count })).sort((a, b) => b.count - a.count);
@@ -24,9 +26,10 @@ export const academicReports: ReportDef[] = [
   },
   {
     id: 'students-per-program', category: 'academic', nameAr: 'عدد الطلاب في البرامج (مع المعدل والساعات)',
-    permission: VIEW, filters: ['programId'],
+    permission: VIEW, filters: ['programId'], systemAware: true,
     run: async (f, ctx) => {
-      const programs = await prisma.program.findMany({ where: { universityId: ctx.universityId ?? undefined, ...(f.programId ? { id: f.programId } : {}) }, select: { id: true, nameAr: true } });
+      // Aggregated by program, so the program set itself carries the system narrowing.
+      const programs = await prisma.program.findMany({ where: { universityId: ctx.universityId ?? undefined, ...(f.programId ? { id: f.programId } : {}), ...programSystemWhere(ctx.academicSystem) }, select: { id: true, nameAr: true } });
       const rows = await Promise.all(programs.map(async (p) => {
         const studs = await prisma.student.findMany({ where: { programId: p.id, status: { notIn: ['WITHDRAWN', 'DISMISSED'] } }, select: { id: true } });
         const standings = await computeStandingForStudents(studs.map((s) => s.id));
@@ -41,10 +44,11 @@ export const academicReports: ReportDef[] = [
   {
     id: 'course-grades-sheet', category: 'academic', nameAr: 'كشف تقديرات مقرر (مع المحاولات)',
     description: 'الطلاب + التقدير + المستوى + رقم المحاولة', permission: VIEW,
-    filters: ['courseId', 'academicYear', 'semester'], requires: ['courseId'],
-    run: async (f) => {
+    filters: ['courseId', 'academicYear', 'semester'], requires: ['courseId'], systemAware: true,
+    run: async (f, ctx) => {
       const enrollments = await prisma.enrollment.findMany({
-        where: { courseId: f.courseId, ...termWhere(f) },
+        // rows are students, so the student set is narrowed by the optional system filter
+        where: { courseId: f.courseId, ...termWhere(f), ...studentSystemWhere(ctx.academicSystem) },
         include: { student: { select: { studentCode: true, nameAr: true, level: true } } },
         orderBy: { student: { studentCode: 'asc' } },
       });
@@ -58,10 +62,11 @@ export const academicReports: ReportDef[] = [
   },
   {
     id: 'pass-rate-by-program', category: 'academic', nameAr: 'نسب النجاح حسب البرنامج',
-    permission: VIEW, filters: ['academicYear', 'semester'],
-    run: async (f) => {
+    permission: VIEW, filters: ['academicYear', 'semester'], systemAware: true,
+    run: async (f, ctx) => {
       const [enrollments, statuses] = await Promise.all([
-        prisma.enrollment.findMany({ where: termWhere(f), include: { student: { select: { program: { select: { nameAr: true } } } } } }),
+        // grouped by the student's program → narrow the student set by the optional system filter
+        prisma.enrollment.findMany({ where: { ...termWhere(f), ...studentSystemWhere(ctx.academicSystem) }, include: { student: { select: { program: { select: { nameAr: true } } } } } }),
         prisma.gradeStatus.findMany(),
       ]);
       const byCode = new Map(statuses.map((s) => [s.code, s]));
@@ -79,10 +84,11 @@ export const academicReports: ReportDef[] = [
   },
   {
     id: 'course-success-ranking', category: 'academic', nameAr: 'المقررات الأعلى/الأقل نجاحاً',
-    permission: VIEW, filters: ['academicYear', 'semester', 'departmentId'],
-    run: async (f) => {
+    permission: VIEW, filters: ['academicYear', 'semester', 'departmentId'], systemAware: true,
+    run: async (f, ctx) => {
       const [courses, statuses] = await Promise.all([
-        prisma.course.findMany({ where: f.departmentId ? { departmentId: f.departmentId } : {}, include: { enrollments: { where: termWhere(f) } }, orderBy: { code: 'asc' } }),
+        // course rows stay as-is; only the enrollments feeding the rate are narrowed by system
+        prisma.course.findMany({ where: f.departmentId ? { departmentId: f.departmentId } : {}, include: { enrollments: { where: { ...termWhere(f), ...studentSystemWhere(ctx.academicSystem) } } }, orderBy: { code: 'asc' } }),
         prisma.gradeStatus.findMany(),
       ]);
       const byCode = new Map(statuses.map((s) => [s.code, s]));
@@ -110,11 +116,12 @@ export const academicReports: ReportDef[] = [
   {
     id: 'course-lifecycle', category: 'academic', nameAr: 'تحليل دورة حياة مقرر',
     description: 'الرسوب/السحب/الحرمان/الإعادة + الساعات المكتسبة والمسجلة', permission: VIEW,
-    filters: ['courseId'], requires: ['courseId'],
-    run: async (f): Promise<TableResult> => {
+    filters: ['courseId'], requires: ['courseId'], systemAware: true,
+    run: async (f, ctx): Promise<TableResult> => {
       const [course, enrollments, statuses] = await Promise.all([
         prisma.course.findUnique({ where: { id: f.courseId }, select: { code: true, nameAr: true, creditHours: true } }),
-        prisma.enrollment.findMany({ where: { courseId: f.courseId } }),
+        // counts are over student enrollments → narrow the student set by the optional system filter
+        prisma.enrollment.findMany({ where: { courseId: f.courseId, ...studentSystemWhere(ctx.academicSystem) } }),
         prisma.gradeStatus.findMany(),
       ]);
       const byCode = new Map(statuses.map((s) => [s.code, s]));

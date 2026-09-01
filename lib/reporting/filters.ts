@@ -1,5 +1,10 @@
 import prisma from '@/lib/prisma';
 import type { Filters, FilterKey } from '@/lib/reporting/types';
+import { ACADEMIC_SYSTEM_LABELS, academicSystemWhere, normalizeSystemFilter } from '@/lib/academic-system';
+
+// academicSystemWhere now lives in lib/academic-system.ts next to the other resolvers; re-exported
+// here so the reports that already import it from this module keep working unchanged.
+export { academicSystemWhere } from '@/lib/academic-system';
 
 /**
  * Shared filter helpers (ClientR3 — R0). Reads/validates the filter querystring and provides the
@@ -12,7 +17,9 @@ export const SEMESTERS = [
 ];
 
 export function parseFilters(sp: URLSearchParams): Filters {
-  const keys: FilterKey[] = ['academicYear', 'semester', 'facultyId', 'departmentId', 'programId', 'level', 'courseId', 'advisorId', 'instructorId', 'studentCode', 'dateFrom', 'dateTo', 'status', 'qualification'];
+  // NOTE: 'academicSystem' must stay in this list — parseFilters silently drops unknown keys, so a
+  // typo (e.g. the near-identical 'academicYear') would return UNFILTERED data with no error.
+  const keys: FilterKey[] = ['academicYear', 'semester', 'facultyId', 'departmentId', 'programId', 'level', 'courseId', 'advisorId', 'instructorId', 'studentCode', 'dateFrom', 'dateTo', 'status', 'qualification', 'academicSystem'];
   const f: Filters = {};
   for (const k of keys) {
     const v = sp.get(k);
@@ -40,19 +47,12 @@ export function studentWhere(f: Filters, universityId: string | null): Record<st
   if (f.advisorId) w.advisorId = f.advisorId;
   if (f.qualification) w.entryQualification = f.qualification;
   if (f.status) w.status = f.status;
+  // Optional academic-system narrowing — absent/'all' contributes nothing, so the default stays "both".
+  // Composed under AND (not spread) because the CREDIT_HOURS fragment is an `OR`, and a report that
+  // hard-scopes its own system would otherwise silently overwrite this one's `OR` key.
+  const sys = academicSystemWhere(normalizeSystemFilter(f.academicSystem));
+  if (Object.keys(sys).length) w.AND = [...(Array.isArray(w.AND) ? w.AND : []), sys];
   return w;
-}
-
-/**
- * Where-fragment restricting students to one academic system via their program. Needed because a dual-system
- * institute shares level/فرقة numbers across a credit-hour AND an annual program — without this, a level-2
- * annual student would leak into the credit-hour level sheet (and vice-versa). CREDIT_HOURS is the default,
- * so students with no program count as credit-hours; ANNUAL requires an explicit ANNUAL program.
- */
-export function academicSystemWhere(system: 'CREDIT_HOURS' | 'ANNUAL'): Record<string, unknown> {
-  return system === 'ANNUAL'
-    ? { program: { academicSystem: 'ANNUAL' } }
-    : { OR: [{ program: { academicSystem: 'CREDIT_HOURS' } }, { programId: null }] };
 }
 
 /** Option lists for the hub filter bar (tenant-scoped). */
@@ -75,5 +75,11 @@ export async function filterOptions(universityId: string | null) {
     semesters: SEMESTERS,
     academicYears: [...new Set(years.map((y) => y.academicYear))].map((y) => ({ value: y, label: y })),
     levels: [1, 2, 3, 4, 5, 6].map((l) => ({ value: String(l), label: `المستوى ${l}` })),
+    // No 'all' entry here — every filter select in the hub renders its own «الكل» option, which is
+    // the default. The filter narrows the view; it never hides rows by itself.
+    academicSystems: [
+      { value: 'CREDIT_HOURS', label: ACADEMIC_SYSTEM_LABELS.CREDIT_HOURS },
+      { value: 'ANNUAL', label: ACADEMIC_SYSTEM_LABELS.ANNUAL },
+    ],
   };
 }

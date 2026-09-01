@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 
 // GET /api/institute/courses?search=&departmentId= — course catalog.
@@ -31,6 +32,27 @@ export async function GET(request: NextRequest) {
       orderBy: { code: 'asc' },
     });
 
+    // A Course belongs to a DEPARTMENT, not a programme, so its academic system can only be derived
+    // from the study plans that include it (Course.code → StudyPlanItem.courseCode → Program). Kept
+    // as a derivation rather than a column on Course: the programme stays the single source of truth,
+    // and a course shared by a credit-hour and an annual programme honestly reports both.
+    const planItems = await prisma.studyPlanItem.findMany({
+      where: { programId: { not: null } },
+      select: { courseCode: true, programId: true },
+    });
+    const programSystems = new Map(
+      (await prisma.program.findMany({ select: { id: true, academicSystem: true } }))
+        .map((p) => [p.id, normalizeSystem(p.academicSystem)] as const),
+    );
+    const systemsByCourseCode = new Map<string, Set<string>>();
+    for (const it of planItems) {
+      const sys = programSystems.get(it.programId!);
+      if (!sys) continue;
+      const set = systemsByCourseCode.get(it.courseCode) ?? new Set<string>();
+      set.add(sys);
+      systemsByCourseCode.set(it.courseCode, set);
+    }
+
     return NextResponse.json({
       courses: courses.map((c) => ({
         id: c.id,
@@ -40,6 +62,8 @@ export async function GET(request: NextRequest) {
         department: c.department?.nameAr ?? '',
         departmentId: c.departmentId,
         creditHours: c.creditHours,
+        // empty = not on any study plan yet, so it is never filtered out
+        systems: [...(systemsByCourseCode.get(c.code) ?? [])],
         instructor: c.instructor?.name ?? '',
         students: c._count.enrollments,
         // registrar flags + per-course grade split (Phase A)

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesAnySystem } from "@/components/shared/academic-system-filter"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -40,6 +41,8 @@ interface CourseRow {
   department: string
   departmentId: string | null
   creditHours: number
+  /** derived from the study plans this course appears on; empty = not on any plan yet */
+  systems: string[]
   instructor: string
   students: number
   countsInGpa: boolean
@@ -91,6 +94,7 @@ const EMPTY_FORM: CourseForm = {
 export default function CoursesPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [departmentFilter, setDepartmentFilter] = useState("all")
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [allCourses, setAllCourses] = useState<CourseRow[]>([])
   const [departments, setDepartments] = useState<DepartmentRow[]>([])
   const [apiStats, setApiStats] = useState<{ total: number; totalCreditHours: number }>({ total: 0, totalCreditHours: 0 })
@@ -137,7 +141,7 @@ export default function CoursesPage() {
   const courses = allCourses.filter((c) => {
     const matchesSearch = !searchQuery || c.name.includes(searchQuery) || c.code.includes(searchQuery)
     const matchesDepartment = departmentFilter === "all" || c.departmentId === departmentFilter
-    return matchesSearch && matchesDepartment
+    return matchesSearch && matchesDepartment && matchesAnySystem(c.systems, systemFilter)
   })
 
   const openAdd = () => {
@@ -252,6 +256,7 @@ export default function CoursesPage() {
                 className="pr-10"
               />
             </div>
+            <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full md:w-48" />
             <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
               <SelectTrigger className="w-full md:w-48">
                 <Building2 className="w-4 h-4 ml-2" />

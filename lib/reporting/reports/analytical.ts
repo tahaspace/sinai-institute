@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef } from '@/lib/reporting/types';
+import { academicSystemWhere, studentSystemWhere } from '@/lib/academic-system';
 
 /**
  * Strategic / multi-year analytics (ClientR3 — R5). Aggregates over academicYear-stamped data +
@@ -10,9 +11,10 @@ const VIEW = 'reports.analytical.view';
 export const analyticalReports: ReportDef[] = [
   {
     id: 'student-growth', category: 'analytical', nameAr: 'معدل نمو الطلاب عبر السنوات',
-    description: 'أعداد المستجدين حسب سنة الالتحاق', permission: VIEW, filters: [],
+    description: 'أعداد المستجدين حسب سنة الالتحاق', permission: VIEW, filters: [], systemAware: true,
     run: async (_f, ctx) => {
-      const students = await prisma.student.findMany({ where: { universityId: ctx.universityId ?? undefined }, select: { enrollYear: true } });
+      // Head-count only — narrowing by system is a pure row filter, no grade/CGPA maths involved.
+      const students = await prisma.student.findMany({ where: { universityId: ctx.universityId ?? undefined, ...academicSystemWhere(ctx.academicSystem) }, select: { enrollYear: true } });
       const m = new Map<number, number>();
       for (const s of students) { if (s.enrollYear) m.set(s.enrollYear, (m.get(s.enrollYear) ?? 0) + 1); }
       const years = [...m.keys()].sort();
@@ -22,18 +24,19 @@ export const analyticalReports: ReportDef[] = [
   },
   {
     id: 'enrollment-volume-by-year', category: 'analytical', nameAr: 'حجم التسجيل عبر السنوات الدراسية',
-    permission: VIEW, filters: [],
-    run: async () => {
-      const grouped = await prisma.enrollment.groupBy({ by: ['academicYear'], _count: { _all: true }, orderBy: { academicYear: 'asc' } });
+    permission: VIEW, filters: [], systemAware: true,
+    run: async (_f, ctx) => {
+      // Enrollment counts scoped through the owning student's program system.
+      const grouped = await prisma.enrollment.groupBy({ by: ['academicYear'], where: studentSystemWhere(ctx.academicSystem), _count: { _all: true }, orderBy: { academicYear: 'asc' } });
       const rows = grouped.map((g) => ({ year: g.academicYear, count: g._count._all }));
       return { kind: 'table', columns: [{ key: 'year', label: 'السنة الدراسية', align: 'center' }, { key: 'count', label: 'عدد التسجيلات', align: 'center', numeric: true }], rows };
     },
   },
   {
     id: 'retake-trend', category: 'analytical', nameAr: 'تكرار إعادة المقررات عبر السنوات',
-    description: 'عدد التسجيلات بمحاولة أكثر من الأولى', permission: VIEW, filters: [],
-    run: async () => {
-      const grouped = await prisma.enrollment.groupBy({ by: ['academicYear'], where: { attemptNo: { gt: 1 } }, _count: { _all: true }, orderBy: { academicYear: 'asc' } });
+    description: 'عدد التسجيلات بمحاولة أكثر من الأولى', permission: VIEW, filters: [], systemAware: true,
+    run: async (_f, ctx) => {
+      const grouped = await prisma.enrollment.groupBy({ by: ['academicYear'], where: { attemptNo: { gt: 1 }, ...studentSystemWhere(ctx.academicSystem) }, _count: { _all: true }, orderBy: { academicYear: 'asc' } });
       const rows = grouped.map((g) => ({ year: g.academicYear, retakes: g._count._all }));
       return { kind: 'table', columns: [{ key: 'year', label: 'السنة الدراسية', align: 'center' }, { key: 'retakes', label: 'عدد الإعادات', align: 'center', numeric: true }], rows };
     },

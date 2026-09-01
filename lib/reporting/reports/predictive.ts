@@ -1,7 +1,7 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef } from '@/lib/reporting/types';
 import { computeStandingForStudents } from '@/lib/standing';
-import { academicSystemWhere } from '@/lib/reporting/filters';
+import { academicSystemWhere, studentSystemWhere } from '@/lib/academic-system';
 
 /**
  * Predictive analytics + Early Warning (ClientR3 — R6). TRANSPARENT, RULE-BASED heuristics — NOT
@@ -43,16 +43,24 @@ export const predictiveReports: ReportDef[] = [
   },
   {
     id: 'graduation-funnel', category: 'predictive', nameAr: 'مسار التخرج (Graduation Funnel)',
-    description: 'المتقدمون ← المقيدون ← المستمرون ← المتوقع تخرجهم', permission: VIEW, filters: [],
+    description: 'المتقدمون ← المقيدون ← المستمرون ← المتوقع تخرجهم', permission: VIEW, filters: [], systemAware: true,
     run: async (_f, ctx) => {
       const uni = ctx.universityId ?? undefined;
+      // Application carries no program link, so the "المقبولون" stage cannot be system-scoped.
       const [accepted, students] = await Promise.all([
         prisma.application.count({ where: { universityId: uni, status: 'ACCEPTED' } }),
-        prisma.student.findMany({ where: { universityId: uni }, select: { id: true, status: true } }),
+        prisma.student.findMany({ where: { universityId: uni, ...academicSystemWhere(ctx.academicSystem) }, select: { id: true, status: true } }),
       ]);
       const registered = students.length;
       const active = students.filter((s) => !['WITHDRAWN', 'DISMISSED', 'GRADUATED'].includes(s.status));
-      const standings = await computeStandingForStudents(active.map((s) => s.id));
+      // The expected-graduates test is earned-hours based, which annual students never accumulate —
+      // they would all read "remainingHours = full plan" and silently deflate the stage. Compute it
+      // over credit-hours students only (empty set when the view is scoped to ANNUAL).
+      const creditActive = ctx.academicSystem === 'ANNUAL' ? [] : await prisma.student.findMany({
+        where: { id: { in: active.map((s) => s.id) }, ...academicSystemWhere('CREDIT_HOURS') },
+        select: { id: true },
+      });
+      const standings = await computeStandingForStudents(creditActive.map((s) => s.id));
       const expected = [...standings.values()].filter((s) => s.graduationEligible || s.remainingHours <= 18).length;
       const rows = [
         { stage: 'المقبولون', count: accepted }, { stage: 'المقيدون', count: registered },
@@ -63,12 +71,14 @@ export const predictiveReports: ReportDef[] = [
   },
   {
     id: 'early-warning', category: 'predictive', nameAr: 'نظام الإنذار المبكر (Early Warning)',
-    description: 'تنبيهات على انخفاض النجاح/التحصيل وزيادة التسرب', permission: VIEW, filters: [],
+    description: 'تنبيهات على انخفاض النجاح/التحصيل وزيادة التسرب', permission: VIEW, filters: [], systemAware: true,
     run: async (_f, ctx) => {
       const uni = ctx.universityId ?? undefined;
+      // Dropout + collection follow the selected system (invoices via their student); section
+      // over-capacity is a scheduling signal with no system dimension, so it stays global.
       const [students, invoices] = await Promise.all([
-        prisma.student.findMany({ where: { universityId: uni }, select: { status: true } }),
-        prisma.invoice.aggregate({ where: { universityId: uni }, _sum: { total: true, paid: true } }),
+        prisma.student.findMany({ where: { universityId: uni, ...academicSystemWhere(ctx.academicSystem) }, select: { status: true } }),
+        prisma.invoice.aggregate({ where: { universityId: uni, ...studentSystemWhere(ctx.academicSystem) }, _sum: { total: true, paid: true } }),
       ]);
       const total = students.length || 1;
       const dropout = Math.round((students.filter((s) => ['WITHDRAWN', 'DISMISSED'].includes(s.status)).length / total) * 100);

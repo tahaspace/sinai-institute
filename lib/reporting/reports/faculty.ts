@@ -2,6 +2,7 @@ import prisma from '@/lib/prisma';
 import type { ReportDef } from '@/lib/reporting/types';
 import { termWhere } from '@/lib/reporting/filters';
 import { classify } from '@/lib/reports';
+import { studentSystemWhere } from '@/lib/academic-system';
 
 /**
  * Faculty reports (ClientR3 — R2): teaching load + per-doctor pass/fail. Satisfaction/evaluation
@@ -29,7 +30,7 @@ export const facultyReports: ReportDef[] = [
   },
   {
     id: 'doctor-success', category: 'faculty', nameAr: 'نجاح ورسوب الطلاب لكل دكتور',
-    permission: VIEW, filters: ['academicYear', 'semester', 'departmentId'],
+    permission: VIEW, filters: ['academicYear', 'semester', 'departmentId'], systemAware: true,
     run: async (f, ctx) => {
       const [instructors, statuses] = await Promise.all([
         prisma.instructor.findMany({ where: { universityId: ctx.universityId ?? undefined, ...(f.departmentId ? { departmentId: f.departmentId } : {}) }, include: { courses: { select: { id: true } } } }),
@@ -38,7 +39,8 @@ export const facultyReports: ReportDef[] = [
       const byCode = new Map(statuses.map((s) => [s.code, s]));
       const rows = await Promise.all(instructors.map(async (i) => {
         const courseIds = i.courses.map((c) => c.id);
-        const enrollments = courseIds.length ? await prisma.enrollment.findMany({ where: { courseId: { in: courseIds }, ...termWhere(f) }, select: { gradeStatusCode: true } }) : [];
+        // narrow the counted enrollments to the selected academic system (undefined → no filter)
+        const enrollments = courseIds.length ? await prisma.enrollment.findMany({ where: { courseId: { in: courseIds }, ...termWhere(f), ...studentSystemWhere(ctx.academicSystem) }, select: { gradeStatusCode: true } }) : [];
         let pass = 0, fail = 0;
         for (const e of enrollments) { const cls = classify(e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null); if (cls === 'pass') pass++; else if (cls === 'fail') fail++; }
         return { instructor: i.name, pass, fail, rate: pass + fail ? `${Math.round((pass / (pass + fail)) * 100)}%` : '—' };

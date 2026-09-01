@@ -27,7 +27,7 @@ Page                  ← CMS pages (GrapesJS content)
   └── PageVersion[]     [onDelete: Cascade]
 
 News                  ← standalone; ✅ GET filter fixed 2026-04-05 (see R-04 resolved)
-Application           ← standalone; nationalId UNIQUE
+Application           ← programId → Program (nullable); nationalId UNIQUE
 Complaint             ← standalone
 ContactMessage        ← standalone
 WidgetTemplate        ← standalone; NO API route; likely unused
@@ -148,8 +148,18 @@ Day/time/course/instructor/room as plain strings. No validation, no FK to any pe
 | highSchoolGrade | Float | 0–410 scale (Egyptian) — no constraint |
 | firstChoice | String | Dept name, **not FK** — denormalized |
 | status | String | `"PENDING"` / `"ACCEPTED"` / `"REJECTED"` — no enum |
+| programId | String? | **FK → Program** (`onDelete: SetNull`, indexed). Added for the dual-system work |
 
 No FK to Department. Historical application records retain department name even if dept is renamed.
+
+`programId` is the resolved programme behind the applicant's free-text `firstChoice`, and it is the
+ONLY join path from an application to `Program.academicSystem` — without it, admissions reports
+cannot be narrowed by academic system at all. It is filled by `lib/admission-program.ts`
+(`resolveApplicationProgramId`) on both the public application create and the staff review, using an
+exact name match; an ambiguous or unrecognised choice stays `null` rather than being mis-filed.
+Legacy rows are linked by `scripts/backfill-application-program.ts` (dry run by default, `--apply`
+to write). At enrolment the same resolution sets the created `Student.programId`, which previously
+was left null — meaning the student silently defaulted to the credit-hour system.
 
 ---
 

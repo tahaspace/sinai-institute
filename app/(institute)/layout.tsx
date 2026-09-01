@@ -35,6 +35,7 @@ import {
   CreditCard,
   BarChart3,
   Monitor,
+  Handshake,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -130,6 +131,8 @@ const navItems = [
       { title: "النتائج", href: "/institute/exams/results" },
       { title: "الرأفة ورفع التقدير", href: "/institute/exams/grade-adjustments" },
       { title: "التظلمات", href: "/institute/exams/appeals" },
+      { title: "الحالة الأكاديمية", href: "/institute/exams/academic-standing" },
+      { title: "الحرمان والإنذار النهائي", href: "/institute/exams/attendance" },
     ],
   },
   {
@@ -146,7 +149,8 @@ const navItems = [
   },
   {
     title: "الحسابات المالية",
-    href: "/institute/accounting",
+    // no /institute/accounting index page exists — point the parent at its first real child
+    href: "/institute/finance/cfo-dashboard",
     icon: Wallet,
     children: [
       { title: "لوحة تحكم المدير المالي", href: "/institute/finance/cfo-dashboard" },
@@ -206,7 +210,7 @@ const navItems = [
   },
   {
     title: "الرواتب",
-    href: "/institute/payroll",
+    href: "/institute/payroll/dashboard",
     icon: Receipt,
     children: [
       { title: "لوحة متابعة الرواتب", href: "/institute/payroll/dashboard" },
@@ -214,10 +218,32 @@ const navItems = [
   },
   {
     title: "البنوك",
-    href: "/institute/banking",
+    href: "/institute/banking/dashboard",
     icon: CreditCard,
     children: [
       { title: "لوحة متابعة البنوك", href: "/institute/banking/dashboard" },
+    ],
+  },
+  {
+    title: "التدريب والشهادات",
+    href: "/institute/programs",
+    icon: BookOpen,
+    children: [
+      { title: "البرامج والدورات", href: "/institute/programs" },
+      { title: "محتوى الدورات", href: "/institute/programs/content" },
+      { title: "الدورات الجارية", href: "/institute/programs/courses" },
+      { title: "المتدربون", href: "/institute/trainees" },
+      { title: "المدربون", href: "/institute/trainers" },
+      { title: "الشهادات", href: "/institute/certificates" },
+    ],
+  },
+  {
+    title: "الشراكات والتسويق",
+    href: "/institute/partnerships",
+    icon: Handshake,
+    children: [
+      { title: "الشراكات", href: "/institute/partnerships" },
+      { title: "التسويق", href: "/institute/marketing" },
     ],
   },
   {
@@ -229,6 +255,7 @@ const navItems = [
       { title: "السنوات الدراسية", href: "/institute/settings/academic-years" },
       { title: "النظام الأكاديمي للبرامج", href: "/institute/settings/academic-system" },
       { title: "إعدادات الساعات المعتمدة", href: "/institute/settings/credit-hours" },
+      { title: "اللوائح والقواعد", href: "/institute/settings/regulations" },
       { title: "إعدادات الذكاء الاصطناعي", href: "/institute/settings/ai" },
     ],
   },

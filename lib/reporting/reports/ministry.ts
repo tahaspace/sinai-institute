@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef, Filters, ReportContext, ReportRow } from '@/lib/reporting/types';
 import { termWhere, SEMESTERS } from '@/lib/reporting/filters';
+import { academicSystemWhere } from '@/lib/academic-system';
 import { ministrySheet } from '@/lib/reports';
 
 /**
@@ -40,11 +41,24 @@ async function letterhead(stageLabel: string, f: Filters, ctx: ReportContext): P
   return { header, footer };
 }
 
+/**
+ * Optional academic-system narrowing. ministrySheet() takes no student scope, so we resolve the
+ * student codes of the selected system and keep only those rows — the sheet payload (columns,
+ * matrix, totals, ordering) is untouched. No system selected → null → zero queries, zero filtering.
+ */
+async function systemCodes(ctx: ReportContext): Promise<Set<string> | null> {
+  if (!ctx.academicSystem) return null;
+  const rows = await prisma.student.findMany({ where: academicSystemWhere(ctx.academicSystem), select: { studentCode: true } });
+  return new Set(rows.map((s) => s.studentCode));
+}
+
 function sheet(id: string, nameAr: string, stage: 'transitional' | 'final' | 'deprived'): ReportDef {
   return {
-    id, category: 'ministry', nameAr, permission: VIEW, filters: ['academicYear', 'semester'],
+    id, category: 'ministry', nameAr, permission: VIEW, filters: ['academicYear', 'semester'], systemAware: true,
     run: async (f, ctx) => {
-      const [r, lh] = await Promise.all([ministrySheet(stage, termWhere(f)), letterhead(nameAr, f, ctx)]);
+      const [r0, lh, codes] = await Promise.all([ministrySheet(stage, termWhere(f)), letterhead(nameAr, f, ctx), systemCodes(ctx)]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = { ...r0, rows: codes ? (r0.rows as any[]).filter((x) => codes.has(x.studentCode)) : r0.rows };
       if (stage === 'deprived') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rows = (r.rows as any[]).map((x) => ({ studentCode: x.studentCode, name: x.name, department: x.department, level: x.level, courses: x.courses.map((c: { code: string; statusCode: string }) => `${c.code}(${c.statusCode})`).join('، ') }));

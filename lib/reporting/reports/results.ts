@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
-import type { ReportDef, TableResult } from '@/lib/reporting/types';
+import type { ReportDef, ReportContext, TableResult } from '@/lib/reporting/types';
 import { studentWhere, termWhere, academicSystemWhere } from '@/lib/reporting/filters';
+import { studentSystemWhere } from '@/lib/academic-system';
 import { computeStandingForStudents } from '@/lib/standing';
 import { passFailRoster, successStats, classify } from '@/lib/reports';
 
@@ -27,14 +28,25 @@ async function toppers(where: Record<string, unknown>, useCgpa: boolean): Promis
   };
 }
 
+/**
+ * Optional academic-system narrowing for the roster reports. passFailRoster() takes no student
+ * scope, so we resolve the student codes of the selected system and keep only those rows.
+ * No system selected → null → zero queries, zero filtering (output identical to before).
+ */
+async function systemCodes(ctx: ReportContext): Promise<Set<string> | null> {
+  if (!ctx.academicSystem) return null;
+  const rows = await prisma.student.findMany({ where: academicSystemWhere(ctx.academicSystem), select: { studentCode: true } });
+  return new Set(rows.map((s) => s.studentCode));
+}
+
 export const resultsReports: ReportDef[] = [
   {
     id: 'pass-list', category: 'results', nameAr: 'كشف الناجحين (لكل مقرر)',
-    permission: VIEW, filters: ['courseId', 'academicYear', 'semester'], requires: ['courseId'],
-    run: async (f) => {
-      const r = await passFailRoster(f.courseId!, termWhere(f));
+    permission: VIEW, filters: ['courseId', 'academicYear', 'semester'], requires: ['courseId'], systemAware: true,
+    run: async (f, ctx) => {
+      const [r, codes] = await Promise.all([passFailRoster(f.courseId!, termWhere(f)), systemCodes(ctx)]);
       if (!r) return { kind: 'table', columns: [], rows: [] };
-      const rows = r.rows.filter((x) => x.outcome === 'pass').map((x) => ({ studentCode: x.studentCode, name: x.name, gpa: x.points ?? '—', grade: x.statusCode ?? '—' }));
+      const rows = r.rows.filter((x) => x.outcome === 'pass' && (!codes || codes.has(x.studentCode))).map((x) => ({ studentCode: x.studentCode, name: x.name, gpa: x.points ?? '—', grade: x.statusCode ?? '—' }));
       return {
         kind: 'table',
         columns: [{ key: 'studentCode', label: 'رقم الجلوس' }, { key: 'name', label: 'الاسم' }, { key: 'gpa', label: 'النقاط', align: 'center' }, { key: 'grade', label: 'التقدير', align: 'center' }],
@@ -44,11 +56,11 @@ export const resultsReports: ReportDef[] = [
   },
   {
     id: 'fail-list', category: 'results', nameAr: 'كشف الراسبين (لكل مقرر)',
-    permission: VIEW, filters: ['courseId', 'academicYear', 'semester'], requires: ['courseId'],
-    run: async (f) => {
-      const r = await passFailRoster(f.courseId!, termWhere(f));
+    permission: VIEW, filters: ['courseId', 'academicYear', 'semester'], requires: ['courseId'], systemAware: true,
+    run: async (f, ctx) => {
+      const [r, codes] = await Promise.all([passFailRoster(f.courseId!, termWhere(f)), systemCodes(ctx)]);
       if (!r) return { kind: 'table', columns: [], rows: [] };
-      const rows = r.rows.filter((x) => x.outcome === 'fail').map((x) => ({ studentCode: x.studentCode, name: x.name, level: x.level, grade: x.statusCode ?? '—' }));
+      const rows = r.rows.filter((x) => x.outcome === 'fail' && (!codes || codes.has(x.studentCode))).map((x) => ({ studentCode: x.studentCode, name: x.name, level: x.level, grade: x.statusCode ?? '—' }));
       return {
         kind: 'table',
         columns: [{ key: 'studentCode', label: 'رقم الجلوس' }, { key: 'name', label: 'الاسم' }, { key: 'level', label: 'المستوى', align: 'center', numeric: true }, { key: 'grade', label: 'الحالة', align: 'center' }],
@@ -68,10 +80,11 @@ export const resultsReports: ReportDef[] = [
   },
   {
     id: 'grade-distribution', category: 'results', nameAr: 'كشف توزيع التقديرات',
-    permission: VIEW, filters: ['academicYear', 'semester', 'departmentId', 'courseId'],
-    run: async (f) => {
+    permission: VIEW, filters: ['academicYear', 'semester', 'departmentId', 'courseId'], systemAware: true,
+    run: async (f, ctx) => {
       const [enrollments, statuses] = await Promise.all([
-        prisma.enrollment.findMany({ where: { ...termWhere(f), ...(f.courseId ? { courseId: f.courseId } : {}) }, select: { gradeStatusCode: true } }),
+        // studentSystemWhere → `{}` when no system is selected, so the term/course scope is unchanged.
+        prisma.enrollment.findMany({ where: { ...termWhere(f), ...(f.courseId ? { courseId: f.courseId } : {}), ...studentSystemWhere(ctx.academicSystem) }, select: { gradeStatusCode: true } }),
         prisma.gradeStatus.findMany(),
       ]);
       const nameByCode = new Map(statuses.map((s) => [s.code, s.name]));
@@ -88,10 +101,10 @@ export const resultsReports: ReportDef[] = [
   {
     id: 'result-statistics', category: 'results', nameAr: 'كشف إحصائي النتائج',
     description: 'إجمالي / ناجح / راسب / منسحب / غير مكتمل / محروم', permission: VIEW,
-    filters: ['academicYear', 'semester', 'departmentId'],
-    run: async (f) => {
+    filters: ['academicYear', 'semester', 'departmentId'], systemAware: true,
+    run: async (f, ctx) => {
       const [enrollments, statuses] = await Promise.all([
-        prisma.enrollment.findMany({ where: termWhere(f), select: { gradeStatusCode: true } }),
+        prisma.enrollment.findMany({ where: { ...termWhere(f), ...studentSystemWhere(ctx.academicSystem) }, select: { gradeStatusCode: true } }),
         prisma.gradeStatus.findMany(),
       ]);
       const byCode = new Map(statuses.map((s) => [s.code, s]));

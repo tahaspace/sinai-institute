@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { resolveApplicationProgramId } from '@/lib/admission-program';
 import { requirePermission } from '@/lib/authz';
 
 const statusLabel = (s: string) =>
@@ -55,7 +56,7 @@ export async function PATCH(request: NextRequest) {
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
     const body = await request.json();
-    const { id, status, departmentId } = body ?? {};
+    const { id, status, departmentId, programId } = body ?? {};
     if (!id || !status) return NextResponse.json({ error: 'المعرف والحالة مطلوبان' }, { status: 400 });
 
     const app = await prisma.application.findUnique({ where: { id } });
@@ -64,8 +65,16 @@ export async function PATCH(request: NextRequest) {
     const next = String(status).toUpperCase();
     let createdStudent = null;
 
+    // Resolve the applicant's choice to a real Program. This is what carries the academic system:
+    // a Student created without a programId silently defaults to credit-hours, which would be wrong
+    // for an annual-programme applicant and would misroute every later result/promotion decision.
+    const resolvedProgramId = await resolveApplicationProgramId(app.firstChoice, programId);
+
     if (next === 'ENROLLED') {
       // Create the Student from the application if not already created.
+      const program = resolvedProgramId
+        ? await prisma.program.findUnique({ where: { id: resolvedProgramId }, select: { departmentId: true } })
+        : null;
       const year = new Date().getFullYear();
       const count = await prisma.student.count();
       createdStudent = await prisma.student.create({
@@ -75,7 +84,8 @@ export async function PATCH(request: NextRequest) {
           email: app.email,
           phone: app.phone,
           nationalId: app.nationalId,
-          departmentId: departmentId || null,
+          departmentId: departmentId || program?.departmentId || null,
+          programId: resolvedProgramId,
           level: 1,
           enrollYear: year,
           status: 'ACTIVE',
@@ -83,7 +93,11 @@ export async function PATCH(request: NextRequest) {
       });
     }
 
-    const updated = await prisma.application.update({ where: { id }, data: { status: next } });
+    const updated = await prisma.application.update({
+      where: { id },
+      // Persist the resolution too, so admissions reports can be filtered by academic system.
+      data: { status: next, ...(resolvedProgramId && !app.programId ? { programId: resolvedProgramId } : {}) },
+    });
     return NextResponse.json({ application: updated, createdStudent });
   } catch (error) {
     console.error('Error updating admission:', error);

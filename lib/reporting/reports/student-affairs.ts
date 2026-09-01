@@ -31,35 +31,38 @@ async function studentRoster(where: Record<string, unknown>, label?: string): Pr
   };
 }
 
+// systemAware reports below all scope their query through `studentWhere`, which already composes the
+// academic-system fragment under AND (absent/'all' → no narrowing, so the unfiltered result is
+// unchanged). ctx.academicSystem is the same value the hub sends as the `academicSystem` filter.
 const VIEW = 'student.view';
 
 export const studentAffairsReports: ReportDef[] = [
   {
     id: 'enrolled-students', category: 'student-affairs', nameAr: 'كشف الطلاب المقيدين',
     description: 'الطلاب المقيدون — فلتر السنة/القسم/البرنامج/المستوى', permission: VIEW,
-    filters: ['academicYear', 'facultyId', 'departmentId', 'programId', 'level', 'qualification'],
+    filters: ['academicYear', 'facultyId', 'departmentId', 'programId', 'level', 'qualification'], systemAware: true,
     run: (f, ctx) => studentRoster({ ...studentWhere(f, ctx.universityId), status: { notIn: ['GRADUATED', 'WITHDRAWN', 'DISMISSED'] } }),
   },
   {
     id: 'new-students', category: 'student-affairs', nameAr: 'كشف الطلاب المستجدين',
     description: 'طلاب المستوى الأول / حديثو القيد', permission: VIEW,
-    filters: ['academicYear', 'departmentId', 'programId'],
+    filters: ['academicYear', 'departmentId', 'programId'], systemAware: true,
     run: (f, ctx) => studentRoster({ ...studentWhere(f, ctx.universityId), level: 1 }),
   },
   {
     id: 'withdrawn-students', category: 'student-affairs', nameAr: 'كشف المنسحبين',
-    permission: VIEW, filters: ['departmentId', 'programId'],
+    permission: VIEW, filters: ['departmentId', 'programId'], systemAware: true,
     run: (f, ctx) => studentRoster({ ...studentWhere(f, ctx.universityId), status: 'WITHDRAWN' }),
   },
   {
     id: 'dismissed-students', category: 'student-affairs', nameAr: 'كشف المفصولين',
-    permission: VIEW, filters: ['departmentId', 'programId'],
+    permission: VIEW, filters: ['departmentId', 'programId'], systemAware: true,
     run: (f, ctx) => studentRoster({ ...studentWhere(f, ctx.universityId), status: 'DISMISSED' }),
   },
   {
     id: 'hold-students', category: 'student-affairs', nameAr: 'الطلاب الذين لديهم Hold',
     description: 'طلاب عليهم إيقاف تسجيل (مالي/أكاديمي)', permission: VIEW,
-    filters: ['departmentId', 'programId'],
+    filters: ['departmentId', 'programId'], systemAware: true,
     run: async (f, ctx) => {
       const students = await prisma.student.findMany({
         where: { ...studentWhere(f, ctx.universityId), holdStatus: true },
@@ -77,7 +80,7 @@ export const studentAffairsReports: ReportDef[] = [
   {
     id: 'not-registered', category: 'student-affairs', nameAr: 'الطلاب غير المسجلين',
     description: 'مقيدون لم يسجلوا مقررات في الفصل المحدد', permission: VIEW,
-    filters: ['academicYear', 'semester', 'departmentId', 'programId'], requires: ['academicYear'],
+    filters: ['academicYear', 'semester', 'departmentId', 'programId'], requires: ['academicYear'], systemAware: true,
     run: async (f, ctx) => {
       const term = termWhere(f);
       const registered = await prisma.enrollment.findMany({ where: term, select: { studentId: true }, distinct: ['studentId'] });
@@ -128,7 +131,7 @@ export const studentAffairsReports: ReportDef[] = [
   {
     id: 'guardians-data', category: 'student-affairs', nameAr: 'بيانات أولياء الأمور',
     description: 'الاسم والهاتف والحساب البنكي لولي الأمر', permission: VIEW,
-    filters: ['departmentId', 'programId', 'level'],
+    filters: ['departmentId', 'programId', 'level'], systemAware: true,
     run: async (f, ctx) => {
       const students = await prisma.student.findMany({
         where: studentWhere(f, ctx.universityId),

@@ -3,10 +3,15 @@ import prisma from '@/lib/prisma';
 import type { ReportDef } from '@/lib/reporting/types';
 import { studentWhere } from '@/lib/reporting/filters';
 import { HOLD_TYPE_LABELS } from '@/lib/holds';
+import { academicSystemWhere } from '@/lib/academic-system';
 
 /**
  * ClientR5 — Student Holds & Blocks reports. All read the hold engine's records
  * (StudentHold + HoldEvent); a hold is a visibility/access control, never a grade change.
+ *
+ * Academic-system narrowing: the student-scoped reports go through `studentWhere`, which already
+ * composes the system fragment under AND (absent/'all' → no narrowing). ctx.academicSystem is the
+ * same value the hub sends as the `academicSystem` filter.
  */
 const VIEW = 'reports.holds.view';
 
@@ -14,7 +19,7 @@ export const holdsReports: ReportDef[] = [
   {
     id: 'held-results', category: 'holds', nameAr: 'تقرير الطلاب المحجوبة نتائجهم',
     description: 'طلاب نتائجهم محجوبة حاليًا (حجب نشط على ظهور النتيجة) — بالنوع والسبب',
-    permission: VIEW, filters: ['departmentId', 'programId', 'level'],
+    permission: VIEW, filters: ['departmentId', 'programId', 'level'], systemAware: true,
     run: async (f, ctx) => {
       const holds = await prisma.studentHold.findMany({
         where: { status: 'ACTIVE', blockResult: true, student: { ...studentWhere(f, ctx.universityId) } },
@@ -51,7 +56,7 @@ export const holdsReports: ReportDef[] = [
   {
     id: 'holds-by-reason', category: 'holds', nameAr: 'تقرير الحجب حسب النوع/السبب',
     description: 'توزيع الحجب النشط حسب النوع مع النسبة المئوية', permission: VIEW,
-    filters: ['departmentId', 'programId'],
+    filters: ['departmentId', 'programId'], systemAware: true,
     run: async (f, ctx) => {
       const holds = await prisma.studentHold.findMany({
         where: { status: 'ACTIVE', student: { ...studentWhere(f, ctx.universityId) } },
@@ -79,7 +84,7 @@ export const holdsReports: ReportDef[] = [
   {
     id: 'released-holds', category: 'holds', nameAr: 'تقرير الحجب المرفوع (تفعيل الطلاب)',
     description: 'الطلاب الذين رُفع عنهم الحجب — النوع، من رفعه، ومتى', permission: VIEW,
-    filters: ['departmentId', 'programId', 'dateFrom', 'dateTo'],
+    filters: ['departmentId', 'programId', 'dateFrom', 'dateTo'], systemAware: true,
     run: async (f, ctx) => {
       const where: Prisma.StudentHoldWhereInput = { status: 'RELEASED', student: { ...studentWhere(f, ctx.universityId) } };
       if (f.dateFrom || f.dateTo) {
@@ -117,10 +122,13 @@ export const holdsReports: ReportDef[] = [
   {
     id: 'automatic-holds', category: 'holds', nameAr: 'تقرير الحجب التلقائي',
     description: 'العمليات التي طبّقها/رفعها النظام تلقائيًا (ربط الحسابات ↔ ظهور النتيجة)',
-    permission: VIEW, filters: ['dateFrom', 'dateTo'],
+    permission: VIEW, filters: ['dateFrom', 'dateTo'], systemAware: true,
     run: async (f, ctx) => {
       const where: Prisma.HoldEventWhereInput = { source: 'AUTOMATIC', action: { in: ['APPLY', 'RELEASE'] } };
       if (ctx.universityId) where.universityId = ctx.universityId;
+      // HoldEvent has no `student` relation — reach the student through its hold. Only set when a
+      // system is selected, so the unfiltered run keeps its exact current where-shape.
+      if (ctx.academicSystem) where.hold = { student: academicSystemWhere(ctx.academicSystem) as Prisma.StudentWhereInput };
       if (f.dateFrom || f.dateTo) {
         where.at = { gte: f.dateFrom ? new Date(f.dateFrom) : undefined, lte: f.dateTo ? new Date(f.dateTo) : undefined };
       }

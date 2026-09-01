@@ -52,6 +52,18 @@ export function getReport(id: string): ReportDef | undefined {
   return BY_ID.get(id);
 }
 
+/**
+ * The «النظام الأكاديمي» filter is appended centrally instead of being repeated in every report
+ * definition — but ONLY for reports that declare `systemAware`, i.e. whose query genuinely narrows
+ * by ctx.academicSystem. Reports with no student dimension (HR, payroll, vendors, the general
+ * ledger, the audit log) never declare it, and reports that are single-system by nature (the annual
+ * family) don't either. A filter rendered on a report that ignores it would silently lie.
+ */
+function filtersWithSystem(r: ReportDef): string[] {
+  if (!r.systemAware || r.filters.includes('academicSystem')) return r.filters;
+  return [...r.filters, 'academicSystem'];
+}
+
 /** Catalogue for the hub: categories (in display order) → their reports' metadata. */
 export function reportCatalogue(): { category: ReportCategory; label: string; reports: { id: string; nameAr: string; description?: string; filters: string[]; requires?: string[]; permission: string }[] }[] {
   const order: ReportCategory[] = ['ministry', 'student-affairs', 'holds', 'academic', 'attendance', 'results', 'faculty', 'advisor', 'financial', 'executive', 'analytical', 'predictive', 'transcripts', 'annual', 'hr', 'audit'];
@@ -59,7 +71,7 @@ export function reportCatalogue(): { category: ReportCategory; label: string; re
     .map((cat) => ({
       category: cat,
       label: CATEGORY_LABELS[cat],
-      reports: ALL.filter((r) => r.category === cat).map((r) => ({ id: r.id, nameAr: r.nameAr, description: r.description, filters: r.filters, requires: r.requires, permission: r.permission })),
+      reports: ALL.filter((r) => r.category === cat).map((r) => ({ id: r.id, nameAr: r.nameAr, description: r.description, filters: filtersWithSystem(r), requires: r.requires, permission: r.permission })),
     }))
     .filter((c) => c.reports.length > 0);
 }
