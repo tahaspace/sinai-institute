@@ -53,7 +53,11 @@ interface ExamResult {
   average: number
 }
 interface GradesStats {
-  gpa: number
+  gpa?: number // credit-hours only
+  // annual-system fields (no GPA): year result + النسبة + التقدير
+  result?: string
+  overallPct?: number | null
+  overallGrade?: string | null
   rank: number
   totalStudents: number
   totalGrade: number
@@ -62,6 +66,7 @@ interface GradesStats {
 }
 interface GradesResponse {
   student: { id: string; studentCode: string; name: string; level: number }
+  system?: "CREDIT_HOURS" | "ANNUAL"
   stats: GradesStats | null
   subjects: SubjectGrade[]
   exams: ExamResult[]
@@ -240,8 +245,18 @@ export default function StudentGradesPage() {
             <Card>
               <CardContent className="p-4 text-center">
                 <GraduationCap className="w-8 h-8 mx-auto text-blue-500 mb-2" />
-                <p className="text-2xl font-bold text-blue-600">{stats.gpa.toFixed(2)}</p>
-                <p className="text-sm text-muted-foreground">المعدل التراكمي</p>
+                {data?.system === "ANNUAL" ? (
+                  <>
+                    <p className="text-2xl font-bold text-blue-600">{stats.overallPct != null ? `${stats.overallPct}%` : "—"}</p>
+                    <p className="text-sm text-muted-foreground">النسبة المئوية{stats.overallGrade ? ` · ${stats.overallGrade}` : ""}</p>
+                    {stats.result && <p className="text-xs mt-1 text-muted-foreground">نتيجة العام: {stats.result}</p>}
+                  </>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold text-blue-600">{(stats.gpa ?? 0).toFixed(2)}</p>
+                    <p className="text-sm text-muted-foreground">المعدل التراكمي</p>
+                  </>
+                )}
               </CardContent>
             </Card>
             <Card>

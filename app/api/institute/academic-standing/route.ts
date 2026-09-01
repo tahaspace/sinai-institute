@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requirePermission } from '@/lib/authz';
 import { computeAcademicStanding, computeStandingForStudents } from '@/lib/standing';
+import { academicSystemWhere } from '@/lib/reporting/filters';
 
 // GET /api/institute/academic-standing
 //   ?studentCode=  → full standing for one student
@@ -26,8 +27,11 @@ export async function GET(request: NextRequest) {
 
     // All currently-enrolled students (probation/warning students MUST appear here);
     // only terminal statuses are excluded.
+    // Dual-system: this is the CGPA/probation dashboard, a credit-hours concept. Annual students
+    // have no CGPA (they'd surface as false probation), so scope to credit-hours — annual standing
+    // (منقول / له دور ثانٍ / باقٍ + تقدير) is shown in the promotion + annual-result screens instead.
     const students = await prisma.student.findMany({
-      where: { status: { notIn: ['GRADUATED', 'WITHDRAWN', 'DISMISSED'] } },
+      where: { status: { notIn: ['GRADUATED', 'WITHDRAWN', 'DISMISSED'] }, ...academicSystemWhere('CREDIT_HOURS') },
       select: { id: true, studentCode: true, nameAr: true, level: true, departmentId: true, department: { select: { nameAr: true } } },
       orderBy: { studentCode: 'asc' },
     });

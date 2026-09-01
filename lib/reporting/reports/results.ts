@@ -1,6 +1,6 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef, TableResult } from '@/lib/reporting/types';
-import { studentWhere, termWhere } from '@/lib/reporting/filters';
+import { studentWhere, termWhere, academicSystemWhere } from '@/lib/reporting/filters';
 import { computeStandingForStudents } from '@/lib/standing';
 import { passFailRoster, successStats, classify } from '@/lib/reports';
 
@@ -59,12 +59,12 @@ export const resultsReports: ReportDef[] = [
   {
     id: 'toppers-level', category: 'results', nameAr: 'كشف أوائل المستوى',
     permission: VIEW, filters: ['departmentId', 'programId', 'level'], requires: ['level'],
-    run: (f, ctx) => toppers(studentWhere(f, ctx.universityId), false),
+    run: (f, ctx) => toppers({ ...studentWhere(f, ctx.universityId), ...academicSystemWhere('CREDIT_HOURS') }, false),
   },
   {
     id: 'toppers-batch', category: 'results', nameAr: 'كشف أوائل الدفعة',
     permission: VIEW, filters: ['departmentId', 'programId'],
-    run: (f, ctx) => toppers(studentWhere(f, ctx.universityId), true),
+    run: (f, ctx) => toppers({ ...studentWhere(f, ctx.universityId), ...academicSystemWhere('CREDIT_HOURS') }, true),
   },
   {
     id: 'grade-distribution', category: 'results', nameAr: 'كشف توزيع التقديرات',

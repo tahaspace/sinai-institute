@@ -24,6 +24,7 @@ interface GraduationRequest {
   studentCode: string
   department: string
   program: string
+  academicSystem?: "CREDIT_HOURS" | "ANNUAL"
   completedHours: number
   requiredHours: number
   gpa: number
@@ -260,13 +261,19 @@ export default function GraduationPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className="font-bold text-institute-blue">{request.gpa.toFixed(2)}</span>
+                      {request.academicSystem === "ANNUAL"
+                        ? <span className="text-xs text-muted-foreground">نظام سنوي</span>
+                        : <span className="font-bold text-institute-blue">{request.gpa.toFixed(2)}</span>}
                     </TableCell>
                     <TableCell>
-                      <div className="space-y-1 min-w-[120px]">
-                        <p className="text-xs font-medium">{request.completedHours} / {request.requiredHours} ساعة</p>
-                        <Progress value={request.requiredHours > 0 ? (request.completedHours / request.requiredHours) * 100 : 0} className="h-2" />
-                      </div>
+                      {request.academicSystem === "ANNUAL" ? (
+                        <span className="text-xs text-muted-foreground">اجتياز الفرقة النهائية بتقدير</span>
+                      ) : (
+                        <div className="space-y-1 min-w-[120px]">
+                          <p className="text-xs font-medium">{request.completedHours} / {request.requiredHours} ساعة</p>
+                          <Progress value={request.requiredHours > 0 ? (request.completedHours / request.requiredHours) * 100 : 0} className="h-2" />
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>{getStatusBadge(request)}</TableCell>
                     <TableCell>

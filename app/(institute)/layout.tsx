@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSession } from "next-auth/react"
@@ -29,7 +29,6 @@ import {
   School,
   Calendar,
   BookOpen,
-  ClipboardList,
   Brain,
   Receipt,
   DollarSign,
@@ -277,38 +276,9 @@ export default function InstituteLayout({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [expandedItems, setExpandedItems] = useState<string[]>([])
 
-  // Dual academic system (Phase 1): active PROGRAM context in the header. The badge shows the
-  // selected program's system («نظام الساعات المعتمدة» / «النظام السنوي») and lets staff switch it.
-  const [programs, setPrograms] = useState<{ id: string; nameAr: string; academicSystem: string }[]>([])
-  const [activeProgramId, setActiveProgramId] = useState<string>("")
-  const loadPrograms = useCallback(async () => {
-    try {
-      const r = await fetch("/api/institute/programs")
-      const j = await r.json()
-      if (!r.ok) throw new Error(j.error || "failed")
-      const list: { id: string; nameAr: string; academicSystem: string }[] = (j.programs ?? []).map((p: { id: string; nameAr: string; academicSystem?: string }) => ({ id: p.id, nameAr: p.nameAr, academicSystem: p.academicSystem === "ANNUAL" ? "ANNUAL" : "CREDIT_HOURS" }))
-      const saved = typeof window !== "undefined" ? window.localStorage.getItem("activeProgramId") : null
-      const activeId = saved && list.some((p) => p.id === saved) ? saved : (list[0]?.id ?? "")
-      setPrograms(list)
-      setActiveProgramId(activeId)
-      if (typeof window !== "undefined" && activeId) {
-        const sys = list.find((p) => p.id === activeId)?.academicSystem === "ANNUAL" ? "ANNUAL" : "CREDIT_HOURS"
-        window.localStorage.setItem("activeProgramSystem", sys)
-        window.dispatchEvent(new Event("academic-system-changed"))
-      }
-    } catch { setPrograms([]) }
-  }, [])
-  useEffect(() => { loadPrograms() }, [loadPrograms])
-  const activeProgram = programs.find((p) => p.id === activeProgramId)
-  const activeSystemLabel = activeProgram?.academicSystem === "ANNUAL" ? "النظام السنوي (العادي)" : "نظام الساعات المعتمدة"
-  const pickProgram = (id: string) => {
-    setActiveProgramId(id)
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("activeProgramId", id)
-      window.localStorage.setItem("activeProgramSystem", programs.find((p) => p.id === id)?.academicSystem === "ANNUAL" ? "ANNUAL" : "CREDIT_HOURS")
-      window.dispatchEvent(new Event("academic-system-changed"))
-    }
-  }
+  // Pure program-driven (no global picker): the academic system is never chosen in the header.
+  // Each screen resolves it server-side from the student's OWN program, and filters per-screen
+  // like Finance. There is deliberately no active-system state or toggle here.
 
   const toggleExpanded = (href: string) => {
     if (expandedItems.includes(href)) {
@@ -499,37 +469,6 @@ export default function InstituteLayout({
                 <Calendar className="w-3 h-3" />
                 الفصل الدراسي الأول 2024/2025
               </Badge>
-
-              {/* Academic-system context switcher (dual-mode Phase 1) */}
-              {programs.length > 0 ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Badge variant="secondary" className="hidden lg:flex gap-1 cursor-pointer">
-                      <ClipboardList className="w-3 h-3" />
-                      {activeSystemLabel}{activeProgram ? ` — ${activeProgram.nameAr}` : ""}
-                    </Badge>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-72">
-                    <DropdownMenuLabel>سياق البرنامج / النظام الأكاديمي</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {programs.map((p) => (
-                      <DropdownMenuItem key={p.id} onClick={() => pickProgram(p.id)} className={cn("flex items-center justify-between gap-3", activeProgramId === p.id && "font-semibold")}>
-                        <span className="truncate">{p.nameAr}</span>
-                        <span className="text-xs text-muted-foreground shrink-0">{p.academicSystem === "ANNUAL" ? "سنوي" : "ساعات معتمدة"}</span>
-                      </DropdownMenuItem>
-                    ))}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                      <Link href="/institute/settings/academic-system">تغيير نظام البرامج…</Link>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : (
-                <Badge variant="secondary" className="hidden lg:flex gap-1">
-                  <ClipboardList className="w-3 h-3" />
-                  نظام الساعات المعتمدة
-                </Badge>
-              )}
 
               {/* Theme Toggle */}
               <Button

@@ -23,6 +23,7 @@ export async function GET() {
         studentCode: r.student.studentCode,
         department: r.student.department?.nameAr ?? '',
         program: r.student.program?.nameAr ?? '',
+        academicSystem: r.student.program?.academicSystem === 'ANNUAL' ? 'ANNUAL' : 'CREDIT_HOURS',
         completedHours: r.completedHours,
         requiredHours: r.requiredHours,
         gpa: r.gpa,

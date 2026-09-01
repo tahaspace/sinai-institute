@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef } from '@/lib/reporting/types';
 import { computeStandingForStudents } from '@/lib/standing';
+import { academicSystemWhere } from '@/lib/reporting/filters';
 
 /**
  * Predictive analytics + Early Warning (ClientR3 — R6). TRANSPARENT, RULE-BASED heuristics — NOT
@@ -15,7 +16,9 @@ export const predictiveReports: ReportDef[] = [
     description: 'تقدير قائم على القواعد من المعدل والرسوب السابق — مؤشر إنذار وليس حكمًا', permission: VIEW,
     filters: ['departmentId', 'programId'],
     run: async (_f, ctx) => {
-      const students = await prisma.student.findMany({ where: { universityId: ctx.universityId ?? undefined, status: { notIn: ['GRADUATED', 'WITHDRAWN', 'DISMISSED'] } }, select: { id: true, studentCode: true, nameAr: true } });
+      // The risk model is CGPA/probation/repeated-failure based (credit-hours). Annual risk
+      // (باقٍ للإعادة / تعدد التخلفات) is a separate model, so scope this to credit students.
+      const students = await prisma.student.findMany({ where: { universityId: ctx.universityId ?? undefined, status: { notIn: ['GRADUATED', 'WITHDRAWN', 'DISMISSED'] }, ...academicSystemWhere('CREDIT_HOURS') }, select: { id: true, studentCode: true, nameAr: true } });
       const standings = await computeStandingForStudents(students.map((s) => s.id));
       const rows = students.map((s) => {
         const st = standings.get(s.id);

@@ -11,7 +11,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ArrowUpCircle, GraduationCap, Users, Printer, Download, CheckCircle2, ShieldCheck, PlayCircle } from "lucide-react"
 
 type Opt = { id: string; name: string }
-type Row = { studentId: string; studentCode: string; name: string; program: string; level: number; cgpa: number; grade: string; result: string; action: string; toLevel: number | null; eligible: boolean; reason: string }
+type Row = { studentId: string; studentCode: string; name: string; program: string; level: number; cgpa: number; grade: string; result: string; action: string; toLevel: number | null; eligible: boolean; reason: string; system?: "CREDIT_HOURS" | "ANNUAL"; pct?: number | null }
+// Metric shown per row: annual programs have no CGPA → show النسبة%; credit show المعدل التراكمي.
+const metricOf = (r: Row) => r.system === "ANNUAL" ? (r.pct != null ? `${r.pct}%` : "—") : r.cgpa.toFixed(2)
 type Stats = { total: number; eligible: number; promote: number; graduate: number; stay: number; skip: number }
 type BatchItem = { id: string; studentCode: string; studentName: string; action: string; fromLevel: number | null; toLevel: number | null; cgpa: number | null; resultGrade: string | null; reason: string | null }
 type Batch = { id: string; status: string; eligibleCount: number; promotedCount: number; items: BatchItem[] }
@@ -96,8 +98,8 @@ export default function PromotionPage() {
   }
 
   function exportCsv() {
-    const head = ["الكود", "الاسم", "البرنامج", "المستوى", "التقدير", "المعدل التراكمي", "النتيجة", "حالة الترحيل", "السبب"]
-    const lines = rows.map((r) => [r.studentCode, r.name, r.program, r.level, r.grade, r.cgpa, r.result, ACTION_LABEL[r.action] ?? r.action, r.reason].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
+    const head = ["الكود", "الاسم", "البرنامج", "المستوى", "التقدير", "المعدل / النسبة", "النتيجة", "حالة الترحيل", "السبب"]
+    const lines = rows.map((r) => [r.studentCode, r.name, r.program, r.level, r.grade, metricOf(r), r.result, ACTION_LABEL[r.action] ?? r.action, r.reason].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
     const blob = new Blob(["﻿" + [head.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" })
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `promotion-${f.fromYear}-L${f.fromLevel}.csv`; a.click(); URL.revokeObjectURL(a.href)
   }
@@ -177,7 +179,7 @@ export default function PromotionPage() {
               <TableHeader><TableRow>
                 <TableHead className="w-10"><Checkbox checked={rows.length > 0 && selected.size === rows.length} onCheckedChange={toggleAll} /></TableHead>
                 <TableHead>الكود</TableHead><TableHead>الاسم</TableHead><TableHead>البرنامج</TableHead>
-                <TableHead className="text-center">المستوى</TableHead><TableHead className="text-center">التقدير</TableHead><TableHead className="text-center">التراكمي</TableHead>
+                <TableHead className="text-center">المستوى</TableHead><TableHead className="text-center">التقدير</TableHead><TableHead className="text-center">المعدل / النسبة</TableHead>
                 <TableHead className="text-center">النتيجة</TableHead><TableHead className="text-center">حالة الترحيل</TableHead><TableHead>السبب</TableHead>
               </TableRow></TableHeader>
               <TableBody>
@@ -189,7 +191,7 @@ export default function PromotionPage() {
                     <TableCell>{r.program}</TableCell>
                     <TableCell className="text-center">{r.level}{r.toLevel ? ` ← ${r.toLevel}` : ""}</TableCell>
                     <TableCell className="text-center">{r.grade}</TableCell>
-                    <TableCell className="text-center font-semibold">{r.cgpa.toFixed(2)}</TableCell>
+                    <TableCell className="text-center font-semibold">{metricOf(r)}</TableCell>
                     <TableCell className="text-center">{r.result}</TableCell>
                     <TableCell className="text-center"><Badge className={ACTION_BADGE[r.action] ?? ""}>{ACTION_LABEL[r.action] ?? r.action}</Badge></TableCell>
                     <TableCell className="text-xs text-muted-foreground max-w-40 truncate" title={r.reason}>{r.reason}</TableCell>

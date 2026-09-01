@@ -77,9 +77,14 @@ export const transcriptsReports: ReportDef[] = [
     run: async (f, ctx) => {
       const student = await prisma.student.findFirst({
         where: { studentCode: f.studentCode, universityId: ctx.universityId ?? undefined },
-        include: { program: { select: { nameAr: true } }, department: { select: { nameAr: true } } },
+        include: { program: { select: { nameAr: true, academicSystem: true } }, department: { select: { nameAr: true } } },
       });
       if (!student) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'الطالب غير موجود' } };
+      // Dual-system guard: this is a credit-hours GPA بيان حالة. An annual student's document is the
+      // annual transcript (نسبة/تقدير, لا يوجد معدل تراكمي) — send the operator there instead of a wrong sheet.
+      if (student.program?.academicSystem === 'ANNUAL') {
+        return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'هذا الطالب بالنظام السنوي — استخدم «كشف الطالب السنوي» ضمن فئة «النتائج السنوية»' } };
+      }
 
       const [enrollments, statuses] = await Promise.all([
         prisma.enrollment.findMany({ where: { studentId: student.id }, include: { course: { select: { code: true, nameAr: true, creditHours: true, countsInGpa: true } } } }),

@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { requirePermission } from '@/lib/authz';
 import { writeAudit } from '@/lib/audit';
 import { computeStandingForStudents } from '@/lib/standing';
+import { academicSystemWhere } from '@/lib/reporting/filters';
 
 // POST /api/institute/academic-standing/apply
 //   { action: 'promote' }   → promote every student the engine marks canPromote
@@ -31,9 +32,16 @@ export async function POST(request: NextRequest) {
 
     // Same active population the dashboard scores (terminal statuses excluded), then
     // optionally narrowed to the requested student codes.
+    // Dual-system SAFETY GUARD: promote/dismiss here is driven by the credit-hours CGPA
+    // engine (computeStandingForStudents). Annual-system students carry no CGPA, so the
+    // engine would falsely mark them on-probation and this endpoint could WRONGLY DISMISS
+    // them. Until annual standing exists, restrict this write-back to CREDIT_HOURS students
+    // (academicSystemWhere folds programId:null into credit-hours). Annual promotion/repeat
+    // is handled by the annual result + promotion module, never by this credit endpoint.
     const students = await prisma.student.findMany({
       where: {
         status: { notIn: ['GRADUATED', 'WITHDRAWN', 'DISMISSED'] },
+        ...academicSystemWhere('CREDIT_HOURS'),
         ...(studentCodes ? { studentCode: { in: studentCodes } } : {}),
       },
       select: { id: true, studentCode: true, nameAr: true, level: true, status: true },

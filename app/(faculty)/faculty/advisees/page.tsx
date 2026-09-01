@@ -16,10 +16,16 @@ interface AdviseeRow {
   studentCode: string
   name: string
   level: number
-  cgpa: number
-  onProbation: boolean
-  escalation: string
-  flags: string[]
+  system?: "CREDIT_HOURS" | "ANNUAL"
+  cgpa?: number // credit-hours only
+  onProbation?: boolean
+  escalation?: string
+  flags?: string[]
+  // annual-system fields
+  result?: string
+  pct?: number | null
+  grade?: string | null
+  atRisk?: boolean
   requestStatus: string
 }
 interface Issue { rule: string; message: string; severity: "error" | "warning" }
@@ -35,7 +41,9 @@ interface PendingRow {
 }
 interface Profile {
   student: { studentCode: string; name: string; level: number; status: string }
+  system?: "CREDIT_HOURS" | "ANNUAL"
   standing: { cgpa: number; earnedHours: number; onProbation: boolean; flags: string[]; remainingHours: number; qualifiedLevel: number } | null
+  annual?: { result: string; overallPct: number | null; overallGrade: string | null; yearGroup: number } | null
   transcript: { academicYear: string; semester: string; courses: { code: string; name: string; creditHours: number; status: string | null; statusName: string | null; points: number | null }[] }[]
   currentRequest: { status: string; items: ReqItem[] } | null
 }
@@ -206,12 +214,18 @@ export default function AdviseesPage() {
                       <TableCell className="font-medium text-blue-600">{s.name}</TableCell>
                       <TableCell className="text-center">{s.level}</TableCell>
                       <TableCell className="text-center">
-                        <Badge className={s.cgpa >= 3.33 ? "bg-green-100 text-green-700" : s.cgpa >= 2 ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"}>{s.cgpa.toFixed(2)}</Badge>
+                        {s.system === "ANNUAL" ? (
+                          <Badge className={s.atRisk ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}>{s.pct != null ? `${s.pct}%` : "—"}{s.grade ? ` · ${s.grade}` : ""}</Badge>
+                        ) : (
+                          <Badge className={(s.cgpa ?? 0) >= 3.33 ? "bg-green-100 text-green-700" : (s.cgpa ?? 0) >= 2 ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"}>{(s.cgpa ?? 0).toFixed(2)}</Badge>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          {s.flags.length === 0 ? <span className="text-muted-foreground text-sm">منتظم</span> :
-                            s.flags.map((f, i) => <Badge key={i} variant="outline" className={f.includes("نهائي") ? "border-red-300 text-red-700" : f.includes("إنذار") || f.includes("الملاحظة") ? "border-amber-300 text-amber-700" : f.includes("الشرف") ? "border-yellow-400 text-yellow-700" : "border-green-300 text-green-700"}>{f}</Badge>)}
+                          {s.system === "ANNUAL" ? (
+                            s.result ? <Badge variant="outline" className={s.atRisk ? "border-red-300 text-red-700" : "border-green-300 text-green-700"}>{s.result}</Badge> : <span className="text-muted-foreground text-sm">—</span>
+                          ) : (s.flags ?? []).length === 0 ? <span className="text-muted-foreground text-sm">منتظم</span> :
+                            (s.flags ?? []).map((f, i) => <Badge key={i} variant="outline" className={f.includes("نهائي") ? "border-red-300 text-red-700" : f.includes("إنذار") || f.includes("الملاحظة") ? "border-amber-300 text-amber-700" : f.includes("الشرف") ? "border-yellow-400 text-yellow-700" : "border-green-300 text-green-700"}>{f}</Badge>)}
                         </div>
                       </TableCell>
                       <TableCell className="text-center text-sm">{s.requestStatus === "None" ? "—" : s.requestStatus}</TableCell>
@@ -241,6 +255,13 @@ export default function AdviseesPage() {
                 <Badge variant="outline">ساعات منجزة {profile.standing.earnedHours}</Badge>
                 <Badge variant="outline">متبقٍ للتخرج {profile.standing.remainingHours}</Badge>
                 {profile.standing.flags.map((f, i) => <Badge key={i} variant="outline">{f}</Badge>)}
+              </div>
+            )}
+            {profile.system === "ANNUAL" && profile.annual && (
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge className="bg-amber-100 text-amber-800">النسبة {profile.annual.overallPct != null ? `${profile.annual.overallPct}%` : "—"}</Badge>
+                {profile.annual.overallGrade && <Badge variant="outline">التقدير {profile.annual.overallGrade}</Badge>}
+                <Badge variant="outline">نتيجة العام: {profile.annual.result}</Badge>
               </div>
             )}
             <div>

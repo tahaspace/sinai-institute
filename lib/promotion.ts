@@ -9,6 +9,7 @@
 import prisma from '@/lib/prisma';
 import { writeAudit } from '@/lib/audit';
 import { computeStandingForStudents } from '@/lib/standing';
+import { computeAnnualForStudents } from '@/lib/annual';
 import { outstandingFeesFor } from '@/lib/holds';
 
 export type PromotionAction = 'PROMOTE' | 'GRADUATE' | 'STAY' | 'SKIP';
@@ -29,6 +30,9 @@ export type PromotionRow = {
   studentId: string; studentCode: string; name: string; program: string;
   level: number; cgpa: number; grade: string; result: string;
   action: PromotionAction; toLevel: number | null; eligible: boolean; reason: string;
+  // Dual-system: the row is computed by the student's OWN program system. Annual rows carry
+  // a percentage + تقدير (grade) instead of a CGPA; the UI branches its columns on `system`.
+  system?: 'CREDIT_HOURS' | 'ANNUAL'; pct?: number | null;
 };
 
 const isTransfer = (t?: string | null) => !!t && /تحويل|محو|منقول/.test(t);
@@ -37,39 +41,70 @@ const isTransfer = (t?: string | null) => !!t && /تحويل|محو|منقول/.
 export async function evaluateCohort(opts: { academicYear: string; level: number; programId?: string | null; departmentId?: string | null }): Promise<PromotionRow[]> {
   const students = await prisma.student.findMany({
     where: { level: opts.level, ...(opts.programId ? { programId: opts.programId } : {}), ...(opts.departmentId ? { departmentId: opts.departmentId } : {}) },
-    select: { id: true, studentCode: true, nameAr: true, status: true, level: true, admissionType: true, program: { select: { nameAr: true } } },
+    select: { id: true, studentCode: true, nameAr: true, status: true, level: true, admissionType: true, program: { select: { nameAr: true, academicSystem: true, years: true } } },
     orderBy: { studentCode: 'asc' },
   });
   if (!students.length) return [];
-  const standings = await computeStandingForStudents(students.map((s) => s.id));
-  const settings = await getPromotionSettings();
+
+  // Dual-system: each student is evaluated by their OWN program's system. A cohort (one level)
+  // can mix credit + annual programs, so resolve both engines and branch per student — never
+  // score an annual student with the credit CGPA engine (they'd wrongly come back as STAY/raسب).
+  const annualIds = students.filter((s) => s.program?.academicSystem === 'ANNUAL').map((s) => s.id);
+  const creditIds = students.filter((s) => s.program?.academicSystem !== 'ANNUAL').map((s) => s.id);
+  const [standings, annuals, settings] = await Promise.all([
+    computeStandingForStudents(creditIds),
+    computeAnnualForStudents(annualIds, { academicYear: opts.academicYear }),
+    getPromotionSettings(),
+  ]);
 
   const rows: PromotionRow[] = [];
   for (const s of students) {
-    const st = standings.get(s.id);
-    const cgpa = st?.cgpa ?? 0;
+    const isAnnual = s.program?.academicSystem === 'ANNUAL';
     let action: PromotionAction = 'STAY';
     let toLevel: number | null = null;
     let eligible = false;
     let reason = '';
     let result = 'راسب';
+    let cgpa = 0;
+    let grade = '';
+    let pct: number | null = null;
 
     if (s.status === 'WITHDRAWN') { action = 'SKIP'; reason = 'منسحب'; result = 'منسحب'; }
     else if (s.status === 'DISMISSED') { action = 'SKIP'; reason = 'مفصول'; result = 'مفصول'; }
     else if (s.status === 'GRADUATED') { action = 'SKIP'; reason = 'خريج بالفعل'; result = 'خريج'; }
     else if (s.status === 'DEFERRED' || s.status === 'SUSPENDED') { action = 'STAY'; reason = 'مؤجل / موقوف — يبقى كما هو'; result = 'مؤجل'; }
     else if (isTransfer(s.admissionType)) { action = 'SKIP'; reason = 'محوّل من جامعة أخرى — معالجة يدوية'; result = 'محوّل'; }
-    else if (st?.graduationEligible) { action = 'GRADUATE'; eligible = true; reason = 'مستوفٍ لشروط التخرج'; result = 'ناجح — خريج'; }
-    else if (st?.canPromote) { action = 'PROMOTE'; toLevel = st.qualifiedLevel; eligible = true; reason = 'ناجح — مؤهل للترقية'; result = 'ناجح'; }
-    else { action = 'STAY'; reason = 'لم يستوفِ شروط الترقية (راسب / ساعات ناقصة)'; result = 'راسب'; }
+    else if (isAnnual) {
+      // ── ANNUAL: نتيجة العام بالنسبة/التقدير → منقول / له دور ثانٍ / باقٍ للإعادة ──
+      const ar = annuals.get(s.id);
+      pct = ar?.overallPct ?? null;
+      grade = ar?.overallGrade ?? '—';
+      const finalYear = s.level >= (s.program?.years ?? 4);
+      if (!ar || ar.result === 'قيد الرصد') { action = 'STAY'; reason = 'النتيجة قيد الرصد'; result = 'قيد الرصد'; }
+      else if (ar.result === 'منقول') {
+        if (finalYear) { action = 'GRADUATE'; eligible = true; reason = 'ناجح — الفرقة النهائية'; result = 'ناجح — خريج'; }
+        else { action = 'PROMOTE'; toLevel = s.level + 1; eligible = true; reason = 'منقول للفرقة الأعلى'; result = 'منقول'; }
+      }
+      else if (ar.result === 'له دور ثانٍ') { action = 'STAY'; reason = 'له دور ثانٍ — يبقى حتى الدور الثاني'; result = 'له دور ثانٍ'; }
+      else { action = 'STAY'; reason = 'باقٍ للإعادة'; result = 'باقٍ للإعادة'; }
+    }
+    else {
+      // ── CREDIT_HOURS: المعدل التراكمي / الساعات المكتسبة ──
+      const st = standings.get(s.id);
+      cgpa = st?.cgpa ?? 0;
+      grade = cgpaGrade(cgpa);
+      if (st?.graduationEligible) { action = 'GRADUATE'; eligible = true; reason = 'مستوفٍ لشروط التخرج'; result = 'ناجح — خريج'; }
+      else if (st?.canPromote) { action = 'PROMOTE'; toLevel = st.qualifiedLevel; eligible = true; reason = 'ناجح — مؤهل للترقية'; result = 'ناجح'; }
+      else { action = 'STAY'; reason = 'لم يستوفِ شروط الترقية (راسب / ساعات ناقصة)'; result = 'راسب'; }
+    }
 
-    // Financial block (per setting) can veto an otherwise-eligible promotion.
+    // Financial block (per setting) can veto an otherwise-eligible promotion — both systems.
     if (eligible && settings.blockDebtPromotion) {
       const debt = await outstandingFeesFor(s.id);
       if (debt > 0) { eligible = false; action = 'SKIP'; reason = `مديونية غير مسددة (${debt.toLocaleString()})`; }
     }
 
-    rows.push({ studentId: s.id, studentCode: s.studentCode, name: s.nameAr, program: s.program?.nameAr ?? '—', level: s.level, cgpa: Math.round(cgpa * 100) / 100, grade: cgpaGrade(cgpa), result, action, toLevel, eligible, reason });
+    rows.push({ studentId: s.id, studentCode: s.studentCode, name: s.nameAr, program: s.program?.nameAr ?? '—', level: s.level, cgpa: Math.round(cgpa * 100) / 100, grade, result, action, toLevel, eligible, reason, system: isAnnual ? 'ANNUAL' : 'CREDIT_HOURS', pct });
   }
   return rows;
 }

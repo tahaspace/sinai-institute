@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveStudent } from '@/lib/student';
 import { computeAcademicStanding } from '@/lib/standing';
+import { resolveStudentSystem } from '@/lib/academic-system';
+import { computeAnnualForStudents } from '@/lib/annual';
+import { getAcademicYears } from '@/lib/academic-years';
 import { scopeBlock } from '@/lib/holds';
 
 // GET /api/student/standing — the logged-in student's own academic standing
@@ -23,11 +26,23 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    const stu = { studentCode: student.studentCode, name: student.nameAr, level: student.level };
+
+    // Dual-system: an ANNUAL student has no CGPA/probation — their standing is the year result
+    // (منقول / له دور ثانٍ / باقٍ للإعادة) + النسبة + التقدير. Return that shape instead of the
+    // credit-hours standing so the portal never shows them a false CGPA-probation badge.
+    const system = await resolveStudentSystem(student.id);
+    if (system === 'ANNUAL') {
+      const { current } = await getAcademicYears();
+      const ar = (await computeAnnualForStudents([student.id], current ? { academicYear: current } : {})).get(student.id) ?? null;
+      return NextResponse.json({
+        system, student: stu, standing: null,
+        annual: ar ? { result: ar.result, overallPct: ar.overallPct, overallGrade: ar.overallGrade, yearGroup: ar.yearGroup } : null,
+      });
+    }
+
     const standing = await computeAcademicStanding(student.id);
-    return NextResponse.json({
-      student: { studentCode: student.studentCode, name: student.nameAr, level: student.level },
-      standing,
-    });
+    return NextResponse.json({ system, student: stu, standing });
   } catch (error) {
     console.error('Error computing student standing:', error);
     return NextResponse.json({ error: 'فشل في حساب الحالة الأكاديمية' }, { status: 500 });

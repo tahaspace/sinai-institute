@@ -117,8 +117,13 @@ export const annualReports: ReportDef[] = [
     description: 'نتائج الطالب في النظام السنوي عبر السنوات: المواد ونسبها والتقدير ونتيجة كل عام', permission: VIEW,
     filters: ['studentCode'], requires: ['studentCode'],
     run: async (f, ctx) => {
-      const student = await prisma.student.findFirst({ where: { studentCode: f.studentCode, universityId: ctx.universityId ?? undefined }, include: { program: { select: { nameAr: true } }, department: { select: { nameAr: true } } } });
+      const student = await prisma.student.findFirst({ where: { studentCode: f.studentCode, universityId: ctx.universityId ?? undefined }, include: { program: { select: { nameAr: true, academicSystem: true } }, department: { select: { nameAr: true } } } });
       if (!student) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'الطالب غير موجود' } };
+      // Dual-system guard: this is the ANNUAL بيان حالة. A credit-hours student's document is the
+      // GPA transcript (بيان حالة الطالب) — don't render an annual sheet for them.
+      if (student.program?.academicSystem !== 'ANNUAL') {
+        return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'هذا الطالب بنظام الساعات المعتمدة — استخدم «بيان حالة الطالب» ضمن فئة «كشوف الدرجات»' } };
+      }
       const years = (await prisma.enrollment.findMany({ where: { studentId: student.id }, select: { academicYear: true }, distinct: ['academicYear'], orderBy: { academicYear: 'asc' } })).map((e) => e.academicYear);
       const rows: ReportRow[] = [];
       for (const yr of years) {

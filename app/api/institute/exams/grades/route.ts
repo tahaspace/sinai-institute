@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { requirePermission } from '@/lib/authz';
 import { setEnrollmentResult } from '@/lib/gpa';
 import { getRegulations } from '@/lib/regulations';
+import { bandsFromRegulations, gradeFromBands } from '@/lib/annual';
 
 // GET /api/institute/exams/grades?courseId= — staff grade entry roster for any course.
 export async function GET(request: NextRequest) {
@@ -18,13 +19,18 @@ export async function GET(request: NextRequest) {
     }
     if (!courseId) return NextResponse.json({ course: null, roster: [], courses: [], statuses: [] });
 
-    const [course, enrollments, courses, statuses] = await Promise.all([
+    const [course, enrollments, courses, statuses, reg] = await Promise.all([
       prisma.course.findUnique({ where: { id: courseId } }),
-      prisma.enrollment.findMany({ where: { courseId }, include: { student: true }, orderBy: { student: { studentCode: 'asc' } } }),
+      prisma.enrollment.findMany({ where: { courseId }, include: { student: { include: { program: { select: { academicSystem: true } } } } }, orderBy: { student: { studentCode: 'asc' } } }),
       prisma.course.findMany({ orderBy: { code: 'asc' }, select: { id: true, code: true, nameAr: true } }),
       prisma.gradeStatus.findMany({ orderBy: { order: 'asc' } }),
+      getRegulations(),
     ]);
     const nameByCode = new Map(statuses.map((s) => [s.code, s.name]));
+    // Dual-system: annual students have no letter grade — derive the تقدير band from % so the
+    // entry roster shows a meaningful grade for them (the marks are stored raw; see lib/gpa Phase C).
+    const bands = bandsFromRegulations(reg);
+    const courseMax = course ? course.midtermMax + course.finalMax + course.practicalMax + course.homeworkMax : 0;
 
     return NextResponse.json({
       courses,
@@ -33,16 +39,20 @@ export async function GET(request: NextRequest) {
       course: course && { id: course.id, code: course.code, nameAr: course.nameAr, midtermMax: course.midtermMax, finalMax: course.finalMax, practicalMax: course.practicalMax, homeworkMax: course.homeworkMax },
       roster: enrollments.map((e) => {
         const total = (e.midterm ?? 0) + (e.final ?? 0) + (e.practical ?? 0) + (e.homework ?? 0);
+        const isAnnual = e.student.program?.academicSystem === 'ANNUAL';
+        const anyMark = e.midterm != null || e.final != null || e.practical != null || e.homework != null;
         return {
           enrollmentId: e.id,
           studentCode: e.student.studentCode,
           name: e.student.nameAr,
+          system: isAnnual ? 'ANNUAL' : 'CREDIT_HOURS',
           midterm: e.midterm,
           final: e.final,
           practical: e.practical,
           homework: e.homework,
           total,
-          letterGrade: e.letterGrade,
+          // credit → stored letter; annual → تقدير band derived from % (no letter/points stored)
+          letterGrade: isAnnual ? (anyMark && courseMax > 0 ? gradeFromBands((total / courseMax) * 100, bands) : null) : e.letterGrade,
           gradeStatusCode: e.gradeStatusCode,
           statusName: e.gradeStatusCode ? nameByCode.get(e.gradeStatusCode) ?? null : null,
           resultLocked: e.resultLocked,

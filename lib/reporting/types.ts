@@ -67,7 +67,10 @@ export type SheetResult = Omit<TableResult, 'kind'> & { kind: 'sheet'; title: st
 
 export type ReportResult = TableResult | KpiResult | SheetResult;
 
-export type ReportContext = { universityId: string | null };
+// academicSystem: the active academic system for this run, resolved server-side from the
+// selected program's Program.academicSystem (undefined = span both / segregate per-row).
+// "Both"-system reports read this to branch credit-hours (CGPA/hours) vs annual (%/تقدير).
+export type ReportContext = { universityId: string | null; academicSystem?: 'CREDIT_HOURS' | 'ANNUAL' };
 
 export type ReportDef = {
   id: string;

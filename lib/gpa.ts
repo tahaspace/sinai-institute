@@ -134,7 +134,10 @@ export async function setEnrollmentResult(
   reasonCode: string | null;
   cgpa: number;
 }> {
-  const e = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: { course: true } });
+  const e = await prisma.enrollment.findUnique({
+    where: { id: enrollmentId },
+    include: { course: true, student: { select: { program: { select: { academicSystem: true } } } } },
+  });
   if (!e) throw new Error('enrollment-not-found');
   // Once a course result is approved & locked (اعتماد وغلق) the bylaw forbids any
   // further mutation of the grade — callers must reopen (unlock) first.
@@ -146,6 +149,36 @@ export async function setEnrollmentResult(
     practical: opts.components?.practical ?? e.practical ?? 0,
     homework: opts.components?.homework ?? e.homework ?? 0,
   };
+
+  // ── Dual-system: ANNUAL students save RAW marks only ──
+  // The annual engine (lib/annual.ts) derives النسبة/التقدير + the year result (منقول/دور ثانٍ/
+  // باقٍ) from these components at read time. Annual programs have no CGPA, so we never derive a
+  // credit letter, assign GPA points, or write Student.gpa. An explicit exceptional code
+  // (DN/W/…) is still recorded for visibility, but with no points and no CGPA recompute.
+  if (e.student?.program?.academicSystem === 'ANNUAL') {
+    const st = opts.code ? await prisma.gradeStatus.findFirst({ where: { code: opts.code } }) : null;
+    const reasonCode = opts.reasonCode !== undefined
+      ? opts.reasonCode
+      : (st && !st.isPass && opts.code ? DEFAULT_REASON_BY_CODE[opts.code] ?? null : null);
+    const updated = await prisma.enrollment.update({
+      where: { id: enrollmentId },
+      data: {
+        midterm: c.midterm, final: c.final, practical: c.practical, homework: c.homework,
+        gradeStatusCode: opts.code ?? null,
+        letterGrade: null, // no credit letter for annual — تقدير is derived from % at read time
+        points: null,      // no GPA points
+        reasonCode,
+        resultPending: false,
+        status: 'COMPLETED',
+      },
+    });
+    return {
+      id: updated.id, studentId: updated.studentId,
+      gradeStatusCode: opts.code ?? '', letterGrade: '', points: null,
+      statusName: st?.name ?? 'نتيجة سنوية (بالنسبة)', attemptNo: updated.attemptNo ?? 1,
+      reasonCode, cgpa: 0,
+    };
+  }
 
   const code = opts.code ?? (await deriveGradeCode(e.course, c)).code;
   const st = await prisma.gradeStatus.findFirst({ where: { code } });

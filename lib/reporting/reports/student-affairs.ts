@@ -1,6 +1,6 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef, TableResult } from '@/lib/reporting/types';
-import { studentWhere, termWhere } from '@/lib/reporting/filters';
+import { studentWhere, termWhere, academicSystemWhere } from '@/lib/reporting/filters';
 import { computeStandingForStudents } from '@/lib/standing';
 
 /**
@@ -148,8 +148,10 @@ export const studentAffairsReports: ReportDef[] = [
     id: 'graduates', category: 'student-affairs', nameAr: 'كشف الخريجين (المستوفون لشروط التخرج)',
     permission: 'graduation.view', filters: ['academicYear', 'departmentId', 'programId'],
     run: async (f, ctx) => {
+      // Credit-hours graduation (earned hours + CGPA). Annual graduates come from the annual
+      // result family (اجتياز الفرقة النهائية), so scope this sheet to credit students only.
       const students = await prisma.student.findMany({
-        where: { ...studentWhere(f, ctx.universityId), status: { notIn: ['WITHDRAWN', 'DISMISSED'] } },
+        where: { ...studentWhere(f, ctx.universityId), status: { notIn: ['WITHDRAWN', 'DISMISSED'] }, ...academicSystemWhere('CREDIT_HOURS') },
         select: { id: true, studentCode: true, nameAr: true, department: { select: { nameAr: true } } },
         orderBy: { studentCode: 'asc' },
       });

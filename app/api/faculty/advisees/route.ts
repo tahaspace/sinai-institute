@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { resolveInstructor } from '@/lib/student';
 import { computeAcademicStanding } from '@/lib/standing';
+import { getProgramSystem } from '@/lib/academic-system';
+import { computeAnnualForStudents } from '@/lib/annual';
+import { getAcademicYears } from '@/lib/academic-years';
 
 const DEFAULT_TERM = { academicYear: '2024-2025', semester: 'second' };
 
@@ -47,9 +50,19 @@ export async function GET(request: NextRequest) {
         terms.set(key, t);
       }
 
+      // Dual-system: annual advisees show their year result + النسبة/التقدير (the page hides the
+      // credit CGPA/hours/registration for them); credit advisees keep the standing + transcript.
+      const system = await getProgramSystem(student.programId);
+      const yrs = await getAcademicYears();
+      const ar = system === 'ANNUAL'
+        ? (await computeAnnualForStudents([student.id], yrs.current ? { academicYear: yrs.current } : {})).get(student.id) ?? null
+        : null;
+
       return NextResponse.json({
+        system,
         student: { studentCode: student.studentCode, name: student.nameAr, level: student.level, status: student.status },
-        standing,
+        standing: system === 'ANNUAL' ? null : standing,
+        annual: ar ? { result: ar.result, overallPct: ar.overallPct, overallGrade: ar.overallGrade, yearGroup: ar.yearGroup } : null,
         transcript: [...terms.values()],
         currentRequest: req && {
           status: req.status,
@@ -59,27 +72,42 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // list view
-    const advisees = await prisma.student.findMany({ where: { advisorId: advisor.id }, orderBy: { studentCode: 'asc' } });
-    const reqs = await prisma.registrationRequest.findMany({
-      where: { studentId: { in: advisees.map((s) => s.id) }, academicYear: DEFAULT_TERM.academicYear, semester: DEFAULT_TERM.semester },
+    // list view — each advisee summarized by their OWN program system (credit → CGPA/probation;
+    // annual → النسبة/التقدير + year result). Annual advisees are no longer scored by the credit engine.
+    const advisees = await prisma.student.findMany({
+      where: { advisorId: advisor.id },
+      select: { id: true, studentCode: true, nameAr: true, level: true, program: { select: { academicSystem: true } } },
+      orderBy: { studentCode: 'asc' },
     });
+    const [reqs, years] = await Promise.all([
+      prisma.registrationRequest.findMany({ where: { studentId: { in: advisees.map((s) => s.id) }, academicYear: DEFAULT_TERM.academicYear, semester: DEFAULT_TERM.semester } }),
+      getAcademicYears(),
+    ]);
     const reqByStudent = new Map(reqs.map((r) => [r.studentId, r]));
+    const annualIds = advisees.filter((s) => s.program?.academicSystem === 'ANNUAL').map((s) => s.id);
+    const annualResults = await computeAnnualForStudents(annualIds, years.current ? { academicYear: years.current } : {});
 
     const rows = [];
     for (const s of advisees) {
-      const standing = await computeAcademicStanding(s.id);
       const req = reqByStudent.get(s.id);
-      rows.push({
-        studentCode: s.studentCode,
-        name: s.nameAr,
-        level: s.level,
-        cgpa: standing?.cgpa ?? 0,
-        onProbation: standing?.onProbation ?? false,
-        escalation: standing?.escalation ?? 'none',
-        flags: standing?.flags ?? [],
-        requestStatus: req?.status ?? 'None',
-      });
+      if (s.program?.academicSystem === 'ANNUAL') {
+        const ar = annualResults.get(s.id);
+        rows.push({
+          studentCode: s.studentCode, name: s.nameAr, level: s.level, system: 'ANNUAL',
+          result: ar?.result ?? 'قيد الرصد', pct: ar?.overallPct ?? null, grade: ar?.overallGrade ?? null,
+          atRisk: ar?.result === 'باقٍ للإعادة' || ar?.result === 'له دور ثانٍ',
+          requestStatus: req?.status ?? 'None',
+        });
+      } else {
+        const standing = await computeAcademicStanding(s.id);
+        rows.push({
+          studentCode: s.studentCode, name: s.nameAr, level: s.level, system: 'CREDIT_HOURS',
+          cgpa: standing?.cgpa ?? 0, onProbation: standing?.onProbation ?? false,
+          escalation: standing?.escalation ?? 'none', flags: standing?.flags ?? [],
+          atRisk: (standing?.escalation ?? 'none') !== 'none',
+          requestStatus: req?.status ?? 'None',
+        });
+      }
     }
 
     return NextResponse.json({
@@ -90,7 +118,7 @@ export async function GET(request: NextRequest) {
         total: rows.length,
         pending: rows.filter((r) => r.requestStatus === 'Pending').length,
         approved: rows.filter((r) => r.requestStatus === 'Approved').length,
-        warnings: rows.filter((r) => r.escalation !== 'none').length,
+        warnings: rows.filter((r) => r.atRisk).length,
       },
     });
   } catch (error) {

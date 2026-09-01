@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { resolveStudent } from '@/lib/student';
 import { computeStanding } from '@/lib/gpa';
+import { resolveStudentSystem } from '@/lib/academic-system';
+import { computeAnnualForStudents } from '@/lib/annual';
+import { getAcademicYears } from '@/lib/academic-years';
+import { academicSystemWhere } from '@/lib/reporting/filters';
 import { scopeBlock } from '@/lib/holds';
 
 // GET /api/student/grades?studentCode=&academicYear=&semester=
@@ -91,26 +95,11 @@ export async function GET(request: NextRequest) {
         x.percentage > avgPct + 2 ? 'up' : x.percentage < avgPct - 2 ? 'down' : 'same',
     }));
 
-    // Rank: position among students in the same department, by GPA desc.
-    let rank = 1;
-    let totalStudents = 1;
-    if (student.departmentId) {
-      const peers = await prisma.student.findMany({
-        where: { departmentId: student.departmentId, status: 'ACTIVE' },
-        select: { id: true, gpa: true },
-        orderBy: { gpa: 'desc' },
-      });
-      totalStudents = peers.length;
-      const idx = peers.findIndex((p) => p.id === student!.id);
-      rank = idx >= 0 ? idx + 1 : totalStudents;
-    }
-
-    // Exam-level rollups (midterm exam, final exam) across the term's subjects.
+    // Exam-level rollups (midterm exam, final exam) — common to both systems.
     const examRollup = (key: 'midterm' | 'final', maxKey: 'midtermMax' | 'finalMax') => {
       const graded = withTrend.filter((s) => s[maxKey] > 0);
       if (!graded.length) return 0;
-      const pct =
-        graded.reduce((acc, s) => acc + (s[key] / s[maxKey]) * 100, 0) / graded.length;
+      const pct = graded.reduce((acc, s) => acc + (s[key] / s[maxKey]) * 100, 0) / graded.length;
       return Math.round(pct);
     };
     const exams = [
@@ -118,26 +107,42 @@ export async function GET(request: NextRequest) {
       { id: 'final', exam: 'اختبار نهاية الفصل', subjects: subjects.length, average: examRollup('final', 'finalMax') },
     ];
 
-    // Cumulative standing from the GPA engine (config-aware) — authoritative CGPA + earned hours.
-    const standing = await computeStanding(student.id);
+    // Dual-system: cumulative stats + rank by the student's OWN program system. Annual students
+    // have NO CGPA — they get النسبة/التقدير + the year result (منقول/دور ثانٍ/باقٍ), ranked among
+    // their فرقة by percentage; credit students keep CGPA/earned-hours ranked by CGPA.
+    const system = await resolveStudentSystem(student.id);
+    const baseStats = { totalGrade, maxGrade, percentage: maxGrade > 0 ? (totalGrade / maxGrade) * 100 : 0 };
+    let stats: Record<string, unknown>;
+
+    if (system === 'ANNUAL') {
+      const { current } = await getAcademicYears();
+      const peers = student.departmentId
+        ? await prisma.student.findMany({ where: { departmentId: student.departmentId, level: student.level, status: 'ACTIVE', program: { academicSystem: 'ANNUAL' } }, select: { id: true } })
+        : [{ id: student.id }];
+      const results = await computeAnnualForStudents(peers.map((p) => p.id), current ? { academicYear: current } : {});
+      const ranked = peers.map((p) => ({ id: p.id, pct: results.get(p.id)?.overallPct ?? -1 })).sort((a, b) => b.pct - a.pct);
+      const ar = results.get(student.id) ?? null;
+      stats = {
+        ...baseStats,
+        result: ar?.result ?? 'قيد الرصد', overallPct: ar?.overallPct ?? null, overallGrade: ar?.overallGrade ?? null,
+        rank: Math.max(ranked.findIndex((r) => r.id === student!.id) + 1, 1), totalStudents: ranked.length,
+      };
+    } else {
+      const standing = await computeStanding(student.id);
+      let rank = 1, totalStudents = 1;
+      if (student.departmentId) {
+        const peers = await prisma.student.findMany({ where: { departmentId: student.departmentId, status: 'ACTIVE', ...academicSystemWhere('CREDIT_HOURS') }, select: { id: true, gpa: true }, orderBy: { gpa: 'desc' } });
+        totalStudents = peers.length;
+        const idx = peers.findIndex((p) => p.id === student!.id);
+        rank = idx >= 0 ? idx + 1 : totalStudents;
+      }
+      stats = { ...baseStats, gpa: standing.cgpa, earnedHours: standing.earnedHours, gpaHours: standing.gpaHours, rank, totalStudents };
+    }
 
     return NextResponse.json({
-      student: {
-        id: student.id,
-        studentCode: student.studentCode,
-        name: student.nameAr,
-        level: student.level,
-      },
-      stats: {
-        gpa: standing.cgpa,
-        earnedHours: standing.earnedHours,
-        gpaHours: standing.gpaHours,
-        rank,
-        totalStudents,
-        totalGrade,
-        maxGrade,
-        percentage: maxGrade > 0 ? (totalGrade / maxGrade) * 100 : 0,
-      },
+      system,
+      student: { id: student.id, studentCode: student.studentCode, name: student.nameAr, level: student.level },
+      stats,
       subjects: withTrend,
       exams,
     });
