@@ -346,8 +346,11 @@ export default function InstituteLayout({
         </div>
 
         {/* Navigation */}
-        <ScrollArea className="h-[calc(100vh-4rem)]">
-          <nav className="p-4 space-y-1">
+        {/* dir="rtl" is explicit: Radix ScrollArea sets its own direction on the viewport, which
+            otherwise lays the nav rows out LTR (icon on the left). With rtl the row reads from the
+            right: أيقونة → النص → العدد, then the chevron on the far left. */}
+        <ScrollArea dir="rtl" className="h-[calc(100vh-4rem)]">
+          <nav dir="rtl" className="p-4 space-y-1">
             {visibleNav.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
               const isExpanded = expandedItems.includes(item.href)
