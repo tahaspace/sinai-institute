@@ -117,10 +117,18 @@ export default function AdmissionPage() {
   const [apiStats, setApiStats] = useState<AdmissionStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Whether the programme catalogue below is what the server actually sent, or just "nothing yet".
+  // An empty list means two very different things — "you may not enrol" vs "the request failed" —
+  // and the dialog must not blame permissions for a network error.
+  const [programsLoaded, setProgramsLoaded] = useState(false)
   const [actioning, setActioning] = useState<string | null>(null)
   // Enrolment dialog: the application being accepted, and the programme it will be stamped with.
   const [enrollApp, setEnrollApp] = useState<ApplicationRow | null>(null)
   const [enrollProgramId, setEnrollProgramId] = useState("")
+  // The dialog owns its own failure line. Sharing the page-level `error` meant opening the dialog
+  // had to clear the page banner (erasing a real "فشل في جلب طلبات الالتحاق"), and any fetch failure
+  // leaked into the modal as if it were this enrolment's reason.
+  const [enrollError, setEnrollError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -134,6 +142,7 @@ export default function AdmissionPage() {
         if (!cancelled) {
           setApplications(json.applications)
           setPrograms(json.programs ?? [])
+          setProgramsLoaded(true)
           setApiStats(json.stats)
         }
       } catch (e) {
@@ -158,16 +167,19 @@ export default function AdmissionPage() {
       const json = (await res.json()) as AdmissionsResponse
       setApplications(json.applications)
       setPrograms(json.programs ?? [])
+      setProgramsLoaded(true)
       setApiStats(json.stats)
     } catch (e) {
       setError((e as Error).message)
     }
   }
 
-  // Approving with ENROLLED creates a real Student server-side (intended). programId is sent only
-  // when the reviewer picked one — the created Student's programme is what fixes its academic
-  // system, so leaving it out is how a student ends up silently on credit-hours.
-  async function updateStatus(id: string, status: "ENROLLED" | "REJECTED", programId?: string) {
+  // Approving with ENROLLED creates a real Student server-side (intended). The programme travels
+  // with it because the created Student's programme is what fixes its academic system — the API now
+  // refuses an ENROLLED transition without an explicit one, so nothing gets silently defaulted.
+  // Returns null on success, else the failure message — the CALLER decides where it is shown, so a
+  // dialog failure lands in the dialog and a row action lands in the page banner.
+  async function updateStatus(id: string, status: "ENROLLED" | "REJECTED", programId?: string): Promise<string | null> {
     setActioning(id)
     try {
       const res = await fetch("/api/institute/admissions", {
@@ -175,10 +187,16 @@ export default function AdmissionPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, status, ...(programId ? { programId } : {}) }),
       })
-      if (!res.ok) throw new Error("فشل في تحديث طلب الالتحاق")
+      // Show the server's own Arabic message (e.g. "يجب اختيار البرنامج…") instead of flattening
+      // every failure into one generic line — the reason is the whole point of the new 400.
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error || "فشل في تحديث طلب الالتحاق")
+      }
       await reload()
+      return null
     } catch (e) {
-      setError((e as Error).message)
+      return (e as Error).message
     } finally {
       setActioning(null)
     }
@@ -188,6 +206,10 @@ export default function AdmissionPage() {
   // stored programme, else the single exact name match on the applicant's free-text choice — the
   // same conservative rule as lib/admission-program.ts, so the reviewer sees the real default.
   function openEnroll(app: ApplicationRow) {
+    // Clear only THIS dialog's line. The page banner may be reporting a failed fetch — the very
+    // reason the programme list can be empty — and wiping it would leave the reviewer reading the
+    // "no programmes available" note as if permissions, not a broken request, were the cause.
+    setEnrollError(null)
     const choice = (app.firstChoice ?? "").trim()
     const hits = choice
       ? programs.filter((p) => p.nameAr.trim() === choice || p.nameEn.trim() === choice)
@@ -197,10 +219,15 @@ export default function AdmissionPage() {
   }
 
   async function confirmEnroll() {
-    if (!enrollApp) return
-    // Stay open while the request is in flight so the confirm button's disabled state is visible.
-    await updateStatus(enrollApp.id, "ENROLLED", enrollProgramId || undefined)
-    setEnrollApp(null)
+    // The programme is mandatory: it is what decides the student's academic system. The button is
+    // disabled without one; this guard covers the keyboard/Enter path too.
+    if (!enrollApp || !enrollProgramId) return
+    setEnrollError(null)
+    // Stay open while the request is in flight so the confirm button's disabled state is visible,
+    // and stay open on failure so the reason is read next to the field that caused it.
+    const message = await updateStatus(enrollApp.id, "ENROLLED", enrollProgramId)
+    if (message) setEnrollError(message)
+    else setEnrollApp(null)
   }
 
   const enrollProgram = programs.find((p) => p.id === enrollProgramId)
@@ -447,7 +474,10 @@ export default function AdmissionPage() {
                               size="icon"
                               className="text-red-600"
                               disabled={actioning === app.id}
-                              onClick={() => updateStatus(app.id, "REJECTED")}
+                              onClick={async () => {
+                                const message = await updateStatus(app.id, "REJECTED")
+                                if (message) setError(message)
+                              }}
                             >
                               <XCircle className="w-4 h-4" />
                             </Button>
@@ -483,7 +513,9 @@ export default function AdmissionPage() {
           </DialogHeader>
 
           <div className="space-y-2 py-2">
-            <Label>البرنامج</Label>
+            <Label>
+              البرنامج <span className="text-red-600">*</span>
+            </Label>
             {/* value must never be undefined: Radix reads that as UNCONTROLLED, so the trigger would
                 keep the previous applicant's programme while state says none. "" is controlled and
                 still renders the placeholder. */}
@@ -502,24 +534,54 @@ export default function AdmissionPage() {
             <p className="text-xs text-muted-foreground">
               رغبة الطالب كما كتبها: {enrollApp?.firstChoice || "—"}
             </p>
-            {enrollProgram ? (
-              <p className="text-xs">
-                النظام الأكاديمي:{" "}
-                <span className="font-medium">{ACADEMIC_SYSTEM_LABELS[enrollProgram.academicSystem]}</span>
+            {/* The catalogue only ships to reviewers holding admission.application.decide, so an
+                empty list means "you cannot enrol", not "no programmes exist" — say which. And only
+                once a request actually succeeded: before that, empty means "not loaded", and naming
+                permissions there would be a guess at the reason for a permanently disabled button. */}
+            {programs.length === 0 && (
+              <p className="text-xs text-amber-600">
+                {programsLoaded
+                  ? "لا توجد برامج متاحة للاختيار — تأكد من صلاحية اعتماد طلبات الالتحاق ومن إضافة البرامج أولاً."
+                  : "تعذّر تحميل قائمة البرامج — أعد تحميل الصفحة ثم حاول مرة أخرى."}
               </p>
+            )}
+            {enrollProgram ? (
+              /* The decision the registrar is actually making. The system is never picked directly —
+                 it is read off the chosen programme — so show the resolved value here, at the moment
+                 of the decision, rather than letting it be discovered months later at grading. */
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">النظام الأكاديمي:</span>
+                <Badge
+                  variant="outline"
+                  className={
+                    enrollProgram.academicSystem === "ANNUAL"
+                      ? "border-institute-gold text-institute-gold"
+                      : "border-institute-blue text-institute-blue"
+                  }
+                >
+                  {ACADEMIC_SYSTEM_LABELS[enrollProgram.academicSystem]}
+                </Badge>
+              </div>
             ) : (
-              /* Don't promise "no programme": the PATCH still tries an exact name match on the
-                 free-text choice, so a programme (and a system) may be assigned anyway. */
-              <p className="text-xs text-red-600">
-                لم يتم اختيار برنامج — سيحاول النظام مطابقة الرغبة النصية باسم برنامج مطابق تماماً، وإن
-                تعذّر ذلك سيُنشأ الطالب بلا برنامج ويُعامل افتراضياً على نظام الساعات المعتمدة.
+              /* No silent fallback any more: without a programme the API refuses the enrolment, so
+                 say that plainly instead of describing a guess the server will make. */
+              <p className="text-xs text-amber-600">
+                اختيار البرنامج إلزامي — منه يُحدَّد النظام الأكاديمي للطالب (نظام الساعات المعتمدة أو
+                النظام السنوي)، ولا يمكن إتمام التسجيل بدونه.
               </p>
             )}
           </div>
 
+          {/* The page-level error card sits behind the modal overlay, and the dialog now stays open
+              when the API refuses (e.g. no programme) — so show THIS enrolment's own reason here.
+              Deliberately not the page-level `error`: that one may belong to a failed list fetch. */}
+          {enrollError && <p className="text-sm text-red-600">{enrollError}</p>}
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setEnrollApp(null)}>إلغاء</Button>
-            <Button onClick={confirmEnroll} disabled={actioning === enrollApp?.id}>
+            {/* Disabled until a programme is chosen: enrolling is exactly the moment the student's
+                academic system is fixed, so it must be an explicit pick, never an accepted default. */}
+            <Button onClick={confirmEnroll} disabled={!enrollProgramId || actioning === enrollApp?.id}>
               تأكيد القبول والتسجيل
             </Button>
           </DialogFooter>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { tenantOrGlobalWhere } from '@/lib/tenant';
 import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 
@@ -74,6 +75,13 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/institute/students — create a student.
+//
+// No page in this repo calls it (grepped: the only fetch of this path is the students list GET;
+// «قبول طالب جديد» links to /institute/admission, and bulk creation goes through
+// /api/institute/students/import). It is still a live, deployed HTTP route that anyone holding
+// `student.create` — the ADMISSIONS role does — can POST to directly, so it is a real second door
+// onto the same silent default and is guarded like the first: `programId` is REQUIRED, because the
+// programme is the only carrier of the academic system.
 export async function POST(request: NextRequest) {
   try {
     const guard = await requirePermission('student.create');
@@ -82,6 +90,27 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { nameAr, nameEn, email, departmentId, programId, level, enrollYear } = body ?? {};
     if (!nameAr) return NextResponse.json({ error: 'اسم الطالب مطلوب' }, { status: 400 });
+
+    // A student with no programme is a student with no academic system: Program.academicSystem is
+    // what decides credit-hours vs annual, and both normalizeSystem() and academicSystemWhere()
+    // fall back to CREDIT_HOURS for a null programme. Accepting the field as optional therefore
+    // means silently classifying the student — so refuse instead of defaulting.
+    const explicitProgramId = typeof programId === 'string' && programId.trim() ? programId.trim() : null;
+    if (!explicitProgramId) {
+      return NextResponse.json(
+        {
+          error:
+            'البرنامج مطلوب — منه يُحدَّد النظام الأكاديمي للطالب (نظام الساعات المعتمدة أو النظام السنوي).',
+        },
+        { status: 400 },
+      );
+    }
+    // Verify it resolves, so a bad id fails as a readable 400 rather than a foreign-key 500.
+    const program = await prisma.program.findUnique({
+      where: { id: explicitProgramId },
+      select: { id: true },
+    });
+    if (!program) return NextResponse.json({ error: 'البرنامج المحدد غير موجود' }, { status: 400 });
 
     // Generate a sequential-ish student code for the year.
     const year = enrollYear || new Date().getFullYear();
@@ -95,7 +124,7 @@ export async function POST(request: NextRequest) {
         nameEn: nameEn || null,
         email: email || null,
         departmentId: departmentId || null,
-        programId: programId || null,
+        programId: explicitProgramId,
         level: level ? parseInt(String(level), 10) : 1,
         enrollYear: year,
         status: 'ACTIVE',
@@ -109,6 +138,13 @@ export async function POST(request: NextRequest) {
 }
 
 // PATCH /api/institute/students — update a student by id.
+//
+// Same door as POST, so it owes the same contract on the one field that is not an ordinary column:
+// `programId` carries the academic system, so it may be CHANGED but never REMOVED. Without this
+// guard a single `{ id, programId: null }` under `student.edit` walks an existing student straight
+// back into the silent credit-hours default POST above refuses to create — academicSystemWhere()
+// buckets `programId: null` as credit-hours and resolveStudentSystem() returns CREDIT_HOURS for it,
+// so the mis-classification is invisible until grading or promotion months later.
 export async function PATCH(request: NextRequest) {
   try {
     const guard = await requirePermission('student.edit');
@@ -118,6 +154,40 @@ export async function PATCH(request: NextRequest) {
     const { id, ...data } = body ?? {};
     if (!id) return NextResponse.json({ error: 'معرف الطالب مطلوب' }, { status: 400 });
     if (typeof data.level !== 'undefined') data.level = parseInt(String(data.level), 10);
+
+    // Only when the caller actually sends the key — an update that omits `programId` leaves the
+    // existing link untouched, exactly as before. Trimmed like POST so both doors read one input.
+    if ('programId' in data) {
+      const pid =
+        typeof data.programId === 'string' && data.programId.trim() ? data.programId.trim() : null;
+      if (!pid) {
+        return NextResponse.json(
+          {
+            error:
+              'لا يمكن إزالة برنامج الطالب — منه يُحدَّد النظام الأكاديمي (نظام الساعات المعتمدة أو النظام السنوي).',
+          },
+          { status: 400 },
+        );
+      }
+      // Read it back like POST does: a stale or forged id must fail as a readable 400, not as an
+      // opaque foreign-key 500 that says nothing about which field was wrong.
+      const program = await prisma.program.findFirst({
+        where: { id: pid, isActive: true, ...tenantOrGlobalWhere(guard.ctx.universityId) },
+        select: { id: true },
+      });
+      if (!program) return NextResponse.json({ error: 'البرنامج المحدد غير موجود' }, { status: 400 });
+      data.programId = pid;
+    }
+
+    // `program` is the relation form of the same column: { program: { disconnect: true } } nulls
+    // programId without ever naming the scalar, so the guard above would not see it. Refuse the
+    // relation form outright rather than trying to interpret every shape Prisma accepts.
+    if ('program' in data) {
+      return NextResponse.json(
+        { error: 'استخدم programId لتغيير برنامج الطالب — لا يمكن فصل البرنامج عن الطالب.' },
+        { status: 400 },
+      );
+    }
 
     const student = await prisma.student.update({ where: { id }, data });
     return NextResponse.json(student);

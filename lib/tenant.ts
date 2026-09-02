@@ -26,3 +26,16 @@ export function scopedWhere<T extends Record<string, unknown>>(ctx: AuthContext,
   else if (ctx.scope?.facultyIds?.length) w.facultyId = { in: ctx.scope.facultyIds };
   return w;
 }
+
+/**
+ * Lookup scope for rows that may predate multi-tenancy.
+ *
+ * `Program` (and `FeeStructure`) carry a nullable `universityId`, but no code path in the app ever
+ * sets it — every row created so far is untenanted. A strict `universityId: ctx.universityId` filter
+ * therefore matches NOTHING for a user whose context has a university, which silently empties
+ * programme pickers and turns "programme not found" into a lockout rather than a permission error.
+ * Unlike `tenantWhere` above, this accepts the tenant's own rows OR untenanted ones — and never
+ * another tenant's. Once programmes carry a university, backfill the legacy nulls and tighten this.
+ */
+export const tenantOrGlobalWhere = (universityId?: string | null) =>
+  universityId ? { OR: [{ universityId }, { universityId: null }] } : {};

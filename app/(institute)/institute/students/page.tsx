@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
+// client-safe half of the module — importing lib/academic-system.ts here would pull Prisma into the browser bundle
+import { ACADEMIC_SYSTEM_LABELS, normalizeSystem } from "@/lib/academic-system-shared"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -53,6 +55,9 @@ interface StudentRow {
   email: string
   department: string
   program: string
+  // null ⇒ no programme ⇒ no programme-derived system: `system` below is then the CREDIT_HOURS
+  // fallback, not a real classification, and the row is labelled as such.
+  programId: string | null
   level: string
   levelNum: number
   gpa: number
@@ -96,6 +101,14 @@ export default function StudentsPage() {
     const matchesLevel = levelFilter === "all" || String(s.levelNum) === levelFilter
     return matchesSearch && matchesLevel && matchesSystem(s.system, systemFilter)
   })
+
+  // How many of the rows on screen are here only by default. matchesSystem() buckets a
+  // programme-less student under CREDIT_HOURS because academicSystemWhere() does the same on the
+  // server, and the two must stay identical or a list and its own totals would disagree — so the
+  // filter cannot be "fixed" here. What it CAN do is stop the contradiction being silent: the
+  // credit-hours view otherwise shows rows whose own badge reads «بدون برنامج», with nothing saying
+  // why. Counted over the filtered rows, so the number matches the «إجمالي N طالب» beside it.
+  const unlinkedShown = students.filter((s) => !s.programId).length
 
   const stats = [
     { label: "إجمالي الطلاب", value: String(apiStats.total), icon: Users, color: "text-institute-blue" },
@@ -229,6 +242,13 @@ export default function StudentsPage() {
           <CardDescription>إجمالي {students.length} طالب</CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Same note the admissions screen uses for its unlinked applications, so a registrar
+              meets one explanation for one gap in both places. */}
+          {systemFilter === "CREDIT_HOURS" && unlinkedShown > 0 && (
+            <p className="mb-3 text-xs text-muted-foreground">
+              منهم {unlinkedShown} طالب بلا برنامج يظهرون هنا افتراضياً فقط — لم يُحدَّد لهم نظام أكاديمي بعد.
+            </p>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
@@ -261,6 +281,27 @@ export default function StudentsPage() {
                     <div>
                       <p className="font-medium">{student.department}</p>
                       <p className="text-sm text-muted-foreground">{student.program}</p>
+                      {/* The academic system is a property of the programme, never of the student —
+                          so it belongs in this cell, right under the programme that produces it.
+                          A student with no programme is NOT a credit-hours student: the API's
+                          `system` is only its default in that case, so say so instead of printing a
+                          classification nobody made. */}
+                      {student.programId ? (
+                        <Badge
+                          variant="outline"
+                          className={`mt-1 text-[10px] font-normal ${
+                            normalizeSystem(student.system) === "ANNUAL"
+                              ? "border-institute-gold text-institute-gold"
+                              : "border-institute-blue text-institute-blue"
+                          }`}
+                        >
+                          {ACADEMIC_SYSTEM_LABELS[normalizeSystem(student.system)]}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="mt-1 text-[10px] font-normal border-red-300 text-red-600">
+                          بدون برنامج — يُعامل افتراضياً كساعات معتمدة
+                        </Badge>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>

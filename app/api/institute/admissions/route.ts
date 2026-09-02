@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { tenantOrGlobalWhere } from '@/lib/tenant';
 import { resolveApplicationProgramId } from '@/lib/admission-program';
 import { normalizeSystem, normalizeSystemFilter } from '@/lib/academic-system';
 import { hasPermission, requirePermission } from '@/lib/authz';
@@ -95,6 +96,9 @@ export async function GET(request: NextRequest) {
 // PATCH /api/institute/admissions — change status; "ENROLLED" creates a real Student.
 // This closes the admission loop: an approved applicant becomes a shared Student
 // that the Student/Faculty/Parent portals can then see.
+// Enrolling REQUIRES an EXPLICIT `programId`: the programme is what fixes the student's academic
+// system, so an enrolment without one is refused with 400 rather than defaulted to credit-hours —
+// and rather than guessed from the applicant's free text (see the ENROLLED branch).
 export async function PATCH(request: NextRequest) {
   try {
     const guard = await requirePermission('admission.application.decide');
@@ -115,14 +119,48 @@ export async function PATCH(request: NextRequest) {
     // for an annual-programme applicant and would misroute every later result/promotion decision.
     // Normalized once here so the Student created below and the Application row updated at the end
     // can never disagree about which programme the reviewer actually chose.
-    const explicitProgramId = typeof programId === 'string' && programId ? programId : null;
+    // Trimmed exactly like POST /api/institute/students, so the two doors closed in this pass take
+    // one input contract: a padded id from an integration resolves instead of 400-ing «غير موجود»,
+    // and a whitespace-only string reads as "no programme chosen" rather than "programme not found".
+    const explicitProgramId = typeof programId === 'string' && programId.trim() ? programId.trim() : null;
     const resolvedProgramId = await resolveApplicationProgramId(app.firstChoice, explicitProgramId);
 
     if (next === 'ENROLLED') {
+      // The programme is REQUIRED to enrol, and it must be an EXPLICIT pick. It is the only carrier
+      // of the academic system, so a Student created without one is silently graded as credit-hours
+      // (Program.academicSystem defaults to CREDIT_HOURS and normalizeSystem() coerces "unknown" the
+      // same way) — a mis-classification that only surfaces months later, at grading/promotion.
+      // `resolvedProgramId` is NOT good enough here: resolveApplicationProgramId() is a fuzzy ladder
+      // (exact → single containment → single reverse-containment on free text), so «علوم الحاسب»
+      // becomes «بكالوريوس علوم الحاسب» on nothing but a substring. That is the right behaviour for
+      // preselecting the dialog and for back-filling an unlinked Application below, and the wrong
+      // basis for fixing a real student's academic system for the rest of their degree. The dialog
+      // always sends programId; a direct PATCH without one is refused rather than guessed at.
+      if (!explicitProgramId) {
+        return NextResponse.json(
+          {
+            error:
+              'يجب اختيار البرنامج قبل تسجيل الطالب — البرنامج هو ما يحدد النظام الأكاديمي (نظام الساعات المعتمدة أو النظام السنوي).',
+          },
+          { status: 400 },
+        );
+      }
+      // Read the programme back instead of trusting the id: an id that matches no programme would
+      // otherwise fail on the foreign key and surface as an opaque 500 «فشل في تحديث طلب الالتحاق»,
+      // with the reviewer none the wiser about which field was wrong.
+      // Enrolling is a one-time write: studentCode is minted from a count, so a second PATCH on an
+      // already-enrolled application would create a DUPLICATE student rather than be a no-op.
+      if (app.status === 'ENROLLED') {
+        return NextResponse.json({ error: 'هذا الطلب مُسجَّل بالفعل — لا يمكن تسجيله مرة أخرى' }, { status: 409 });
+      }
+      const program = await prisma.program.findFirst({
+        where: { id: explicitProgramId, isActive: true, ...tenantOrGlobalWhere(guard.ctx.universityId) },
+        select: { departmentId: true },
+      });
+      if (!program) {
+        return NextResponse.json({ error: 'البرنامج المحدد غير موجود' }, { status: 400 });
+      }
       // Create the Student from the application if not already created.
-      const program = resolvedProgramId
-        ? await prisma.program.findUnique({ where: { id: resolvedProgramId }, select: { departmentId: true } })
-        : null;
       const year = new Date().getFullYear();
       const count = await prisma.student.count();
       createdStudent = await prisma.student.create({
@@ -132,8 +170,8 @@ export async function PATCH(request: NextRequest) {
           email: app.email,
           phone: app.phone,
           nationalId: app.nationalId,
-          departmentId: departmentId || program?.departmentId || null,
-          programId: resolvedProgramId,
+          departmentId: departmentId || program.departmentId || null,
+          programId: explicitProgramId,
           level: 1,
           enrollYear: year,
           status: 'ACTIVE',
