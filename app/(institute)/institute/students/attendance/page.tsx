@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL } from "@/components/shared/academic-system-filter"
-import { ACADEMIC_SYSTEM_LABELS, type AcademicSystem } from "@/lib/academic-system"
+import { ACADEMIC_SYSTEM_LABELS, type AcademicSystem } from "@/lib/academic-system-shared"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"

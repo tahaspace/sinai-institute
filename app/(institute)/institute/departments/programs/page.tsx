@@ -3,7 +3,7 @@
 import { useCallback, useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
-import { ACADEMIC_SYSTEM_LABELS } from "@/lib/academic-system"
+import { ACADEMIC_SYSTEM_LABELS } from "@/lib/academic-system-shared"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"

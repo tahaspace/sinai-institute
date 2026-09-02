@@ -1,7 +1,7 @@
 "use client"
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ACADEMIC_SYSTEM_LABELS } from "@/lib/academic-system"
+import { ACADEMIC_SYSTEM_LABELS } from "@/lib/academic-system-shared"
 
 /**
  * The one «النظام الأكاديمي» filter used across every module that lists students.
