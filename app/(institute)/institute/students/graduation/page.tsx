@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { AcademicModeBanner } from "@/components/academic-mode-banner"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -24,7 +25,7 @@ interface GraduationRequest {
   studentCode: string
   department: string
   program: string
-  academicSystem?: "CREDIT_HOURS" | "ANNUAL"
+  system?: "CREDIT_HOURS" | "ANNUAL"
   completedHours: number
   requiredHours: number
   gpa: number
@@ -46,6 +47,7 @@ export default function GraduationPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actioning, setActioning] = useState<string | null>(null)
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
 
   async function load() {
     setLoading(true)
@@ -103,20 +105,48 @@ export default function GraduationPage() {
     }
   }
 
+  // Display-only narrowing — the system itself always comes from the student's programme (server-side).
+  const filterActive = systemFilter !== ACADEMIC_SYSTEM_ALL
+  const visibleRequests = graduationRequests.filter((r) => matchesSystem(r.system, systemFilter))
+
+  // The cards sit above the list, so they have to follow it. Unfiltered we keep the server's own
+  // counts verbatim (the screen is then byte-identical to before); narrowed we recount what is shown.
+  const stats = filterActive
+    ? {
+        total: visibleRequests.length,
+        pending: visibleRequests.filter((r) => r.status === "PENDING").length,
+        approved: visibleRequests.filter((r) => r.status === "APPROVED").length,
+        rejected: visibleRequests.filter((r) => r.status === "REJECTED").length,
+      }
+    : apiStats
+
   const gradStats = [
-    { label: "إجمالي الطلبات", value: String(apiStats.total), icon: FileText, color: "text-institute-blue" },
-    { label: "قيد المراجعة", value: String(apiStats.pending), icon: Clock, color: "text-yellow-600" },
-    { label: "مقبول", value: String(apiStats.approved), icon: CheckCircle, color: "text-institute-blue" },
-    { label: "مرفوض", value: String(apiStats.rejected), icon: X, color: "text-red-600" },
+    { label: "إجمالي الطلبات", value: String(stats.total), icon: FileText, color: "text-institute-blue" },
+    { label: "قيد المراجعة", value: String(stats.pending), icon: Clock, color: "text-yellow-600" },
+    { label: "مقبول", value: String(stats.approved), icon: CheckCircle, color: "text-institute-blue" },
+    { label: "مرفوض", value: String(stats.rejected), icon: X, color: "text-red-600" },
   ]
 
+  // Static bylaw template. The first two lines are credit-hour concepts: the annual system has no
+  // credit hours and stores no CGPA at all, so in an annual view these numbers would assert a
+  // threshold that does not exist for those students — they render "—" rather than a made-up value.
   const requirements = [
-    { name: "إتمام الساعات المعتمدة", required: 160, current: 160, completed: true },
-    { name: "المعدل التراكمي", required: 2.0, current: 3.45, completed: true },
-    { name: "مشروع التخرج", required: 1, current: 1, completed: true },
-    { name: "التدريب الميداني", required: 200, current: 200, completed: true },
-    { name: "السداد المالي", required: 100, current: 100, completed: true },
+    { name: "إتمام الساعات المعتمدة", required: 160, current: 160, completed: true, creditOnly: true },
+    { name: "المعدل التراكمي", required: 2.0, current: 3.45, completed: true, creditOnly: true },
+    { name: "مشروع التخرج", required: 1, current: 1, completed: true, creditOnly: false },
+    { name: "التدريب الميداني", required: 200, current: 200, completed: true, creditOnly: false },
+    { name: "السداد المالي", required: 100, current: 100, completed: true, creditOnly: false },
   ]
+
+  // Annual-only view — whether the user narrowed to it or the institute simply has no credit-hour
+  // programme. The filter lives in the neighbouring card, so gating on it alone would leave the
+  // default view of an all-annual institute asserting 160 hours and a 2.0 CGPA for students who
+  // have neither concept.
+  const annualOnlyView =
+    visibleRequests.length > 0 && visibleRequests.every((r) => r.system === "ANNUAL")
+  // Inapplicable lines get no number AND no ✓ — a green disc is itself a claim of completion.
+  const notApplicable = (req: { creditOnly: boolean }) =>
+    (systemFilter === "ANNUAL" || annualOnlyView) && req.creditOnly
 
   const getStatusBadge = (request: GraduationRequest) => {
     switch (request.status) {
@@ -202,9 +232,9 @@ export default function GraduationPage() {
                   className="flex items-center gap-3"
                 >
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                    req.completed ? "bg-institute-blue" : "bg-gray-100"
+                    !notApplicable(req) && req.completed ? "bg-institute-blue" : "bg-gray-100"
                   }`}>
-                    {req.completed ? (
+                    {!notApplicable(req) && req.completed ? (
                       <CheckCircle className="w-4 h-4 text-institute-blue" />
                     ) : (
                       <Clock className="w-4 h-4 text-gray-400" />
@@ -212,7 +242,11 @@ export default function GraduationPage() {
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-medium">{req.name}</p>
-                    <p className="text-xs text-muted-foreground">{req.current}/{req.required}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {notApplicable(req)
+                        ? "— لا ينطبق في النظام السنوي"
+                        : <>{req.current}/{req.required}</>}
+                    </p>
                   </div>
                 </motion.div>
               ))}
@@ -223,8 +257,13 @@ export default function GraduationPage() {
         {/* Graduation Requests */}
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>طلبات التخرج</CardTitle>
-            <CardDescription>قائمة طلبات التخرج الحالية</CardDescription>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <CardTitle>طلبات التخرج</CardTitle>
+                <CardDescription>قائمة طلبات التخرج الحالية</CardDescription>
+              </div>
+              <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full md:w-48" />
+            </div>
           </CardHeader>
           <CardContent>
             <Table>
@@ -239,7 +278,7 @@ export default function GraduationPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {graduationRequests.map((request) => (
+                {visibleRequests.map((request) => (
                   <TableRow key={request.id}>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -261,12 +300,12 @@ export default function GraduationPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {request.academicSystem === "ANNUAL"
+                      {request.system === "ANNUAL"
                         ? <span className="text-xs text-muted-foreground">نظام سنوي</span>
                         : <span className="font-bold text-institute-blue">{request.gpa.toFixed(2)}</span>}
                     </TableCell>
                     <TableCell>
-                      {request.academicSystem === "ANNUAL" ? (
+                      {request.system === "ANNUAL" ? (
                         <span className="text-xs text-muted-foreground">اجتياز الفرقة النهائية بتقدير</span>
                       ) : (
                         <div className="space-y-1 min-w-[120px]">
@@ -307,6 +346,13 @@ export default function GraduationPage() {
                     </TableCell>
                   </TableRow>
                 ))}
+                {filterActive && visibleRequests.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="p-8 text-center text-muted-foreground">
+                      لا توجد طلبات مطابقة للنظام الأكاديمي المحدد
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </CardContent>

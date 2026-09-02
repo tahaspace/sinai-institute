@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
+import { ACADEMIC_SYSTEM_LABELS, type AcademicSystem } from "@/lib/academic-system"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -24,6 +26,20 @@ interface EquivalenceRequest {
   creditHours: number
   date: string
   status: string
+  // Resolved server-side from the linked student's programme. null = the request has no Student row
+  // at all (denormalized name only), so it belongs to neither academic system.
+  system: AcademicSystem | null
+}
+
+/**
+ * Same rule as matchesSystem for a known system, but an unlinked request is NOT read as
+ * credit-hours: it belongs to neither, so it shows in the unfiltered list and drops out of a
+ * narrowed one — with the count of what dropped shown below, so nothing vanishes silently.
+ */
+function matchesRequestSystem(system: AcademicSystem | null, filter: string) {
+  if (filter !== "CREDIT_HOURS" && filter !== "ANNUAL") return true
+  if (!system) return false
+  return matchesSystem(system, filter)
 }
 
 interface EquivalenceStats {
@@ -35,6 +51,7 @@ interface EquivalenceStats {
 
 export default function EquivalencePage() {
   const [equivalenceRequests, setEquivalenceRequests] = useState<EquivalenceRequest[]>([])
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [stats, setStats] = useState<EquivalenceStats>({ total: 0, approved: 0, pending: 0, approvedHours: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -97,6 +114,25 @@ export default function EquivalencePage() {
     }
   }
 
+  // The list is fetched once and narrowed in the browser (no server cap, no refetch on filter).
+  const filtering = systemFilter !== ACADEMIC_SYSTEM_ALL
+  const visibleRequests = equivalenceRequests.filter((r) => matchesRequestSystem(r.system, systemFilter))
+  const unlinkedCount = equivalenceRequests.filter((r) => !r.system).length
+
+  // The tiles sit above the filter, so once a system is picked they must be recomputed over the
+  // narrowed set — otherwise they would keep claiming totals for rows the table no longer shows.
+  // With no filter they stay exactly the API's numbers, including the post-approval adjustment above.
+  const shownStats: EquivalenceStats = filtering
+    ? {
+        total: visibleRequests.length,
+        approved: visibleRequests.filter((r) => r.status === "approved").length,
+        pending: visibleRequests.filter((r) => r.status === "pending").length,
+        approvedHours: visibleRequests
+          .filter((r) => r.status === "approved")
+          .reduce((sum, r) => sum + r.creditHours, 0),
+      }
+    : stats
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
@@ -129,10 +165,10 @@ export default function EquivalencePage() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "إجمالي الطلبات", value: String(stats.total), icon: FileText, color: "text-institute-blue" },
-          { label: "معتمدة", value: String(stats.approved), icon: CheckCircle, color: "text-institute-blue" },
-          { label: "قيد المراجعة", value: String(stats.pending), icon: Clock, color: "text-yellow-600" },
-          { label: "ساعات معادلة", value: String(stats.approvedHours), icon: BookOpen, color: "text-institute-gold" },
+          { label: "إجمالي الطلبات", value: String(shownStats.total), icon: FileText, color: "text-institute-blue" },
+          { label: "معتمدة", value: String(shownStats.approved), icon: CheckCircle, color: "text-institute-blue" },
+          { label: "قيد المراجعة", value: String(shownStats.pending), icon: Clock, color: "text-yellow-600" },
+          { label: "ساعات معادلة", value: String(shownStats.approvedHours), icon: BookOpen, color: "text-institute-gold" },
         ].map((stat, index) => (
           <motion.div
             key={index}
@@ -158,8 +194,18 @@ export default function EquivalencePage() {
       {/* Requests Table */}
       <Card>
         <CardHeader>
-          <CardTitle>طلبات المعادلة</CardTitle>
-          <CardDescription>قائمة طلبات معادلة المقررات</CardDescription>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <CardTitle>طلبات المعادلة</CardTitle>
+              <CardDescription>قائمة طلبات معادلة المقررات</CardDescription>
+            </div>
+            {/* Sits with the list it narrows; the tiles above follow it (see shownStats). */}
+            <AcademicSystemFilter
+              value={systemFilter}
+              onChange={setSystemFilter}
+              className="w-full md:w-48"
+            />
+          </div>
         </CardHeader>
         <CardContent>
           {loading && <p className="text-sm text-muted-foreground py-4">جارٍ التحميل...</p>}
@@ -167,6 +213,13 @@ export default function EquivalencePage() {
             <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
               {error}
             </div>
+          )}
+          {/* Requests with no linked Student cannot be placed in either system, so a narrowed view
+              cannot show them. Report the gap instead of letting the shorter list look complete. */}
+          {!loading && !error && filtering && unlinkedCount > 0 && (
+            <p className="mb-3 text-xs text-muted-foreground">
+              {unlinkedCount} طلب غير مرتبط بملف طالب لا يظهر ضمن تصفية النظام الأكاديمي.
+            </p>
           )}
           {!loading && !error && (
           <Table>
@@ -182,9 +235,15 @@ export default function EquivalencePage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {equivalenceRequests.map((request) => (
+              {visibleRequests.map((request) => (
                 <TableRow key={request.id}>
-                  <TableCell className="font-medium">{request.student}</TableCell>
+                  <TableCell className="font-medium">
+                    {request.student}
+                    {/* The student's system, resolved from their programme; "—" when unlinked. */}
+                    <span className="block text-xs font-normal text-muted-foreground">
+                      {request.system ? ACADEMIC_SYSTEM_LABELS[request.system] : "—"}
+                    </span>
+                  </TableCell>
                   <TableCell>{request.originalCourse}</TableCell>
                   <TableCell>{request.originalInstitute}</TableCell>
                   <TableCell>{request.requestedCourse}</TableCell>
@@ -221,6 +280,14 @@ export default function EquivalencePage() {
                   </TableCell>
                 </TableRow>
               ))}
+              {/* Only rendered while a filter is active, so the unfiltered table is untouched. */}
+              {filtering && visibleRequests.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                    لا توجد طلبات مطابقة للتصفية الحالية
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
           )}

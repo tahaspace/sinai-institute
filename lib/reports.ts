@@ -1,6 +1,8 @@
 import prisma from '@/lib/prisma';
 import { computeStandingForStudents, computeAcademicStanding } from '@/lib/standing';
-import { getRegulations } from '@/lib/regulations';
+import { DEFAULT_REGULATIONS, getRegulations } from '@/lib/regulations';
+import { bandsFromRegulations, courseTotalPct, gradeFromBands } from '@/lib/annual';
+import { studentSystemWhere, type AcademicSystem } from '@/lib/academic-system';
 
 // Registrar reports engine. All reports are aggregations over Enrollment + the
 // configurable GradeStatus table, so pass/fail/withdrawn classification stays
@@ -165,14 +167,24 @@ export async function ministryPrep(courseId: string, f: TermFilter) {
 }
 
 // (1) كشف نجاح ورسوب — NAMED roster of a single course's students with their
-// pass/fail/withdrawn/incomplete outcome (not aggregate counts). Same classify()
-// rule as courseResults so the headline counts and the named rows always agree.
-export async function passFailRoster(courseId: string, f: TermFilter) {
+// pass/fail/withdrawn/incomplete outcome (not aggregate counts). Same classify() rule as
+// courseResults on the credit-hours path, so the headline counts and the named rows agree there;
+// under ANNUAL the outcome is marks-derived and courseResults is NOT system-aware, so its counts
+// will differ — read them as two different questions, not as a disagreement.
+// `system` is optional so every existing caller is byte-identical; ANNUAL additionally
+// scopes the roster and classifies each attempt from the raw marks — see the branch below.
+export async function passFailRoster(courseId: string, f: TermFilter, system?: AcademicSystem) {
   const [course, enrollments, statuses] = await Promise.all([
+    // `include` (not `select`) already returns every Course scalar, so the four component
+    // maxes the ANNUAL branch needs are on this row — no extra query for them.
     prisma.course.findUnique({ where: { id: courseId }, include: { department: { select: { nameAr: true } } } }),
     prisma.enrollment.findMany({
-      where: { courseId, ...termWhere(f) },
-      include: { student: { select: { studentCode: true, nameAr: true, level: true } } },
+      // Scoped to annual students ONLY on the ANNUAL branch, so the marks rule below can never be
+      // applied to a credit-hours attempt and counts/passRate stay honest. The credit-hours and
+      // no-filter paths keep the exact original where. Its narrowing sits under `student`, never
+      // beside courseId/termWhere's keys, so spreading is safe.
+      where: { courseId, ...termWhere(f), ...(system === 'ANNUAL' ? studentSystemWhere('ANNUAL') : {}) },
+      include: { student: { select: { studentCode: true, nameAr: true, level: true, program: { select: { academicSystem: true } } } } },
       orderBy: { student: { studentCode: 'asc' } },
     }),
     prisma.gradeStatus.findMany(),
@@ -181,16 +193,45 @@ export async function passFailRoster(courseId: string, f: TermFilter) {
   const nameByCode = new Map(statuses.map((s) => [s.code, s.name]));
   const byCode = new Map(statuses.map((s) => [s.code, s]));
 
+  // ── Dual-system: ANNUAL rows carry no grade code ──────────────────────────
+  // lib/gpa.ts stores raw marks only for ANNUAL students (gradeStatusCode/letterGrade/points stay
+  // null by design), so classify() alone buckets every annual attempt as "ungraded" — كشف الناجحين
+  // and كشف الراسبين published an empty sheet under «النظام السنوي», and in the mixed «كل الأنظمة»
+  // view the annual half silently vanished from the counts. The outcome is therefore derived per row
+  // from the STUDENT'S OWN system, not from the viewer's selection, with the very rule lib/annual.ts
+  // applies (courseTotalPct ≥ annualPassPercent, رأفة grace included) and التقدير labelled from the
+  // same bylaw bands. A credit-hours row never enters that branch and is classified exactly as before.
+  const anyAnnual = enrollments.some((e) => e.student?.program?.academicSystem === 'ANNUAL');
+  const reg = anyAnnual ? await getRegulations() : null;
+  const bands = reg ? bandsFromRegulations(reg) : null;
+  const annualPassPct = reg ? reg.annualPassPercent ?? DEFAULT_REGULATIONS.annualPassPercent : 0;
+
   const counts = { pass: 0, fail: 0, withdrawn: 0, incomplete: 0, ungraded: 0 };
   const rows = enrollments.map((e) => {
-    const outcome = classify(e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null);
+    let outcome = classify(e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null);
+    let statusCode = e.gradeStatusCode;
+    let statusName = e.gradeStatusCode ? nameByCode.get(e.gradeStatusCode) ?? null : null;
+    // an explicit exceptional code (منسحب/محروم/غياب) is a deliberate registrar decision and still
+    // wins; annual rows reach the marks rule only when no code was recorded (the normal case).
+    // !e.gradeStatusCode is what makes the sentence above true: classify() also returns 'ungraded'
+    // for codes that WERE deliberately recorded (NP, or a code whose GradeStatus row is missing),
+    // and a registrar's explicit decision must never be overwritten by the marks rule.
+    if (bands && outcome === 'ungraded' && !e.gradeStatusCode && e.student?.program?.academicSystem === 'ANNUAL') {
+      const pct = courseTotalPct({ courseId: e.courseId, midterm: e.midterm, final: e.final, practical: e.practical, homework: e.homework, graceMarks: e.graceMarks, course });
+      if (pct != null) {
+        outcome = pct >= annualPassPct ? 'pass' : 'fail';
+        // annual has no GradeStatus row, so the تقدير band is the only grade these columns can show.
+        statusCode = gradeFromBands(pct, bands);
+        statusName = statusCode;
+      }
+    }
     counts[outcome] += 1;
     return {
       studentCode: e.student.studentCode,
       name: e.student.nameAr,
       level: e.student.level,
-      statusCode: e.gradeStatusCode,
-      statusName: e.gradeStatusCode ? nameByCode.get(e.gradeStatusCode) ?? null : null,
+      statusCode,
+      statusName,
       points: e.points,
       outcome,
     };
@@ -346,17 +387,55 @@ export async function ministrySheet(stage: MinistryStage, f: TermFilter) {
 // (4) إحصائيات النجاح — institute-wide pass-rate summary for the term, plus a
 // breakdown by level and by department. Pass/fail are course-attempt outcomes
 // (same classify() rule), so a student appears once per registered course.
-export async function successStats(f: TermFilter) {
+// `system` is optional so every existing caller keeps the institute-wide numbers;
+// when supplied the whole aggregation (overall + level + department) narrows with it.
+// ANNUAL is additionally classified from the raw marks — see the branch below.
+export async function successStats(f: TermFilter, system?: AcademicSystem) {
   const [enrollments, statuses] = await Promise.all([
     prisma.enrollment.findMany({
-      where: termWhere(f),
+      // studentSystemWhere → `{}` with no system, so the term scope stays byte-identical.
+      // Its OR sits under `student`, never beside termWhere's keys, so spreading is safe.
+      where: { ...termWhere(f), ...studentSystemWhere(system) },
       include: {
-        student: { select: { level: true, department: { select: { nameAr: true } } } },
+        student: { select: { level: true, department: { select: { nameAr: true } }, program: { select: { academicSystem: true } } } },
       },
     }),
     prisma.gradeStatus.findMany(),
   ]);
   const byCode = new Map(statuses.map((s) => [s.code, s]));
+
+  // ── Dual-system: ANNUAL rows carry no grade code ──────────────────────────
+  // lib/gpa.ts stores raw marks only for ANNUAL students (gradeStatusCode/letterGrade/points stay
+  // null by design), so classify() alone buckets every annual attempt as "ungraded": the report
+  // stated a confident 0% under «النظام السنوي», and in the mixed «كل الأنظمة» view the annual half
+  // silently vanished from the pass rate. The outcome is therefore resolved per row from the
+  // STUDENT'S OWN system — never from the viewer's selection — with the very rule lib/annual.ts
+  // applies (courseTotalPct ≥ annualPassPercent, رأفة grace included). A credit-hours row never
+  // enters that branch, so its classification is unchanged.
+  let annualOutcome: ((e: (typeof enrollments)[number]) => StatusClass) | null = null;
+  if (enrollments.some((e) => e.student?.program?.academicSystem === 'ANNUAL')) {
+    const [courses, reg] = await Promise.all([
+      prisma.course.findMany({
+        where: { id: { in: [...new Set(enrollments.map((e) => e.courseId))] } },
+        select: { id: true, code: true, nameAr: true, midtermMax: true, finalMax: true, practicalMax: true, homeworkMax: true },
+      }),
+      getRegulations(),
+    ]);
+    const courseById = new Map(courses.map((c) => [c.id, c]));
+    const passPct = reg.annualPassPercent ?? DEFAULT_REGULATIONS.annualPassPercent;
+    annualOutcome = (e) => {
+      // an explicit exceptional code (منسحب/محروم/غياب) is a deliberate registrar decision and still
+      // wins; annual rows reach the marks rule only when no code at all was recorded — classify()
+      // also returns 'ungraded' for codes that WERE recorded (NP, or a code missing from the table).
+      const coded = classify(e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null);
+      if (coded !== 'ungraded' || e.gradeStatusCode) return coded;
+      if (e.student?.program?.academicSystem !== 'ANNUAL') return coded;
+      const course = courseById.get(e.courseId);
+      if (!course) return 'ungraded';
+      const pct = courseTotalPct({ courseId: e.courseId, midterm: e.midterm, final: e.final, practical: e.practical, homework: e.homework, graceMarks: e.graceMarks, course });
+      return pct == null ? 'ungraded' : pct >= passPct ? 'pass' : 'fail';
+    };
+  }
 
   type Bucket = { enrolled: number; pass: number; fail: number; withdrawn: number; incomplete: number };
   const fresh = (): Bucket => ({ enrolled: 0, pass: 0, fail: 0, withdrawn: 0, incomplete: 0 });
@@ -373,7 +452,7 @@ export async function successStats(f: TermFilter) {
   };
 
   for (const e of enrollments) {
-    const cls = classify(e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null);
+    const cls = annualOutcome ? annualOutcome(e) : classify(e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null);
     tally(overall, cls);
     const lvl = e.student.level;
     const lb = byLevel.get(lvl) ?? fresh();

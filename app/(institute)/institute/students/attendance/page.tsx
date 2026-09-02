@@ -1,17 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL } from "@/components/shared/academic-system-filter"
+import { ACADEMIC_SYSTEM_LABELS, type AcademicSystem } from "@/lib/academic-system"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Calendar, Clock, Users, AlertTriangle, CheckCircle, TrendingUp } from "lucide-react"
 
 interface AttendanceStatsData {
@@ -35,7 +30,13 @@ interface WarningStudent {
 }
 
 export default function AttendancePage() {
-  const [selectedCourse, setSelectedCourse] = useState("all")
+  // Display-only narrowing. Every number on this screen (the four cards, the per-department bars and
+  // the deprivation-warning list) is aggregated server-side from ONE population, so the filter has to
+  // travel to the server and the page refetches on change — a browser-side pass would narrow the list
+  // while the cards above it kept quoting institute-wide figures.
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
+  // what the server reported it applied — drives the "no matches" wording below
+  const [appliedSystem, setAppliedSystem] = useState<AcademicSystem | null>(null)
   const [stats, setStats] = useState<AttendanceStatsData>({ trackedStudents: 0, avgAttendance: 0, atRisk: 0 })
   const [departmentAttendance, setDepartmentAttendance] = useState<DepartmentAttendance[]>([])
   const [warningStudents, setWarningStudents] = useState<WarningStudent[]>([])
@@ -48,13 +49,16 @@ export default function AttendancePage() {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch(`/api/institute/students/attendance`)
+        // "all" appends no query string at all, so the default request is byte-identical to before
+        const qs = systemFilter === ACADEMIC_SYSTEM_ALL ? "" : `?system=${systemFilter}`
+        const res = await fetch(`/api/institute/students/attendance${qs}`)
         if (!res.ok) throw new Error("فشل في جلب بيانات الحضور")
         const json = await res.json()
         if (!cancelled) {
           setStats(json.stats ?? { trackedStudents: 0, avgAttendance: 0, atRisk: 0 })
           setDepartmentAttendance(json.departmentAttendance ?? [])
           setWarningStudents(json.warningStudents ?? [])
+          setAppliedSystem(json.system ?? null)
         }
       } catch (e) {
         if (!cancelled) setError((e as Error).message)
@@ -64,10 +68,11 @@ export default function AttendancePage() {
     }
     load()
     return () => { cancelled = true }
-  }, [])
+  }, [systemFilter])
 
   const attendanceStats = [
-    { label: "متوسط الحضور", value: `${stats.avgAttendance}%`, icon: TrendingUp, color: "text-institute-blue" },
+    // an average over zero tracked students is not 0% — it does not exist
+    { label: "متوسط الحضور", value: stats.trackedStudents === 0 ? "—" : `${stats.avgAttendance}%`, icon: TrendingUp, color: "text-institute-blue" },
     { label: "طلاب متابَعون", value: String(stats.trackedStudents), icon: CheckCircle, color: "text-institute-blue" },
     { label: "طلاب تحت الخطر", value: String(stats.atRisk), icon: AlertTriangle, color: "text-red-600" },
     { label: "تحذير حرمان", value: String(warningStudents.length), icon: Clock, color: "text-yellow-600" },
@@ -88,44 +93,50 @@ export default function AttendancePage() {
           </h1>
           <p className="text-muted-foreground">متابعة حضور الطلاب في المحاضرات</p>
         </div>
-        <Select value={selectedCourse} onValueChange={setSelectedCourse}>
-          <SelectTrigger className="w-64">
-            <SelectValue placeholder="اختر المقرر" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">جميع المقررات</SelectItem>
-            <SelectItem value="CS301">CS301 - الذكاء الاصطناعي</SelectItem>
-            <SelectItem value="MATH301">MATH301 - رياضيات متقدمة</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+          {/* Course narrowing is not implemented on this screen; a second, inert Select next to a
+              working filter would imply both narrow the data, so it is not rendered at all. */}
+          <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full sm:w-48" />
+        </div>
       </div>
 
       {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
       {loading && <Card><CardContent className="p-12 text-center text-muted-foreground">جارٍ تحميل بيانات الحضور...</CardContent></Card>}
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {attendanceStats.map((stat, index) => (
-          <motion.div
-            key={index}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-          >
-            <Card>
-              <CardContent className="p-4 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-                  <stat.icon className={`w-5 h-5 ${stat.color}`} />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{stat.value}</p>
-                  <p className="text-xs text-muted-foreground">{stat.label}</p>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
+      {/* Stats — hidden while a refetch is in flight so the cards never quote the PREVIOUS
+          population's totals next to the "جارٍ التحميل" card below the filter. */}
+      {!loading && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {attendanceStats.map((stat, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1 }}
+              >
+                <Card>
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+                      <stat.icon className={`w-5 h-5 ${stat.color}`} />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold">{stat.value}</p>
+                      <p className="text-xs text-muted-foreground">{stat.label}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+          {/* the zeros above are "no one matched this system", not "attendance collapsed" */}
+          {appliedSystem && stats.trackedStudents === 0 && (
+            <p className="text-sm text-muted-foreground">
+              لا يوجد طلاب متابَعون مطابقون في {ACADEMIC_SYSTEM_LABELS[appliedSystem]}
+            </p>
+          )}
+        </>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Course Attendance */}
@@ -164,6 +175,11 @@ export default function AttendancePage() {
                   </div>
                 </motion.div>
               ))}
+              {appliedSystem && courseAttendance.length === 0 && (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  لا توجد أقسام مطابقة في {ACADEMIC_SYSTEM_LABELS[appliedSystem]}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -205,6 +221,11 @@ export default function AttendancePage() {
                   <Progress value={student.attendance} className="h-2 mt-2 [&>div]:bg-yellow-500" />
                 </motion.div>
               ))}
+              {appliedSystem && warningStudents.length === 0 && (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  لا يوجد طلاب مطابقون في {ACADEMIC_SYSTEM_LABELS[appliedSystem]}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
+import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 import { currentUserId } from '@/lib/student';
 import { applyHoldBulk, HOLD_SCOPES, HOLD_TYPE_LABELS, HOLD_STATUS_LABELS, type HoldScope } from '@/lib/holds';
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
     const holds = await prisma.studentHold.findMany({
       where,
       include: {
-        student: { select: { studentCode: true, nameAr: true, level: true, department: { select: { nameAr: true } }, program: { select: { nameAr: true } } } },
+        student: { select: { studentCode: true, nameAr: true, level: true, department: { select: { nameAr: true } }, program: { select: { nameAr: true, academicSystem: true } } } },
         reason: { select: { nameAr: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -43,6 +44,8 @@ export async function GET(request: NextRequest) {
       level: h.student.level,
       department: h.student.department?.nameAr ?? '—',
       program: h.student.program?.nameAr ?? '—',
+      // display-only: lets the screen narrow the list by academic system; the hold engine is untouched
+      system: normalizeSystem(h.student.program?.academicSystem),
       type: h.type,
       typeLabel: HOLD_TYPE_LABELS[h.type] ?? h.type,
       reason: h.reason?.nameAr ?? h.reasonText ?? '—',

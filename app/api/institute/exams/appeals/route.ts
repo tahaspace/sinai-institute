@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requirePermission } from '@/lib/authz';
+import { normalizeSystem } from '@/lib/academic-system';
 
 const statusLabel = (s: string) =>
   ({ PENDING: 'قيد المراجعة', APPROVED: 'مقبول', REJECTED: 'مرفوض' } as Record<string, string>)[s] ?? s;
@@ -18,7 +19,9 @@ export async function GET(request: NextRequest) {
 
     const appeals = await prisma.examAppeal.findMany({
       where,
-      include: { student: true, course: true },
+      // `program` only adds the academic system to the row the client already gets — the student
+      // scalars (nameAr/studentCode) still come through exactly as before.
+      include: { student: { include: { program: { select: { academicSystem: true } } } }, course: true },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -28,6 +31,7 @@ export async function GET(request: NextRequest) {
         id: a.id,
         student: a.student.nameAr,
         studentCode: a.student.studentCode,
+        system: normalizeSystem(a.student.program?.academicSystem),
         course: a.course.nameAr,
         courseCode: a.course.code,
         reason: a.reason,

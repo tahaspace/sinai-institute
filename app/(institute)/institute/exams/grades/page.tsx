@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { AcademicModeBanner } from "@/components/academic-mode-banner"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -38,6 +39,9 @@ interface RosterRow {
   enrollmentId: string
   studentCode: string
   name: string
+  // resolved server-side from the student's programme; the تقدير shown for ANNUAL rows is the
+  // percentage band, not a letter grade (see the GET handler) — this only narrows the view.
+  system: string
   midterm: number | null
   final: number | null
   practical: number | null
@@ -62,6 +66,7 @@ export default function GradesPage() {
   const [roster, setRoster] = useState<RosterRow[]>([])
   const [edits, setEdits] = useState<Edits>({})
   const [searchTerm, setSearchTerm] = useState("")
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -227,8 +232,17 @@ export default function GradesPage() {
   const allLocked = roster.length > 0 && roster.every((r) => r.resultLocked)
 
   const filtered = roster.filter(
-    (r) => r.name.includes(searchTerm) || r.studentCode.includes(searchTerm)
+    (r) =>
+      (r.name.includes(searchTerm) || r.studentCode.includes(searchTerm)) &&
+      matchesSystem(r.system, systemFilter)
   )
+
+  // saveAll deliberately keeps every edit, including rows the current narrowing hides — dropping a
+  // typed mark because of a filter would lose work. So say how many edits are off-screen instead of
+  // letting «حفظ (12)» over a 3-row table read as 12 visible rows.
+  const hiddenDirty = Object.keys(edits).filter(
+    (id) => !filtered.some((r) => r.enrollmentId === id)
+  ).length
 
   return (
     <div className="space-y-6">
@@ -250,6 +264,11 @@ export default function GradesPage() {
             <Download className="w-4 h-4 ml-2" />
             تصدير
           </Button>
+          {hiddenDirty > 0 && (
+            <span className="self-center text-xs text-muted-foreground">
+              {hiddenDirty} تعديل خارج التصفية الحالية
+            </span>
+          )}
           <Button onClick={saveAll} disabled={saving || dirtyCount === 0 || allLocked}>
             <Save className="w-4 h-4 ml-2" />
             {saving ? "جارٍ الحفظ..." : `حفظ${dirtyCount ? ` (${dirtyCount})` : ""}`}
@@ -290,6 +309,7 @@ export default function GradesPage() {
                 ))}
               </SelectContent>
             </Select>
+            <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full md:w-48" />
             <div className="relative flex-1">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -314,6 +334,13 @@ export default function GradesPage() {
                 {allLocked ? "النتائج معتمدة ومغلقة" : "بعض النتائج معتمدة"}
               </Badge>
             )}
+            {/* The lock badge and the اعتماد/إعادة فتح buttons act on the whole course/term (correct),
+                but the table under them is narrowed — say so rather than let them look row-scoped. */}
+            {filtered.length !== roster.length && (
+              <span className="text-xs font-normal text-muted-foreground">
+                عرض {filtered.length} من {roster.length} — الاعتماد والغلق يشملان المقرر كاملاً
+              </span>
+            )}
           </CardTitle>
           <CardDescription>
             {course
@@ -325,7 +352,15 @@ export default function GradesPage() {
           {loading ? (
             <div className="p-12 text-center text-muted-foreground">جارٍ تحميل القائمة...</div>
           ) : filtered.length === 0 ? (
-            <div className="p-12 text-center text-muted-foreground">لا يوجد طلاب مسجلون في هذا المقرر</div>
+            <div className="p-12 text-center text-muted-foreground">
+              {/* An empty roster and an emptied-by-narrowing roster are different facts, and the
+                  system filter must not be blamed while it is still on «كل الأنظمة». */}
+              {roster.length === 0
+                ? "لا يوجد طلاب مسجلون في هذا المقرر"
+                : systemFilter === ACADEMIC_SYSTEM_ALL
+                  ? "لا توجد نتائج مطابقة للبحث"
+                  : "لا توجد نتائج مطابقة ضمن النظام المحدد"}
+            </div>
           ) : (
             <Table>
               <TableHeader>

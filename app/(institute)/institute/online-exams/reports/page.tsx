@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL } from "@/components/shared/academic-system-filter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -62,6 +63,8 @@ interface StudentResult {
   max: number
   percentage: number
   grade: string
+  /** Server-resolved from the student's programme: 'CREDIT_HOURS' | 'ANNUAL'. */
+  system: string
 }
 
 interface GradeBucket {
@@ -84,9 +87,13 @@ interface ApiStats {
 
 const PIE_COLORS = ["#22c55e", "#84cc16", "#eab308", "#f97316", "#f59e0b", "#ef4444", "#94a3b8", "#14b8a6"]
 
+// Two scales share this table: credit-hour letters and — for annual students, who have no
+// letterGrade — the bylaw's تقدير bands (lib/annual.ts). Every value the API can emit needs a key
+// here, or the Badge renders with className={undefined}. "A-" was missing (letterOf returns it at ≥85).
 const gradeColors: Record<string, string> = {
   "A+": "bg-institute-blue text-green-700",
   "A": "bg-institute-blue text-green-700",
+  "A-": "bg-lime-100 text-lime-700",
   "B+": "bg-lime-100 text-lime-700",
   "B": "bg-yellow-100 text-yellow-700",
   "C+": "bg-amber-100 text-amber-700",
@@ -94,6 +101,11 @@ const gradeColors: Record<string, string> = {
   "D+": "bg-red-100 text-red-600",
   "D": "bg-red-100 text-red-600",
   "F": "bg-red-200 text-red-800",
+  "ممتاز": "bg-green-100 text-green-700",
+  "جيد جداً": "bg-lime-100 text-lime-700",
+  "جيد": "bg-yellow-100 text-yellow-700",
+  "مقبول": "bg-amber-100 text-amber-700",
+  "راسب": "bg-red-200 text-red-800",
   "-": "bg-gray-100 text-gray-600",
 }
 
@@ -111,6 +123,7 @@ export default function OnlineExamReportsPage() {
     lowest: 0,
   })
   const [searchQuery, setSearchQuery] = useState("")
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [sortBy, setSortBy] = useState<"score" | "name">("score")
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc")
   const [loading, setLoading] = useState(true)
@@ -122,10 +135,14 @@ export default function OnlineExamReportsPage() {
       setLoading(true)
       setError(null)
       try {
-        const url = selectedCourseId
-          ? `/api/institute/online-exams/reports?courseId=${encodeURIComponent(selectedCourseId)}`
-          : `/api/institute/online-exams/reports`
-        const res = await fetch(url)
+        // The system filter goes to the SERVER: the stat cards and both charts are computed there,
+        // so narrowing in the browser would leave them claiming numbers for hidden students.
+        // "كل الأنظمة" sends no `system` param at all, so the request is the one we sent before.
+        const params = new URLSearchParams()
+        if (selectedCourseId) params.set("courseId", selectedCourseId)
+        if (systemFilter !== ACADEMIC_SYSTEM_ALL) params.set("system", systemFilter)
+        const qs = params.toString()
+        const res = await fetch(`/api/institute/online-exams/reports${qs ? `?${qs}` : ""}`)
         if (!res.ok) throw new Error("فشل في جلب تقارير الامتحانات")
         const json = await res.json()
         if (cancelled) return
@@ -152,7 +169,7 @@ export default function OnlineExamReportsPage() {
     return () => {
       cancelled = true
     }
-  }, [selectedCourseId])
+  }, [selectedCourseId, systemFilter])
 
   const filteredResults = studentResults
     .filter((s) => {
@@ -184,6 +201,10 @@ export default function OnlineExamReportsPage() {
     console.log("Exporting:", { headers, data })
     alert("تم تصدير التقرير بنجاح!")
   }
+
+  // A pass rate / average / max over an EMPTY population is not 0 — it does not exist. Reachable
+  // as soon as a system selection matches nobody on this exam, so guard every derived card.
+  const hasPopulation = (apiStats.participants ?? 0) > 0
 
   return (
     <div className="p-6 space-y-6">
@@ -226,7 +247,7 @@ export default function OnlineExamReportsPage() {
       {/* Filters */}
       <Card>
         <CardContent className="pt-6">
-          <div className="grid md:grid-cols-4 gap-4">
+          <div className="grid md:grid-cols-5 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">المقرر</label>
               <Select value={selectedCourseId} onValueChange={setSelectedCourseId}>
@@ -254,6 +275,10 @@ export default function OnlineExamReportsPage() {
                   <SelectItem value="all">الكل</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">النظام الأكاديمي</label>
+              <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full" />
             </div>
             <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium">بحث</label>
@@ -291,12 +316,12 @@ export default function OnlineExamReportsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">نسبة النجاح</p>
-                    <p className="text-2xl font-bold text-institute-blue">{apiStats.passRate}%</p>
+                    <p className="text-2xl font-bold text-institute-blue">{hasPopulation ? `${apiStats.passRate}%` : "—"}</p>
                   </div>
                   <CheckCircle2 className="w-8 h-8 text-institute-blue" />
                 </div>
                 <div className="mt-2">
-                  <Progress value={apiStats.passRate} className="h-2" />
+                  <Progress value={hasPopulation ? apiStats.passRate : 0} className="h-2" />
                 </div>
               </CardContent>
             </Card>
@@ -305,7 +330,7 @@ export default function OnlineExamReportsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">متوسط النسبة</p>
-                    <p className="text-2xl font-bold">{apiStats.average}%</p>
+                    <p className="text-2xl font-bold">{hasPopulation ? `${apiStats.average}%` : "—"}</p>
                   </div>
                   <TrendingUp className="w-8 h-8 text-institute-blue" />
                 </div>
@@ -316,7 +341,7 @@ export default function OnlineExamReportsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">أعلى درجة</p>
-                    <p className="text-2xl font-bold">{apiStats.highest}</p>
+                    <p className="text-2xl font-bold">{hasPopulation ? apiStats.highest : "—"}</p>
                   </div>
                   <TrendingUp className="w-8 h-8 text-institute-blue" />
                 </div>
@@ -327,7 +352,7 @@ export default function OnlineExamReportsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">أدنى درجة</p>
-                    <p className="text-2xl font-bold">{apiStats.lowest}</p>
+                    <p className="text-2xl font-bold">{hasPopulation ? apiStats.lowest : "—"}</p>
                   </div>
                   <TrendingDown className="w-8 h-8 text-amber-600" />
                 </div>
@@ -422,6 +447,19 @@ export default function OnlineExamReportsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {/* Rows are narrowed by BOTH the server-side system filter and the client-side
+                      search, so the "no matches" row must cover either being active. The search test
+                      mirrors the predicate above (`!searchQuery`) exactly, so a whitespace-only query
+                      — which does narrow — is covered too. With neither active the genuinely-empty
+                      table renders exactly as it did before. */}
+                  {filteredResults.length === 0 &&
+                    (systemFilter !== ACADEMIC_SYSTEM_ALL || searchQuery !== "") && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="p-8 text-center text-muted-foreground">
+                        لا توجد نتائج مطابقة للتصفية
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {filteredResults.map((student, index) => (
                     <TableRow key={`${student.studentCode}-${index}`}>
                       <TableCell>

@@ -4,7 +4,7 @@ import { trialBalance, incomeStatement, balanceSheet, cashFlow } from '@/lib/fin
 import { arAging } from '@/lib/finance/billing';
 import { listBudgets, budgetVsActual } from '@/lib/finance/budget';
 import { profitabilityByCostCentre, profitabilityByProgram, profitabilityByFaculty, profitabilityByBranch, studentUnitCost } from '@/lib/finance/profitability';
-import { studentSystemWhere } from '@/lib/academic-system';
+import { academicSystemWhere, studentSystemWhere } from '@/lib/academic-system';
 
 /**
  * Financial reports (ClientR3 — R3). Thin registry wrappers over the finance engines we already
@@ -115,21 +115,26 @@ export const financialReports: ReportDef[] = [
       // student-scoped list: optionally keep only invoices of students in the selected academic
       // system. No filter selected → untouched engine output (all students).
       let rows = r.rows;
-      let grandTotal = r.grandTotal;
       if (ctx.academicSystem) {
-        const allowed = await prisma.invoice.findMany({
-          where: { universityId: ctx.universityId ?? undefined, ...studentSystemWhere(ctx.academicSystem) },
-          select: { number: true },
+        // Keyed on studentCode, which is globally unique — Invoice.number is only unique per tenant
+        // (it comes from DocumentSequence), so keying on it would let another university's invoice
+        // number decide whether this row is kept.
+        const allowed = await prisma.student.findMany({
+          where: { ...(ctx.universityId ? { universityId: ctx.universityId } : {}), ...academicSystemWhere(ctx.academicSystem) },
+          select: { studentCode: true },
         });
-        const keep = new Set(allowed.map((i) => i.number));
-        rows = rows.filter((x) => keep.has(x.number));
-        grandTotal = Number(rows.reduce((s, x) => s + x.balance, 0).toFixed(2));
+        const keep = new Set(allowed.map((x) => x.studentCode));
+        rows = rows.filter((x) => keep.has(x.studentCode));
       }
       return {
         kind: 'table',
         columns: [{ key: 'number', label: 'الفاتورة' }, { key: 'student', label: 'الطالب' }, { key: 'balance', label: 'الرصيد', align: 'center', numeric: true }, { key: 'daysOverdue', label: 'أيام التأخير', align: 'center', numeric: true }, { key: 'bucket', label: 'الفئة', align: 'center' }],
         rows: rows.map((x) => ({ number: x.number, student: x.student, balance: x.balance.toFixed(2), daysOverdue: x.daysOverdue, bucket: x.bucket })),
-        totals: { number: 'إجمالي المتأخرات', student: '', balance: grandTotal.toFixed(2) },
+        // The grand total is the engine's, never recomputed from the filtered rows: an AR aging total
+        // has to keep tying to the AR control account, exactly as the billing screen's aging tab does.
+        // The caveat goes in the label cell, not the student cell: the totals row is serialized into
+        // CSV/XLSX (lib/reporting/export.ts), and prose in a name column corrupts a sortable export.
+        totals: { number: ctx.academicSystem ? 'إجمالي المتأخرات (محاسبي — كل الأنظمة)' : 'إجمالي المتأخرات', student: '', balance: r.grandTotal.toFixed(2) },
       };
     },
   },

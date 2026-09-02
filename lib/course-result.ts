@@ -158,9 +158,17 @@ export type ExceptionResult = {
  * table stays authoritative; the student's CGPA is recomputed in the same call.
  */
 export async function setExceptionStatus(enrollmentId: string, input: ExceptionInput): Promise<ExceptionResult> {
-  const e = await prisma.enrollment.findUnique({ where: { id: enrollmentId } });
+  const e = await prisma.enrollment.findUnique({
+    where: { id: enrollmentId },
+    include: { student: { select: { program: { select: { academicSystem: true } } } } },
+  });
   if (!e) throw new Error('enrollment-not-found');
   if (e.resultLocked) throw new Error('النتيجة معتمدة ومغلقة — يجب إعادة الفتح قبل التعديل');
+  // Dual-system: an ANNUAL student has no CGPA at all (lib/gpa.ts stores raw marks only for them and
+  // never writes Student.gpa). The exceptional state itself is fully recorded — حرمان/انسحاب/غياب are
+  // just as real under the annual system — but it must not carry a credit letter or GPA points, and it
+  // must not trigger a CGPA recompute, which would stamp a fabricated 0.00 onto the student.
+  const isAnnual = e.student?.program?.academicSystem === 'ANNUAL';
 
   const eff = await statusEffects(input.code);
   if (!eff) throw new Error(`unknown-grade-status:${input.code}`);
@@ -176,8 +184,8 @@ export async function setExceptionStatus(enrollmentId: string, input: ExceptionI
     where: { id: enrollmentId },
     data: {
       gradeStatusCode: eff.code,
-      letterGrade: eff.code,
-      points: eff.points, // null for non-GPA exceptional states
+      letterGrade: isAnnual ? null : eff.code,
+      points: isAnnual ? null : eff.points, // null for non-GPA exceptional states
       reasonCode,
       attemptNo: Math.max(thisAttemptNo, 1),
       resultPending: pending,
@@ -193,7 +201,7 @@ export async function setExceptionStatus(enrollmentId: string, input: ExceptionI
     },
   });
 
-  const cgpa = await recomputeStudentGpa(updated.studentId);
+  const cgpa = isAnnual ? 0 : await recomputeStudentGpa(updated.studentId);
   return {
     id: updated.id,
     studentId: updated.studentId,

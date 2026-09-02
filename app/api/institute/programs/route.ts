@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requirePermission } from '@/lib/authz';
-import { normalizeSystem } from '@/lib/academic-system';
+import { normalizeSystem, normalizeSystemFilter, programSystemWhere } from '@/lib/academic-system';
 
-// GET /api/institute/programs?search=&departmentId=
+// GET /api/institute/programs?search=&departmentId=&system=
 export async function GET(request: NextRequest) {
   try {
     const guard = await requirePermission('program.view');
@@ -12,8 +12,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search')?.trim();
     const departmentId = searchParams.get('departmentId');
+    // «النظام الأكاديمي» narrowing. Absent/'all' → normalizeSystemFilter yields undefined and
+    // programSystemWhere yields {}, so the unfiltered query stays exactly what it was.
+    const system = normalizeSystemFilter(searchParams.get('system'));
 
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = { ...programSystemWhere(system) };
     if (departmentId && departmentId !== 'all') where.departmentId = departmentId;
     if (search) where.nameAr = { contains: search, mode: 'insensitive' };
 

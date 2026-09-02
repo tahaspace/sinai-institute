@@ -36,12 +36,16 @@ export async function GET(request: NextRequest) {
     // from the study plans that include it (Course.code → StudyPlanItem.courseCode → Program). Kept
     // as a derivation rather than a column on Course: the programme stays the single source of truth,
     // and a course shared by a credit-hour and an annual programme honestly reports both.
+    // Tenant-scoped: study-plan rows are matched by course CODE, not by id, so without this an
+    // ANNUAL programme at another institute whose plan contains the same code (CS101) would tag this
+    // institute's course as annual.
+    const uid = guard.ctx.universityId ?? null;
     const planItems = await prisma.studyPlanItem.findMany({
-      where: { programId: { not: null } },
+      where: { programId: { not: null }, ...(uid ? { universityId: uid } : {}) },
       select: { courseCode: true, programId: true },
     });
     const programSystems = new Map(
-      (await prisma.program.findMany({ select: { id: true, academicSystem: true } }))
+      (await prisma.program.findMany({ where: uid ? { universityId: uid } : {}, select: { id: true, academicSystem: true } }))
         .map((p) => [p.id, normalizeSystem(p.academicSystem)] as const),
     );
     const systemsByCourseCode = new Map<string, Set<string>>();

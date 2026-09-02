@@ -1,6 +1,8 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL } from "@/components/shared/academic-system-filter"
+import { ACADEMIC_SYSTEM_LABELS, type AcademicSystem } from "@/lib/academic-system"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -51,27 +53,42 @@ export default function AttendanceReportPage() {
   const [courseId, setCourseId] = useState("")
   const [report, setReport] = useState<Report | null>(null)
   const [lowOnly, setLowOnly] = useState(false)
+  // Display-only narrowing. It goes to the SERVER because this screen already refetches on every
+  // control change and because the summary cards above must move with it — see the API route.
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
+  // what the server actually applied, so the empty state never asserts absence under a filter
+  const [appliedSystem, setAppliedSystem] = useState<AcademicSystem | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Course, حصر and النظام all refetch the same endpoint, so responses can land out of order and the
+  // slowest one would win. Every fetch claims a ticket; only the newest ticket may write state —
+  // otherwise the roster can end up narrowed to a system the Select no longer shows.
+  const reqId = useRef(0)
 
-  const load = useCallback(async (cid?: string, low = false) => {
+  const load = useCallback(async (cid?: string, low = false, sys: string = ACADEMIC_SYSTEM_ALL) => {
     setLoading(true); setError(null)
+    const my = ++reqId.current
     try {
       const params = new URLSearchParams()
       if (cid) params.set("courseId", cid)
       if (low) params.set("lowOnly", "true")
+      // "all" sends nothing at all, so the unfiltered request is the exact URL it always was
+      if (sys !== ACADEMIC_SYSTEM_ALL) params.set("system", sys)
       const qs = params.toString()
       const res = await fetch(`/api/institute/attendance-report${qs ? `?${qs}` : ""}`)
       if (!res.ok) throw new Error("فشل في تحميل تقرير الحضور")
       const json = await res.json()
+      if (my !== reqId.current) return
       setCourses(json.courses ?? [])
       setReport(json.report ?? null)
+      setAppliedSystem(json.academicSystem ?? null)
       if (json.selectedCourseId) setCourseId(json.selectedCourseId)
     } catch (e) {
+      if (my !== reqId.current) return
       setError((e as Error).message)
     } finally {
-      setLoading(false)
+      if (my === reqId.current) setLoading(false)
     }
   }, [])
 
@@ -79,31 +96,36 @@ export default function AttendanceReportPage() {
     let cancelled = false
     const run = async () => {
       setLoading(true); setError(null)
+      // shares the ticket counter with load(): the filter is live during this first fetch, so a
+      // slow initial response must not clobber a newer, narrowed one
+      const my = ++reqId.current
       try {
         const res = await fetch(`/api/institute/attendance-report`)
         if (!res.ok) throw new Error("فشل في تحميل تقرير الحضور")
         const json = await res.json()
-        if (cancelled) return
+        if (cancelled || my !== reqId.current) return
         setCourses(json.courses ?? [])
         setReport(json.report ?? null)
         if (json.selectedCourseId) setCourseId(json.selectedCourseId)
       } catch (e) {
-        if (!cancelled) setError((e as Error).message)
+        if (!cancelled && my === reqId.current) setError((e as Error).message)
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && my === reqId.current) setLoading(false)
       }
     }
     run()
     return () => { cancelled = true }
   }, [])
 
-  const onCourse = (cid: string) => { setCourseId(cid); load(cid, lowOnly) }
+  const onCourse = (cid: string) => { setCourseId(cid); load(cid, lowOnly, systemFilter) }
 
   const toggleLowOnly = () => {
     const next = !lowOnly
     setLowOnly(next)
-    load(courseId || undefined, next)
+    load(courseId || undefined, next, systemFilter)
   }
+
+  const onSystem = (v: string) => { setSystemFilter(v); load(courseId || undefined, lowOnly, v) }
 
   const applyBan = async (enrollmentId: string) => {
     setBusy(true); setError(null)
@@ -114,7 +136,7 @@ export default function AttendanceReportPage() {
         body: JSON.stringify({ enrollmentId }),
       })
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "فشل في تطبيق الحرمان") }
-      await load(courseId, lowOnly)
+      await load(courseId, lowOnly, systemFilter)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -136,7 +158,9 @@ export default function AttendanceReportPage() {
 
       {error && <Card><CardContent className="p-4 text-center text-red-600">{error}</CardContent></Card>}
 
-      {report && (
+      {/* !loading as well as report: during a filter refetch these totals belong to the PREVIOUS
+          population, and the table below already says "جارٍ التحميل". */}
+      {report && !loading && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card><CardContent className="p-4 text-center"><CheckCircle2 className="w-6 h-6 mx-auto mb-1 text-green-600" /><p className="text-2xl font-bold">{report.summary.total}</p><p className="text-xs text-muted-foreground">إجمالي الطلاب</p></CardContent></Card>
           <Card><CardContent className="p-4 text-center"><Filter className="w-6 h-6 mx-auto mb-1 text-blue-600" /><p className="text-2xl font-bold">{report.summary.low}</p><p className="text-xs text-muted-foreground">دون حد الحضور ({report.thresholds.warnAt}%)</p></CardContent></Card>
@@ -153,6 +177,7 @@ export default function AttendanceReportPage() {
               {courses.map((c) => <SelectItem key={c.id} value={c.id}>{c.code} - {c.nameAr}</SelectItem>)}
             </SelectContent>
           </Select>
+          <AcademicSystemFilter value={systemFilter} onChange={onSystem} className="w-full md:w-48" />
           <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
             <Filter className="w-4 h-4 text-blue-600" />
             <span>حصر الطلاب دون حد الحضور{report ? ` (${report.thresholds.warnAt}%)` : ""} فقط</span>
@@ -166,7 +191,7 @@ export default function AttendanceReportPage() {
           <CardTitle>{report ? `${report.course.code} - ${report.course.name}` : "تقرير الحضور"}</CardTitle>
           <CardDescription>
             {report
-              ? `حد الإنذار عند الحضور ≤ ${report.thresholds.warnAt}% · الحرمان عند تجاوز الغياب ${report.thresholds.banAbsenceAbove}%${report.lowOnly ? " · معروض: الطلاب دون حد الحضور فقط (حصر)" : ""}`
+              ? `حد الإنذار عند الحضور ≤ ${report.thresholds.warnAt}% · الحرمان عند تجاوز الغياب ${report.thresholds.banAbsenceAbove}%${report.lowOnly ? " · معروض: الطلاب دون حد الحضور فقط (حصر)" : ""}${appliedSystem ? ` · ${ACADEMIC_SYSTEM_LABELS[appliedSystem]} فقط` : ""}`
               : ""}
           </CardDescription>
         </CardHeader>
@@ -175,7 +200,9 @@ export default function AttendanceReportPage() {
             <div className="p-12 text-center text-muted-foreground">جارٍ التحميل...</div>
           ) : !report || report.rows.length === 0 ? (
             <div className="p-12 text-center text-muted-foreground">
-              {report?.lowOnly ? "لا يوجد طلاب دون حد الحضور لهذا المقرر" : "لا توجد بيانات حضور لهذا المقرر"}
+              {appliedSystem
+                ? `لا توجد نتائج مطابقة في ${ACADEMIC_SYSTEM_LABELS[appliedSystem]} لهذا المقرر${report?.lowOnly ? " دون حد الحضور" : ""}`
+                : report?.lowOnly ? "لا يوجد طلاب دون حد الحضور لهذا المقرر" : "لا توجد بيانات حضور لهذا المقرر"}
             </div>
           ) : (
             <Table>

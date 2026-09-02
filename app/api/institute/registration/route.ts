@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 
 // Platform term — mirrors DEFAULT_TERM in app/api/student/registration/route.ts:7
@@ -35,6 +36,8 @@ interface CatalogRow {
   seats: number;
   enrolled: number;
   schedule: string;
+  /** derived from the study plans this course appears on; empty = not on any plan yet */
+  systems: string[];
 }
 
 // GET /api/institute/registration?academicYear=&semester=&search=
@@ -82,6 +85,35 @@ export async function GET(request: NextRequest) {
       prisma.student.count({ where: { registrationRequests: { some: { academicYear, semester } } } }),
     ]);
 
+    // A Course belongs to a DEPARTMENT, not a programme, so a catalog row's academic system can only be
+    // derived from the study plans carrying it (Course.code → StudyPlanItem.courseCode → Program) — the
+    // same derivation the course catalog uses, so both screens agree. A course on no plan yet reports
+    // none, and the display filter keeps it (narrow, never hide).
+    const offeredCodes = [...new Set(offerings.map((o) => o.course.code))];
+    const systemsByCourseCode = new Map<string, Set<string>>();
+    if (offeredCodes.length) {
+      // Tenant-scoped: a course CODE is not globally unique, so an unscoped read would let another
+      // institute's ANNUAL study plan tag this institute's 'CS101' as annual. A platform admin (no
+      // universityId on the guard) keeps the unscoped read, and rows with no universityId simply
+      // contribute no system — which keeps the course visible, never hides it.
+      const tenant = guard.ctx.universityId ? { universityId: guard.ctx.universityId } : {};
+      const [planItems, programs] = await Promise.all([
+        prisma.studyPlanItem.findMany({
+          where: { courseCode: { in: offeredCodes }, programId: { not: null }, ...tenant },
+          select: { courseCode: true, programId: true },
+        }),
+        prisma.program.findMany({ where: tenant, select: { id: true, academicSystem: true } }),
+      ]);
+      const programSystems = new Map(programs.map((p) => [p.id, normalizeSystem(p.academicSystem)] as const));
+      for (const it of planItems) {
+        const sys = programSystems.get(it.programId!);
+        if (!sys) continue;
+        const set = systemsByCourseCode.get(it.courseCode) ?? new Set<string>();
+        set.add(sys);
+        systemsByCourseCode.set(it.courseCode, set);
+      }
+    }
+
     // Flatten offerings → one catalog row per section (registration capacity lives per-section).
     const catalog: CatalogRow[] = [];
     for (const o of offerings) {
@@ -97,6 +129,7 @@ export async function GET(request: NextRequest) {
           seats: s.capacity,
           enrolled: s._count.items, // count of RegistrationItem rows for this section (all states)
           schedule: formatSchedule(s.day, s.startMin, s.endMin),
+          systems: [...(systemsByCourseCode.get(o.course.code) ?? [])],
         });
       }
     }

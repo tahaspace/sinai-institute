@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 
 // GET /api/institute/finance/installments — installment plans derived from FeeAccount/Payment.
@@ -9,7 +10,7 @@ export async function GET() {
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
     const accounts = await prisma.feeAccount.findMany({
-      include: { payments: true, student: true },
+      include: { payments: true, student: { include: { program: { select: { academicSystem: true } } } } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -23,6 +24,9 @@ export async function GET() {
         id: a.id,
         student: a.student.nameAr,
         studentCode: a.student.studentCode,
+        // Display dimension only — resolved from the student's programme so the page never guesses
+        // it. Finance is never *scoped* by system: stats below stay institute-wide.
+        system: normalizeSystem(a.student.program?.academicSystem),
         totalFees: a.totalFees,
         installments: a.installments,
         paidInstallments: paidPayments.length,

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -25,6 +26,7 @@ interface WarningRow {
   typeLabel: string
   reason: string
   gpa: number | null
+  system: string
   status: "ACTIVE" | "RESOLVED"
   date: string
 }
@@ -38,6 +40,7 @@ interface WarningApiStats {
 export default function WarningsPage() {
   const [warnings, setWarnings] = useState<WarningRow[]>([])
   const [apiStats, setApiStats] = useState<WarningApiStats>({ total: 0, active: 0, resolved: 0 })
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actioning, setActioning] = useState<string | null>(null)
@@ -85,10 +88,23 @@ export default function WarningsPage() {
     }
   }
 
+  const narrowed = systemFilter === "CREDIT_HOURS" || systemFilter === "ANNUAL"
+  const visibleWarnings = warnings.filter((w) => matchesSystem(w.system, systemFilter))
+
+  // With no system selected the cards are the API's own totals, byte-for-byte; a real selection
+  // recounts the visible rows so the headline can never disagree with the table below.
+  const visibleStats = narrowed
+    ? {
+        total: visibleWarnings.length,
+        active: visibleWarnings.filter((w) => w.status === "ACTIVE").length,
+        resolved: visibleWarnings.filter((w) => w.status === "RESOLVED").length,
+      }
+    : apiStats
+
   const warningStats = [
-    { label: "إجمالي الإنذارات", value: String(apiStats.total), icon: AlertTriangle, color: "text-yellow-600", bg: "bg-yellow-100" },
-    { label: "إنذارات نشطة", value: String(apiStats.active), icon: TrendingDown, color: "text-red-700", bg: "bg-red-200" },
-    { label: "تمت المعالجة", value: String(apiStats.resolved), icon: CheckCircle, color: "text-green-700", bg: "bg-green-100" },
+    { label: "إجمالي الإنذارات", value: String(visibleStats.total), icon: AlertTriangle, color: "text-yellow-600", bg: "bg-yellow-100" },
+    { label: "إنذارات نشطة", value: String(visibleStats.active), icon: TrendingDown, color: "text-red-700", bg: "bg-red-200" },
+    { label: "تمت المعالجة", value: String(visibleStats.resolved), icon: CheckCircle, color: "text-green-700", bg: "bg-green-100" },
   ]
 
   const getWarningBadge = (warning: WarningRow) => {
@@ -147,6 +163,15 @@ export default function WarningsPage() {
         ))}
       </div>
 
+      {/* Filters */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full md:w-64" />
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Warnings Table */}
       <Card>
         <CardHeader>
@@ -167,7 +192,7 @@ export default function WarningsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {warnings.map((warning) => (
+              {visibleWarnings.map((warning) => (
                 <TableRow key={warning.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
@@ -184,7 +209,9 @@ export default function WarningsPage() {
                   </TableCell>
                   <TableCell>{warning.department}</TableCell>
                   <TableCell>
-                    {warning.gpa !== null ? (
+                    {/* annual students are judged by percentage/تقدير and store no CGPA — a snapshot
+                        of their 0 is not a 0.00 grade, so it must never be printed as one */}
+                    {warning.gpa !== null && warning.system !== "ANNUAL" ? (
                       <span className={`font-bold ${warning.gpa < 1.5 ? "text-red-600" : "text-yellow-600"}`}>
                         {warning.gpa.toFixed(2)}
                       </span>
@@ -218,6 +245,13 @@ export default function WarningsPage() {
                   </TableCell>
                 </TableRow>
               ))}
+              {narrowed && visibleWarnings.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                    لا توجد إنذارات مطابقة للتصفية الحالية.
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>

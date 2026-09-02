@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma';
 import { getRegulations } from '@/lib/regulations';
+import { studentSystemWhere, type AcademicSystem } from '@/lib/academic-system';
 
 // Per-course attendance report + the bylaw's 3-stage escalation:
 // warnings as absence rises toward the ban threshold, then deprivation (حرمان → DN)
@@ -23,18 +24,24 @@ export async function courseAttendance(
   courseId: string,
   academicYear: string,
   semester: string,
-  opts: { lowOnly?: boolean } = {},
+  opts: { lowOnly?: boolean; academicSystem?: AcademicSystem } = {},
 ) {
   const reg = await getRegulations();
   const course = await prisma.course.findUnique({ where: { id: courseId } });
   if (!course) return null;
 
+  // Optional academic-system narrowing: `undefined` yields `{}` so every existing caller keeps the
+  // whole roster. The same fragment goes on the attendance query only so out-of-system rows are never
+  // loaded — it cannot change a tally: byStudent is keyed by studentId and read only for enrollments
+  // that already passed the same predicate.
+  const systemWhere = studentSystemWhere(opts.academicSystem);
+
   const enrollments = await prisma.enrollment.findMany({
-    where: { courseId, academicYear, semester },
+    where: { courseId, academicYear, semester, ...systemWhere },
     include: { student: true },
     orderBy: { student: { studentCode: 'asc' } },
   });
-  const attendance = await prisma.attendance.findMany({ where: { courseId, academicYear, semester } });
+  const attendance = await prisma.attendance.findMany({ where: { courseId, academicYear, semester, ...systemWhere } });
 
   // group attendance by student
   const byStudent = new Map<string, { sessions: number; attended: number; absent: number }>();
@@ -73,7 +80,8 @@ export async function courseAttendance(
   // حصر (filtered roster) the registrar acts on; rounded attendance is compared so
   // the UI highlight and this filter use the same value.
   const isLow = (r: AttendanceRow) => r.attendancePct <= reg.attendanceWarnThreshold;
-  // Summary always reflects the full roster so the cards stay stable when filtering.
+  // Summary covers every row this call loaded, so the cards stay stable when `lowOnly` narrows the
+  // table below. It does move with `opts.academicSystem`, which narrows the roster itself, not the view.
   const summary = {
     total: allRows.length,
     warned: allRows.filter((r) => r.warningStage > 0 && !r.banned).length,

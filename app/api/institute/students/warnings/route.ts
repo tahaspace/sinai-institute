@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 
 const typeLabel = (t: string) =>
@@ -12,7 +13,7 @@ export async function GET() {
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
     const warnings = await prisma.studentWarning.findMany({
-      include: { student: { include: { department: true } } },
+      include: { student: { include: { department: true, program: true } } },
       orderBy: { issuedAt: 'desc' },
     });
 
@@ -26,6 +27,8 @@ export async function GET() {
         typeLabel: typeLabel(w.type),
         reason: w.reason,
         gpa: w.gpa,
+        // Program-driven, resolved server-side — the client filters/renders on this, never guesses it.
+        system: normalizeSystem(w.student.program?.academicSystem),
         status: w.status,
         date: w.issuedAt.toISOString().slice(0, 10),
       })),
@@ -53,9 +56,15 @@ export async function POST(request: NextRequest) {
     if (!sid && studentCode) sid = (await prisma.student.findUnique({ where: { studentCode } }))?.id;
     if (!sid || !reason) return NextResponse.json({ error: 'الطالب والسبب مطلوبان' }, { status: 400 });
 
-    const student = await prisma.student.findUnique({ where: { id: sid } });
+    const student = await prisma.student.findUnique({
+      where: { id: sid },
+      include: { program: { select: { academicSystem: true } } },
+    });
+    // The gpa snapshot is a CGPA, which annual students do not have — writing their stored 0 would
+    // freeze a fabricated 0.00 onto the warning forever. Null means "not applicable" and renders "—".
+    const snapshotGpa = normalizeSystem(student?.program?.academicSystem) === 'ANNUAL' ? null : student?.gpa ?? null;
     const warning = await prisma.studentWarning.create({
-      data: { studentId: sid, type: type || 'ACADEMIC', reason, gpa: student?.gpa ?? null, status: 'ACTIVE' },
+      data: { studentId: sid, type: type || 'ACADEMIC', reason, gpa: snapshotGpa, status: 'ACTIVE' },
     });
     return NextResponse.json(warning, { status: 201 });
   } catch (error) {

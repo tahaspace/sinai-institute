@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 
 // GET /api/institute/finance/scholarships — list + summary.
@@ -9,7 +10,7 @@ export async function GET() {
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
     const scholarships = await prisma.scholarship.findMany({
-      include: { student: true },
+      include: { student: { include: { program: { select: { academicSystem: true } } } } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -18,6 +19,8 @@ export async function GET() {
         id: s.id,
         student: s.student.nameAr,
         studentCode: s.student.studentCode,
+        // Display dimension only — the list may be narrowed by it, the granted amounts never are.
+        system: normalizeSystem(s.student.program?.academicSystem),
         type: s.type,
         amount: s.amount,
         percentage: s.percentage,

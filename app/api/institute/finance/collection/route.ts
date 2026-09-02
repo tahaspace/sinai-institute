@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 import { currentUserId } from '@/lib/student';
 import { releaseFinancialHoldsIfPaid } from '@/lib/holds';
@@ -11,7 +12,11 @@ export async function GET() {
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
     const payments = await prisma.payment.findMany({
-      include: { account: { include: { student: { include: { department: true } } } } },
+      include: {
+        account: {
+          include: { student: { include: { department: true, program: { select: { academicSystem: true } } } } },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
@@ -20,6 +25,8 @@ export async function GET() {
       id: p.id,
       student: p.account.student.nameAr,
       studentCode: p.account.student.studentCode,
+      // Display dimension only — the collection feed may be narrowed by it, the money never is.
+      system: normalizeSystem(p.account.student.program?.academicSystem),
       department: p.account.student.department?.nameAr ?? 'غير محدد',
       amount: p.amount,
       method: p.method ?? '-',

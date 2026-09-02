@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,6 +13,7 @@ interface InstallmentPlan {
   id: string
   student: string
   studentCode: string
+  system: string
   totalFees: number
   installments: number
   paidInstallments: number
@@ -30,6 +32,7 @@ interface InstallmentStats {
 
 export default function InstallmentsPage() {
   const [plans, setPlans] = useState<InstallmentPlan[]>([])
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [apiStats, setApiStats] = useState<InstallmentStats>({ total: 0, completed: 0, active: 0, outstanding: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -56,6 +59,10 @@ export default function InstallmentsPage() {
     load()
     return () => { cancelled = true }
   }, [])
+
+  // The filter narrows the list of plans only. The stat cards stay institute-wide on purpose:
+  // «متأخرة» is the outstanding receivable, an accounting figure that must not move with a view filter.
+  const visiblePlans = plans.filter((p) => matchesSystem(p.system, systemFilter))
 
   const stats = [
     { label: "إجمالي الأقساط", value: String(apiStats.total), icon: Calendar, color: "text-institute-blue" },
@@ -110,12 +117,24 @@ export default function InstallmentsPage() {
       {/* Installment Plans */}
       <Card>
         <CardHeader>
-          <CardTitle>خطط التقسيط النشطة</CardTitle>
-          <CardDescription>متابعة خطط التقسيط الحالية</CardDescription>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="space-y-1.5">
+              <CardTitle>خطط التقسيط النشطة</CardTitle>
+              <CardDescription>متابعة خطط التقسيط الحالية</CardDescription>
+            </div>
+            <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full md:w-56" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {plans.map((plan, index) => {
+            {/* A blank card under non-zero stat cards would otherwise read as "no plans exist" —
+                say whether the filter is what emptied it. */}
+            {!loading && visiblePlans.length === 0 && (
+              <p className="p-4 text-center text-sm text-muted-foreground">
+                {systemFilter === ACADEMIC_SYSTEM_ALL ? "لا توجد خطط تقسيط" : "لا توجد خطط تقسيط ضمن النظام المحدد"}
+              </p>
+            )}
+            {visiblePlans.map((plan, index) => {
               const percentage = plan.totalFees > 0 ? (plan.paid / plan.totalFees) * 100 : 0
               const isOverdue = plan.nextDueDate !== null && new Date(plan.nextDueDate) < new Date()
 

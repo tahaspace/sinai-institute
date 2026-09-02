@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { resolveApplicationProgramId } from '@/lib/admission-program';
-import { requirePermission } from '@/lib/authz';
+import { normalizeSystem, normalizeSystemFilter } from '@/lib/academic-system';
+import { hasPermission, requirePermission } from '@/lib/authz';
+
+type ProgramRow = { id: string; nameAr: string; nameEn: string | null; academicSystem: string };
 
 const statusLabel = (s: string) =>
   ({ PENDING: 'قيد المراجعة', APPROVED: 'مقبول', REJECTED: 'مرفوض', ENROLLED: 'تم التسجيل' } as Record<string, string>)[s] ?? s;
 
-// GET /api/institute/admissions?status=
+// GET /api/institute/admissions?status=&system=
 export async function GET(request: NextRequest) {
   try {
     const guard = await requirePermission('admission.application.view');
@@ -14,10 +17,42 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
-    const where: Record<string, unknown> = {};
-    if (status && status !== 'all') where.status = status.toUpperCase();
+    // Status scope on its own. Kept separate from the system fragment so the "unlinked" count below
+    // is measured against the tab the user is looking at, not against the already-narrowed subset.
+    const baseWhere: Record<string, unknown> = {};
+    if (status && status !== 'all') baseWhere.status = status.toUpperCase();
 
-    const apps = await prisma.application.findMany({ where, orderBy: { createdAt: 'desc' } });
+    // An applicant is not a student yet, so their academic system comes from the programme they
+    // applied to (Application.programId). A relation filter on a nullable to-one drops rows whose
+    // programme is unresolved, which is what we want: such a row belongs to NEITHER system and must
+    // not be silently counted into one. No filter ⇒ no fragment ⇒ byte-identical to the old query.
+    const system = normalizeSystemFilter(searchParams.get('system'));
+    const where = system ? { ...baseWhere, program: { academicSystem: system } } : baseWhere;
+
+    // Served here rather than from /api/institute/programs so the review screen can stamp a
+    // programme at enrolment under the admissions permission alone (no extra program.view grant).
+    // The list only feeds the enrolment dialog, which needs `decide` — programme data is otherwise
+    // gated behind `program.view`, so a view-only reviewer neither receives the catalogue nor pays
+    // for the query that builds it. ADMISSIONS/INSTITUTE_ADMIN still get it via `admission.*`/ALL.
+    const canDecide = hasPermission(guard.ctx, 'admission.application.decide');
+    const programsQuery: Promise<ProgramRow[]> = canDecide
+      ? prisma.program.findMany({
+          select: { id: true, nameAr: true, nameEn: true, academicSystem: true },
+          orderBy: { nameAr: 'asc' },
+        })
+      : Promise.resolve([]);
+
+    const [apps, unlinked, programs] = await Promise.all([
+      prisma.application.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: { program: { select: { academicSystem: true } } },
+      }),
+      // How many applications in this tab carry no programme at all. A system-narrowed view can
+      // never show them, so the screen reports the gap instead of implying they do not exist.
+      prisma.application.count({ where: { ...baseWhere, programId: null } }),
+      programsQuery,
+    ]);
 
     const byStatus = (s: string) => apps.filter((a) => a.status === s).length;
     return NextResponse.json({
@@ -29,9 +64,18 @@ export async function GET(request: NextRequest) {
         phone: a.phone,
         highSchoolGrade: a.highSchoolGrade,
         firstChoice: a.firstChoice,
+        programId: a.programId,
+        // null (not a defaulted CREDIT_HOURS) when no programme is resolved — the UI shows "—".
+        system: a.program ? normalizeSystem(a.program.academicSystem) : null,
         status: a.status,
         statusLabel: statusLabel(a.status),
         createdAt: a.createdAt.toISOString().slice(0, 10),
+      })),
+      programs: programs.map((p) => ({
+        id: p.id,
+        nameAr: p.nameAr,
+        nameEn: p.nameEn ?? '',
+        academicSystem: normalizeSystem(p.academicSystem),
       })),
       stats: {
         total: apps.length,
@@ -39,6 +83,7 @@ export async function GET(request: NextRequest) {
         approved: byStatus('APPROVED'),
         rejected: byStatus('REJECTED'),
         enrolled: byStatus('ENROLLED'),
+        unlinked,
       },
     });
   } catch (error) {
@@ -68,7 +113,10 @@ export async function PATCH(request: NextRequest) {
     // Resolve the applicant's choice to a real Program. This is what carries the academic system:
     // a Student created without a programId silently defaults to credit-hours, which would be wrong
     // for an annual-programme applicant and would misroute every later result/promotion decision.
-    const resolvedProgramId = await resolveApplicationProgramId(app.firstChoice, programId);
+    // Normalized once here so the Student created below and the Application row updated at the end
+    // can never disagree about which programme the reviewer actually chose.
+    const explicitProgramId = typeof programId === 'string' && programId ? programId : null;
+    const resolvedProgramId = await resolveApplicationProgramId(app.firstChoice, explicitProgramId);
 
     if (next === 'ENROLLED') {
       // Create the Student from the application if not already created.
@@ -93,10 +141,22 @@ export async function PATCH(request: NextRequest) {
       });
     }
 
+    // Persist the resolution too, so admissions reports can be filtered by academic system.
+    // The reviewer's explicit pick is authoritative — it is exactly what the created Student
+    // inherits, so leaving a stale programme on the Application would split one fact across two
+    // rows and file an annual student under credit hours in every system-filtered admissions view.
+    // The free-text name match stays a guess: it may fill an empty link, never overwrite a set one.
+    const programIdPatch = explicitProgramId
+      ? explicitProgramId !== app.programId
+        ? { programId: explicitProgramId }
+        : {}
+      : !app.programId && resolvedProgramId
+      ? { programId: resolvedProgramId }
+      : {};
+
     const updated = await prisma.application.update({
       where: { id },
-      // Persist the resolution too, so admissions reports can be filtered by academic system.
-      data: { status: next, ...(resolvedProgramId && !app.programId ? { programId: resolvedProgramId } : {}) },
+      data: { status: next, ...programIdPatch },
     });
     return NextResponse.json({ application: updated, createdStudent });
   } catch (error) {

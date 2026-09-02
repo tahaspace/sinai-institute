@@ -27,9 +27,10 @@ export const attendanceReports: ReportDef[] = [
   },
   {
     id: 'deprivation-list', category: 'attendance', nameAr: 'الطلاب المستحقون للحرمان (>25% غياب)',
-    permission: VIEW, filters: ['courseId', 'academicYear', 'semester'], requires: ['courseId', 'academicYear', 'semester'],
-    run: async (f) => {
-      const r = await courseAttendance(f.courseId!, f.academicYear!, f.semester!);
+    permission: VIEW, filters: ['courseId', 'academicYear', 'semester'], requires: ['courseId', 'academicYear', 'semester'], systemAware: true,
+    run: async (f, ctx) => {
+      // courseAttendance narrows its own roster; the bylaw thresholds it applies stay untouched.
+      const r = await courseAttendance(f.courseId!, f.academicYear!, f.semester!, { academicSystem: ctx.academicSystem });
       if (!r) return { kind: 'table', columns: [], rows: [] };
       const rows = r.rows.filter((x) => x.banned).map((x) => ({ studentCode: x.studentCode, name: x.name, absencePct: `${x.absencePct}%`, sessions: x.sessions, absent: x.absent }));
       return { kind: 'table', columns: [{ key: 'studentCode', label: 'الرقم' }, { key: 'name', label: 'الاسم' }, { key: 'absencePct', label: 'نسبة الغياب', align: 'center' }, { key: 'absent', label: 'مرات الغياب', align: 'center', numeric: true }, { key: 'sessions', label: 'المحاضرات', align: 'center', numeric: true }], rows, totals: { studentCode: 'الإجمالي', name: `${rows.length}` }, meta: { course: r.course } };
@@ -37,9 +38,9 @@ export const attendanceReports: ReportDef[] = [
   },
   {
     id: 'near-deprivation', category: 'attendance', nameAr: 'الطلاب المقتربون من الحرمان',
-    permission: VIEW, filters: ['courseId', 'academicYear', 'semester'], requires: ['courseId', 'academicYear', 'semester'],
-    run: async (f) => {
-      const r = await courseAttendance(f.courseId!, f.academicYear!, f.semester!);
+    permission: VIEW, filters: ['courseId', 'academicYear', 'semester'], requires: ['courseId', 'academicYear', 'semester'], systemAware: true,
+    run: async (f, ctx) => {
+      const r = await courseAttendance(f.courseId!, f.academicYear!, f.semester!, { academicSystem: ctx.academicSystem });
       if (!r) return { kind: 'table', columns: [], rows: [] };
       const rows = r.rows.filter((x) => !x.banned && x.warningStage >= 2).map((x) => ({ studentCode: x.studentCode, name: x.name, absencePct: `${x.absencePct}%`, stage: x.warningStage }));
       return { kind: 'table', columns: [{ key: 'studentCode', label: 'الرقم' }, { key: 'name', label: 'الاسم' }, { key: 'absencePct', label: 'نسبة الغياب', align: 'center' }, { key: 'stage', label: 'درجة الإنذار', align: 'center', numeric: true }], rows, totals: { studentCode: 'الإجمالي', name: `${rows.length}` } };

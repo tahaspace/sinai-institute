@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import prisma from '@/lib/prisma';
 import { authOptions } from '@/lib/auth';
 import { requirePermission } from '@/lib/authz';
 import { writeAudit } from '@/lib/audit';
 import { setExceptionStatus, approveExceptionStatus, resolveAction, ACTION_TYPES } from '@/lib/course-result';
+import { normalizeSystem, normalizeSystemFilter, studentSystemWhere } from '@/lib/academic-system';
 
 // Exceptional-case control desk (ClientR2).
 //   GET  → exception status options + reasons, the pending-approval queue, open follow-up
 //          actions, and (with ?courseId=) the course roster with each row's exception state.
+//          ?system= narrows the three student lists to one academic system (display only — it
+//          changes nothing about the state machine, which is driven by the GradeStatus rules table).
 //   PATCH→ action ∈ set | approve | reject | resolve, gated by the workflow permissions
 //          (set/resolve = control; approve/reject = control head / student affairs).
 
@@ -17,12 +21,33 @@ async function currentUserId(): Promise<string | null> {
   return (session?.user as { id?: string } | undefined)?.id ?? null;
 }
 
+/**
+ * The academic system behind an enrolment (via student → program). Used by the PATCH guards
+ * below: the picker on the desk already hides the credit-hour-only options for annual rows, but
+ * a tab opened before the deploy — or any direct request — still reaches this handler, so the
+ * refusal has to live here too. Unknown/unset program → CREDIT_HOURS, i.e. nothing is blocked.
+ */
+async function enrollmentSystem(enrollmentId: string) {
+  const e = await prisma.enrollment.findUnique({
+    where: { id: enrollmentId },
+    select: { student: { select: { program: { select: { academicSystem: true } } } } },
+  });
+  return normalizeSystem(e?.student.program?.academicSystem);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const guard = await requirePermission('exam.exception.view');
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
-    const courseId = new URL(request.url).searchParams.get('courseId') || undefined;
+    const params = new URL(request.url).searchParams;
+    const courseId = params.get('courseId') || undefined;
+    // «النظام الأكاديمي» narrowing, resolved SERVER-side: the two queues below are capped with
+    // take:200, so the cap has to apply *after* the narrowing or an annual-only view would be built
+    // from a credit-hour-dominated first 200 rows. Absent/'all' → undefined → studentSystemWhere()
+    // returns {} → the spread adds nothing and every query is byte-identical to before.
+    const system = normalizeSystemFilter(params.get('system'));
+    const studentScope = studentSystemWhere(system) as Prisma.EnrollmentWhereInput;
 
     const [statuses, letterStatuses, reasons, courses, pendingApproval, openActions] = await Promise.all([
       prisma.gradeStatus.findMany({ where: { isException: true }, orderBy: { order: 'asc' } }),
@@ -30,14 +55,14 @@ export async function GET(request: NextRequest) {
       prisma.courseResultReason.findMany({ where: { isActive: true }, orderBy: [{ category: 'asc' }, { order: 'asc' }] }),
       prisma.course.findMany({ orderBy: { code: 'asc' }, select: { id: true, code: true, nameAr: true } }),
       prisma.enrollment.findMany({
-        where: { statusApprovalState: 'PENDING' },
-        include: { student: { select: { studentCode: true, nameAr: true } }, course: { select: { code: true, nameAr: true } } },
+        where: { statusApprovalState: 'PENDING', ...studentScope },
+        include: { student: { select: { studentCode: true, nameAr: true, program: { select: { academicSystem: true } } } }, course: { select: { code: true, nameAr: true } } },
         orderBy: { updatedAt: 'desc' },
         take: 200,
       }),
       prisma.enrollment.findMany({
-        where: { resultPending: true },
-        include: { student: { select: { studentCode: true, nameAr: true } }, course: { select: { code: true, nameAr: true } } },
+        where: { resultPending: true, ...studentScope },
+        include: { student: { select: { studentCode: true, nameAr: true, program: { select: { academicSystem: true } } } }, course: { select: { code: true, nameAr: true } } },
         orderBy: [{ actionDueDate: 'asc' }],
         take: 200,
       }),
@@ -45,13 +70,14 @@ export async function GET(request: NextRequest) {
 
     const roster = courseId
       ? (await prisma.enrollment.findMany({
-          where: { courseId },
-          include: { student: { select: { studentCode: true, nameAr: true } } },
+          where: { courseId, ...studentScope },
+          include: { student: { select: { studentCode: true, nameAr: true, program: { select: { academicSystem: true } } } } },
           orderBy: { student: { studentCode: 'asc' } },
         })).map((e) => ({
           enrollmentId: e.id,
           studentCode: e.student.studentCode,
           name: e.student.nameAr,
+          system: normalizeSystem(e.student.program?.academicSystem),
           gradeStatusCode: e.gradeStatusCode,
           reasonCode: e.reasonCode,
           attemptNo: e.attemptNo,
@@ -70,6 +96,7 @@ export async function GET(request: NextRequest) {
         enrollmentId: e.id,
         studentCode: e.student.studentCode,
         name: e.student.nameAr,
+        system: normalizeSystem(e.student.program?.academicSystem),
         course: e.course.nameAr,
         courseCode: e.course.code,
         gradeStatusCode: e.gradeStatusCode,
@@ -116,6 +143,22 @@ export async function PATCH(request: NextRequest) {
     if (action === 'set') {
       const { code, reasonCode, actionType, actionDueDate } = body;
       if (!code) return NextResponse.json({ error: 'كود الحالة مطلوب' }, { status: 400 });
+      // Every exceptional STATE is valid under both systems — حرمان and انسحاب are as real for an
+      // annual student as for a credit one. What is not valid for an annual student is a credit-hour
+      // LETTER grade, which carries GPA points and a CGPA the annual system does not have.
+      // setExceptionStatus now branches on the student's own system (it writes letterGrade/points as
+      // null and skips the CGPA recompute for annual), so status codes need no restriction here; only
+      // a letter grade is refused.
+      const [effect, system] = await Promise.all([
+        prisma.gradeStatus.findFirst({ where: { code }, select: { isLetter: true } }),
+        enrollmentSystem(enrollmentId),
+      ]);
+      if (system === 'ANNUAL' && effect?.isLetter) {
+        return NextResponse.json(
+          { error: 'النظام السنوي يُقيَّم بالنسبة المئوية والتقدير — لا يُسند تقدير حرفي (A/B+) لطالب في هذا النظام' },
+          { status: 422 },
+        );
+      }
       try {
         const res = await setExceptionStatus(enrollmentId, {
           code,
@@ -143,6 +186,20 @@ export async function PATCH(request: NextRequest) {
 
     if (action === 'resolve') {
       const { code, midterm, final, practical, homework } = body;
+      // A letter code stamped on an annual enrolment is a fabricated outcome: lib/gpa.ts' ANNUAL
+      // branch stores `letterGrade: null, points: null` but still records the gradeStatusCode it is
+      // handed, so an 'A' sent by a stale tab or a direct request would render as that student's
+      // grade everywhere downstream. Annual rows resolve from the recorded marks only.
+      // Queried solely when a code was sent → the "من الدرجات" path issues no extra reads.
+      if (code && (await enrollmentSystem(enrollmentId)) === 'ANNUAL') {
+        const st = await prisma.gradeStatus.findFirst({ where: { code }, select: { isLetter: true } });
+        if (st?.isLetter) {
+          return NextResponse.json(
+            { error: 'النظام السنوي لا يستخدم تقديرات الساعات المعتمدة — أنهِ الإجراء من الدرجات' },
+            { status: 422 },
+          );
+        }
+      }
       try {
         const res = await resolveAction(enrollmentId, {
           code: code ?? undefined,

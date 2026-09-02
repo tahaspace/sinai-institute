@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef, TableResult } from '@/lib/reporting/types';
 import { studentWhere, termWhere, academicSystemWhere } from '@/lib/reporting/filters';
+import { studentSystemWhere } from '@/lib/academic-system';
 import { computeStandingForStudents } from '@/lib/standing';
 
 /**
@@ -31,9 +32,11 @@ async function studentRoster(where: Record<string, unknown>, label?: string): Pr
   };
 }
 
-// systemAware reports below all scope their query through `studentWhere`, which already composes the
-// academic-system fragment under AND (absent/'all' → no narrowing, so the unfiltered result is
-// unchanged). ctx.academicSystem is the same value the hub sends as the `academicSystem` filter.
+// Two narrowing shapes live below. The Student rosters scope through `studentWhere`, which composes
+// the academic-system fragment under AND. The transfer sheets have no Student row of their own, so
+// they narrow through TransferRequest's OPTIONAL `student` relation via `studentSystemWhere`. Both
+// are no-ops when the filter is absent/'all', so the unfiltered result is unchanged.
+// ctx.academicSystem is the same value the hub sends as the `academicSystem` filter.
 const VIEW = 'student.view';
 
 export const studentAffairsReports: ReportDef[] = [
@@ -96,10 +99,19 @@ export const studentAffairsReports: ReportDef[] = [
   },
   {
     id: 'transferred-students', category: 'student-affairs', nameAr: 'كشف المحولين',
-    permission: 'transfer.view', filters: ['departmentId', 'status'],
+    permission: 'transfer.view', filters: ['departmentId', 'status'], systemAware: true,
     run: async (f, ctx) => {
       const reqs = await prisma.transferRequest.findMany({
-        where: { universityId: ctx.universityId ?? undefined, direction: 'OUTGOING', ...(f.status ? { status: f.status } : {}) },
+        // Unlike the rosters above (which go through studentWhere) a transfer narrows through its
+        // OPTIONAL `student` relation, which is deliberately ASYMMETRIC about the unknown case:
+        //   · UNLINKED request (studentId = null) — excluded from BOTH systems. A relation filter
+        //     matches only rows that have a related row, and with no Student there is no program, so
+        //     listing it under a picked system would assert a system we cannot know.
+        //   · LINKED student with NO program — INCLUDED under credit-hours, because the shared
+        //     fragment treats "no program" as credit-hours (the platform-wide default).
+        // Spreading is safe: the fragment nests its OR under `student`, adding no top-level key
+        // that collides here. With no system selected it is `{}` — the list is unchanged.
+        where: { universityId: ctx.universityId ?? undefined, direction: 'OUTGOING', ...(f.status ? { status: f.status } : {}), ...studentSystemWhere(ctx.academicSystem) },
         select: { studentName: true, institution: true, department: true, status: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
       });
@@ -116,7 +128,14 @@ export const studentAffairsReports: ReportDef[] = [
     description: 'طلاب محوَّلون من جهات أخرى', permission: 'transfer.view', filters: ['departmentId', 'status'],
     run: async (f, ctx) => {
       const reqs = await prisma.transferRequest.findMany({
-        where: { universityId: ctx.universityId ?? undefined, direction: 'INCOMING', ...(f.status ? { status: f.status } : {}) },
+        // Same relation-based narrowing as كشف المحولين — but this report deliberately does NOT
+        // declare `systemAware`, so the hub never offers the filter for it. No write path in the repo
+        // ever sets studentId on an INCOMING request (they are recorded under the other institution's
+        // free-text name; the transfers API is GET + a status-only PATCH), so every incoming row is
+        // unlinked and a system pick could only blank the table. The narrowing is kept so the report
+        // becomes filterable for free the day incoming requests are linked to a Student — re-declare
+        // `systemAware` then. With no system selected it is `{}` — the list is unchanged today.
+        where: { universityId: ctx.universityId ?? undefined, direction: 'INCOMING', ...(f.status ? { status: f.status } : {}), ...studentSystemWhere(ctx.academicSystem) },
         select: { studentName: true, institution: true, department: true, status: true },
         orderBy: { createdAt: 'desc' },
       });

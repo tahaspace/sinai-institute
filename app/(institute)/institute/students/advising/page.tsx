@@ -1,12 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { GraduationCap, Users, MessageSquare, Calendar, Clock, TrendingUp } from "lucide-react"
+import { GraduationCap, Users, MessageSquare, Calendar, Clock, TrendingUp, type LucideIcon } from "lucide-react"
 
 interface AdviceStudent {
   id: string
@@ -16,18 +17,21 @@ interface AdviceStudent {
   gpa: number
   level: number
   activeWarnings: number
+  system: string
 }
 
 interface AdvisingApiStats {
   needAdvice: number
   totalStudents: number
   sessionsScheduled: number
+  totalBySystem?: { CREDIT_HOURS: number; ANNUAL: number }
 }
 
 export default function AdvisingPage() {
   const [studentsNeedingAdvice, setStudentsNeedingAdvice] = useState<AdviceStudent[]>([])
   const [upcomingSessions, setUpcomingSessions] = useState<unknown[]>([])
   const [apiStats, setApiStats] = useState<AdvisingApiStats>({ needAdvice: 0, totalStudents: 0, sessionsScheduled: 0 })
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -55,9 +59,38 @@ export default function AdvisingPage() {
     return () => { cancelled = true }
   }, [])
 
-  const advisingStats = [
-    { label: "طلاب يحتاجون إرشاد", value: String(apiStats.needAdvice), icon: TrendingUp, color: "text-red-600" },
-    { label: "إجمالي الطلاب", value: String(apiStats.totalStudents), icon: Users, color: "text-institute-blue" },
+  const narrowed = systemFilter === "CREDIT_HOURS" || systemFilter === "ANNUAL"
+  const annualOnly = systemFilter === "ANNUAL"
+  const visibleStudents = studentsNeedingAdvice.filter((s) => matchesSystem(s.system, systemFilter))
+
+  // "Needs advising" is a CGPA threshold, so the population it can ever be drawn from is the
+  // credit-hours one — at every filter value, "all" included. Pin the denominator to that same
+  // population, otherwise the two cards read "12 of 350" with the 12 sourced from a subset of the
+  // 350. Falls back to totalStudents when the API predates totalBySystem.
+  const totalForSystem = narrowed
+    ? apiStats.totalBySystem?.[systemFilter as "CREDIT_HOURS" | "ANNUAL"] ?? apiStats.totalStudents
+    : apiStats.totalBySystem?.CREDIT_HOURS ?? apiStats.totalStudents
+
+  // «يحتاجون إرشاد» reads straight off the API at "all", exactly as before; a real selection recounts
+  // the visible rows, so the headline can never disagree with the list below. The denominator card is
+  // deliberately different — it is pinned to the population the numerator is drawn from, and its label
+  // says which population that is rather than claiming to be the whole institute.
+  const advisingStats: { label: string; value: string; icon: LucideIcon; color: string; valueClass?: string }[] = [
+    {
+      label: "طلاب يحتاجون إرشاد",
+      // Under ANNUAL the list is structurally empty because the criterion does not exist for those
+      // students — not because none of them need advising. Print "—" rather than a fabricated 0.
+      value: annualOnly ? "—" : String(narrowed ? visibleStudents.length : apiStats.needAdvice),
+      icon: TrendingUp,
+      color: annualOnly ? "text-muted-foreground" : "text-red-600",
+      valueClass: annualOnly ? "text-muted-foreground" : undefined,
+    },
+    {
+      label: annualOnly ? "طلاب النظام السنوي" : "طلاب نظام الساعات المعتمدة",
+      value: String(totalForSystem),
+      icon: Users,
+      color: "text-institute-blue",
+    },
     { label: "جلسات مجدولة", value: String(apiStats.sessionsScheduled), icon: Calendar, color: "text-institute-blue" },
   ]
 
@@ -95,7 +128,7 @@ export default function AdvisingPage() {
                   <stat.icon className={`w-5 h-5 ${stat.color}`} />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{stat.value}</p>
+                  <p className={stat.valueClass ? `text-2xl font-bold ${stat.valueClass}` : "text-2xl font-bold"}>{stat.value}</p>
                   <p className="text-xs text-muted-foreground">{stat.label}</p>
                 </div>
               </CardContent>
@@ -103,6 +136,15 @@ export default function AdvisingPage() {
           </motion.div>
         ))}
       </div>
+
+      {/* Filters */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full md:w-64" />
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Students Needing Advice */}
@@ -116,7 +158,7 @@ export default function AdvisingPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {studentsNeedingAdvice.map((student, index) => (
+              {visibleStudents.map((student, index) => (
                 <motion.div
                   key={student.id}
                   initial={{ opacity: 0, x: -20 }}
@@ -135,8 +177,9 @@ export default function AdvisingPage() {
                       <Badge variant="outline">المستوى {student.level}</Badge>
                     </div>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className={`text-sm font-bold ${student.gpa < 2 ? "text-red-600" : "text-yellow-600"}`}>
-                        GPA: {student.gpa}
+                      {/* the list is credit-hours only, but never print a CGPA for a student who has none */}
+                      <span className={`text-sm font-bold ${student.system === "ANNUAL" ? "text-muted-foreground" : student.gpa < 2 ? "text-red-600" : "text-yellow-600"}`}>
+                        GPA: {student.system === "ANNUAL" ? "—" : student.gpa}
                       </span>
                       <span className="text-sm text-muted-foreground">•</span>
                       <span className="text-sm text-muted-foreground">{student.studentCode}</span>
@@ -153,6 +196,13 @@ export default function AdvisingPage() {
                   </Button>
                 </motion.div>
               ))}
+              {narrowed && visibleStudents.length === 0 && (
+                <p className="py-10 text-center text-sm text-muted-foreground">
+                  {systemFilter === "ANNUAL"
+                    ? "قائمة الإرشاد مبنية على المعدل التراكمي، وهو خاص بنظام الساعات المعتمدة. طلاب النظام السنوي يُقيَّمون بالنسبة المئوية والتقدير."
+                    : "لا يوجد طلاب مطابقون للتصفية الحالية."}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>

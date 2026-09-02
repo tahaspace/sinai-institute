@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesAnySystem } from "@/components/shared/academic-system-filter"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -21,6 +22,8 @@ interface CatalogCourse {
   seats: number
   enrolled: number
   schedule: string
+  /** systems of the study plans carrying this course; empty = on no plan yet, so never filtered out */
+  systems: string[]
 }
 
 interface RegistrationPeriod {
@@ -49,6 +52,7 @@ const SEMESTER_AR: Record<string, string> = {
 
 export default function RegistrationPage() {
   const [searchQuery, setSearchQuery] = useState("")
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
 
   const [registrationPeriod, setRegistrationPeriod] = useState<RegistrationPeriod | null>(null)
   const [term, setTerm] = useState<RegistrationTerm | null>(null)
@@ -84,14 +88,19 @@ export default function RegistrationPage() {
 
   const isOpen = registrationPeriod?.status === "open"
 
-  const filteredCourses = availableCourses.filter((c) =>
-    !searchQuery || c.name.includes(searchQuery) || c.code.includes(searchQuery)
+  const filteredCourses = availableCourses.filter(
+    (c) =>
+      (!searchQuery || c.name.includes(searchQuery) || c.code.includes(searchQuery)) &&
+      // matchesAnySystem, not matchesSystem: one course can sit on both a credit-hour and an annual plan
+      matchesAnySystem(c.systems, systemFilter)
   )
 
   const stats = [
     { label: "طلاب مسجلين", value: apiStats.registeredStudents.toLocaleString("en-US"), icon: GraduationCap, color: "text-institute-blue" },
     { label: "مقررات مطروحة", value: apiStats.offeredCourses.toLocaleString("en-US"), icon: BookOpen, color: "text-institute-blue" },
-    { label: "متوسط الساعات", value: apiStats.averageHours.toLocaleString("en-US"), icon: Clock, color: "text-institute-gold" },
+    // Arithmetic unchanged (registered credit-hours ÷ every registered student); the label says so, since
+    // annual students carry no credit hours and would otherwise look like part of an "hours" average.
+    { label: "متوسط الساعات المعتمدة (لكل طالب مسجل)", value: apiStats.averageHours.toLocaleString("en-US"), icon: Clock, color: "text-institute-gold" },
   ]
 
   return (
@@ -167,17 +176,6 @@ export default function RegistrationPage() {
         ))}
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-md">
-        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder="بحث عن مقرر..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pr-10"
-        />
-      </div>
-
       {/* Available Courses */}
       <Card>
         <CardHeader>
@@ -185,13 +183,32 @@ export default function RegistrationPage() {
           <CardDescription>اختر المقررات التي تريد تسجيلها</CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Both controls live inside the card that owns the catalog: they narrow THIS list only, never
+              the term-wide stat tiles above («طلاب مسجلين» counts students, not catalog rows). */}
+          <div className="flex flex-col md:flex-row md:items-center gap-4 mb-4">
+            <div className="relative w-full md:max-w-md">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="بحث عن مقرر..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pr-10"
+              />
+            </div>
+            <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full md:w-48" />
+          </div>
           <div className="space-y-4">
             {!loading && filteredCourses.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-6">لا توجد مقررات متاحة</p>
+              <p className="text-sm text-muted-foreground text-center py-6">
+                {systemFilter !== ACADEMIC_SYSTEM_ALL ? "لا توجد مقررات مطابقة للنظام المحدد" : "لا توجد مقررات متاحة"}
+              </p>
             )}
             {filteredCourses.map((course, index) => {
               const seatPercentage = course.seats > 0 ? (course.enrolled / course.seats) * 100 : 0
               const isAlmostFull = seatPercentage >= 90
+              // Course.creditHours is a credit-hour column; a row carried only by annual study plans has
+              // no credit hours to show. Unknown/mixed rows keep the badge (narrow, never hide).
+              const annualOnly = course.systems.length > 0 && !course.systems.includes("CREDIT_HOURS")
 
               return (
                 <motion.div
@@ -206,7 +223,7 @@ export default function RegistrationPage() {
                     <div className="flex items-center gap-2">
                       <h4 className="font-medium">{course.name}</h4>
                       <Badge variant="outline">{course.code}</Badge>
-                      <Badge className="bg-institute-blue text-institute-blue">{course.hours} ساعات</Badge>
+                      {!annualOnly && <Badge className="bg-institute-blue text-institute-blue">{course.hours} ساعات</Badge>}
                     </div>
                     <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                       <span>{course.instructor}</span>

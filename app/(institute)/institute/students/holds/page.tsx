@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -45,14 +46,15 @@ const STATUS_BADGE: Record<string, string> = {
   RELEASED: "bg-green-100 text-green-700", CANCELLED: "bg-gray-100 text-gray-600", EXPIRED: "bg-gray-100 text-gray-500",
 }
 
-type StudentRow = { id: string; studentCode: string; name: string; level: number; department: string; program: string; outstanding: number; paymentStatus: string; held: boolean; activeHolds: string[] }
-type HoldRow = { id: string; student: string; studentCode: string; department: string; type: string; typeLabel: string; reason: string; scopes: string[]; status: string; statusLabel: string; source: string; startDate: string; endDate: string | null; releasedAt: string | null }
-type Candidate = { id: string; studentCode: string; nameAr: string; level: number; outstanding: number }
+type StudentRow = { id: string; studentCode: string; name: string; level: number; department: string; program: string; outstanding: number; paymentStatus: string; held: boolean; activeHolds: string[]; system: string }
+type HoldRow = { id: string; student: string; studentCode: string; department: string; type: string; typeLabel: string; reason: string; scopes: string[]; status: string; statusLabel: string; source: string; startDate: string; endDate: string | null; releasedAt: string | null; system: string }
+type Candidate = { id: string; studentCode: string; nameAr: string; level: number; outstanding: number; system: string }
 type Reason = { id: string; nameAr: string; nameEn: string | null; defaultType: string; active: boolean }
 type Opt = { id: string; name: string }
 
 export default function StudentHoldsPage() {
   const [tab, setTab] = useState("apply")
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
@@ -98,13 +100,16 @@ export default function StudentHoldsPage() {
     try {
       const qs = new URLSearchParams()
       Object.entries(filters).forEach(([k, v]) => { if (v && v !== "all") qs.set(k, v) })
+      // Sent to the server, like every other filter here: the roster is capped server-side, so narrowing
+      // it in the browser could empty the table while hundreds of matches sit past the cap.
+      if (systemFilter !== ACADEMIC_SYSTEM_ALL) qs.set("system", systemFilter)
       const res = await fetch(`/api/institute/holds/students?${qs.toString()}`)
       if (!res.ok) throw new Error("فشل في جلب الطلاب")
       const j = await res.json()
       if (!signal?.cancelled) { setStudents(j.students ?? []); setSelected(new Set()) }
     } catch (e) { if (!signal?.cancelled) setError((e as Error).message) }
     finally { if (!signal?.cancelled) setLoadingStudents(false) }
-  }, [filters])
+  }, [filters, systemFilter])
 
   const loadHolds = useCallback(async (signal?: { cancelled: boolean }) => {
     try {
@@ -139,6 +144,17 @@ export default function StudentHoldsPage() {
   useEffect(() => { const s = { cancelled: false }; if (tab === "apply") loadStudents(s); return () => { s.cancelled = true } }, [tab, loadStudents])
   useEffect(() => { const s = { cancelled: false }; if (tab === "holds") loadHolds(s); return () => { s.cancelled = true } }, [tab, loadHolds])
   useEffect(() => { const s = { cancelled: false }; if (tab === "candidates") loadCandidates(s); return () => { s.cancelled = true } }, [tab, loadCandidates])
+
+  // ---- display filter (النظام الأكاديمي) ----
+  // The apply-tab roster is narrowed by the SERVER (it is capped there); these two lists are uncapped,
+  // so they narrow here. "all" keeps every row, so the screen behaves exactly as before until a system
+  // is picked. The hold engine never sees this.
+  const visibleHolds = holds.filter((h) => matchesSystem(h.system, systemFilter))
+  const visibleCandidates = candidates.filter((c) => matchesSystem(c.system, systemFilter))
+  const systemNarrowed = systemFilter !== ACADEMIC_SYSTEM_ALL
+  // Drop the selection when the view narrows — otherwise a bulk hold could hit students the
+  // registrar can no longer see. (The roster refetch clears it too; this also covers the candidates tab.)
+  const changeSystemFilter = (v: string) => { setSystemFilter(v); setSelected(new Set()) }
 
   // ---- actions ----
   const toggle = (id: string) => setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
@@ -224,7 +240,7 @@ export default function StudentHoldsPage() {
         <TabsContent value="apply" className="mt-6 space-y-4">
           <Card>
             <CardHeader><CardTitle>الفلاتر</CardTitle><CardDescription>حدّد الفئة ثم اختر الطلاب لتطبيق الحجب الجماعي</CardDescription></CardHeader>
-            <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <CardContent className="grid grid-cols-2 md:grid-cols-6 gap-3">
               <Select value={filters.departmentId} onValueChange={(v) => setFilters({ ...filters, departmentId: v })}>
                 <SelectTrigger><SelectValue placeholder="القسم" /></SelectTrigger>
                 <SelectContent><SelectItem value="all">كل الأقسام</SelectItem>{departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent>
@@ -242,6 +258,9 @@ export default function StudentHoldsPage() {
                 <SelectContent><SelectItem value="all">كل حالات السداد</SelectItem><SelectItem value="unpaid">عليه مديونية</SelectItem><SelectItem value="paid">مسدّد</SelectItem></SelectContent>
               </Select>
               <Input placeholder="بحث بالاسم/الكود" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} />
+              {/* In the filter row that owns the roster; w-full to fill its grid cell like the sibling
+                  selects. Changing it refetches, so the narrowing happens before the server-side cap. */}
+              <AcademicSystemFilter value={systemFilter} onChange={changeSystemFilter} className="w-full" />
             </CardContent>
           </Card>
 
@@ -282,7 +301,7 @@ export default function StudentHoldsPage() {
 
         {/* ---- TAB: current holds ---- */}
         <TabsContent value="holds" className="mt-6 space-y-4">
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <Select value={holdFilter.status} onValueChange={(v) => setHoldFilter({ ...holdFilter, status: v })}>
               <SelectTrigger className="w-44"><SelectValue placeholder="الحالة" /></SelectTrigger>
               <SelectContent><SelectItem value="all">كل الحالات</SelectItem><SelectItem value="ACTIVE">نشط</SelectItem><SelectItem value="PENDING">قيد المراجعة</SelectItem><SelectItem value="RELEASED">مرفوع</SelectItem><SelectItem value="CANCELLED">ملغى</SelectItem></SelectContent>
@@ -291,6 +310,8 @@ export default function StudentHoldsPage() {
               <SelectTrigger className="w-44"><SelectValue placeholder="النوع" /></SelectTrigger>
               <SelectContent><SelectItem value="all">كل الأنواع</SelectItem>{TYPE_LIST.map((t) => <SelectItem key={t.code} value={t.code}>{t.label}</SelectItem>)}</SelectContent>
             </Select>
+            {/* Same filter row as the status/type selects — all three narrow the table right below. */}
+            <AcademicSystemFilter value={systemFilter} onChange={changeSystemFilter} className="w-full md:w-48" />
           </div>
           <Card><CardContent className="p-0 overflow-x-auto">
             <Table>
@@ -299,8 +320,8 @@ export default function StudentHoldsPage() {
                 <TableHead className="text-center">المصدر</TableHead><TableHead className="text-center">الحالة</TableHead><TableHead className="text-center">من</TableHead><TableHead></TableHead>
               </TableRow></TableHeader>
               <TableBody>
-                {holds.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">لا توجد سجلات حجب</TableCell></TableRow> :
-                  holds.map((h) => (
+                {visibleHolds.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">{systemNarrowed ? "لا توجد سجلات حجب مطابقة للنظام المحدد" : "لا توجد سجلات حجب"}</TableCell></TableRow> :
+                  visibleHolds.map((h) => (
                     <TableRow key={h.id}>
                       <TableCell><div className="font-medium">{h.student}</div><div className="text-xs text-muted-foreground">{h.studentCode} — {h.department}</div></TableCell>
                       <TableCell>{h.typeLabel}</TableCell>
@@ -326,17 +347,22 @@ export default function StudentHoldsPage() {
         {/* ---- TAB: finance candidates ---- */}
         <TabsContent value="candidates" className="mt-6 space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {stat("مرشحون للحجب", candidates.length, DollarSign, "bg-amber-100 text-amber-700")}
-            {stat("إجمالي المديونية", candidates.reduce((s, c) => s + c.outstanding, 0).toLocaleString(), Users, "bg-red-100 text-red-700")}
+            {stat("مرشحون للحجب", visibleCandidates.length, DollarSign, "bg-amber-100 text-amber-700")}
+            {stat("إجمالي المديونية", visibleCandidates.reduce((s, c) => s + c.outstanding, 0).toLocaleString(), Users, "bg-red-100 text-red-700")}
           </div>
           <Card>
-            <CardHeader><CardTitle>طلاب معرضون للحجب</CardTitle><CardDescription>عليهم مديونية دون حجب مالي نشط — راجِع القائمة وأكّد الحجب</CardDescription></CardHeader>
+            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div><CardTitle>طلاب معرضون للحجب</CardTitle><CardDescription>عليهم مديونية دون حجب مالي نشط — راجِع القائمة وأكّد الحجب</CardDescription></div>
+              {/* This list has no filter row of its own, so the control sits in the header of the card
+                  that owns it — and the two tiles above count exactly these rows. */}
+              <AcademicSystemFilter value={systemFilter} onChange={changeSystemFilter} className="w-full md:w-48" />
+            </CardHeader>
             <CardContent className="overflow-x-auto">
               <Table>
                 <TableHeader><TableRow><TableHead>الطالب</TableHead><TableHead>الكود</TableHead><TableHead className="text-center">المستوى</TableHead><TableHead className="text-center">المديونية</TableHead><TableHead></TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {candidates.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">لا يوجد مرشحون حاليًا</TableCell></TableRow> :
-                    candidates.map((c) => (
+                  {visibleCandidates.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">{systemNarrowed ? "لا يوجد مرشحون مطابقون للنظام المحدد" : "لا يوجد مرشحون حاليًا"}</TableCell></TableRow> :
+                    visibleCandidates.map((c) => (
                       <TableRow key={c.id}>
                         <TableCell className="font-medium">{c.nameAr}</TableCell>
                         <TableCell className="text-muted-foreground">{c.studentCode}</TableCell>

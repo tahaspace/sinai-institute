@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
 import { motion } from "framer-motion"
 import {
   Receipt,
@@ -69,6 +70,8 @@ interface PaymentRow {
   id: string
   student: string
   studentCode: string
+  // Resolved server-side from the student's Program.academicSystem — display dimension only.
+  system: string
   department: string
   amount: number
   method: string
@@ -105,6 +108,7 @@ export default function InstituteCollectionPage() {
   const [departmentStats, setDepartmentStats] = useState<DepartmentStat[]>([])
   const [recentPayments, setRecentPayments] = useState<PaymentRow[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodStat[]>([])
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -145,6 +149,11 @@ export default function InstituteCollectionPage() {
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString("ar-EG")
   }
+
+  // Narrows the payments feed only — the same treatment the finance collection screen gets. Every
+  // figure above it (the four totals, the department table, the payment-method cards) is accounting
+  // data covering all systems and stays exactly as it is whatever is selected here.
+  const visiblePayments = recentPayments.filter((p) => matchesSystem(p.system, systemFilter))
 
   const totalCollected = departmentStats.reduce((sum, d) => sum + d.collected, 0)
   const totalPending = departmentStats.reduce((sum, d) => sum + d.pending, 0)
@@ -418,14 +427,15 @@ export default function InstituteCollectionPage() {
         {/* أحدث المدفوعات */}
         <TabsContent value="recent">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
                 <CardTitle>أحدث المدفوعات</CardTitle>
                 <CardDescription>
-                  آخر عمليات التحصيل
+                  آخر عمليات التحصيل — أحدث 50 عملية فقط
                 </CardDescription>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-44" />
                 <div className="relative">
                   <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input placeholder="بحث..." className="pr-10 w-48" />
@@ -449,7 +459,16 @@ export default function InstituteCollectionPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {recentPayments.map((payment) => (
+                  {!loading && visiblePayments.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
+                        {systemFilter === ACADEMIC_SYSTEM_ALL
+                          ? "لا توجد مدفوعات مسجلة"
+                          : "لا توجد مدفوعات ضمن النظام المحدد بين أحدث 50 عملية — قد توجد مدفوعات أقدم"}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {visiblePayments.map((payment) => (
                     <TableRow key={payment.id}>
                       <TableCell className="font-mono text-sm">
                         {payment.receipt}

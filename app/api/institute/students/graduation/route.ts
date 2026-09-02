@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 
 const statusLabel = (s: string) =>
@@ -23,7 +24,13 @@ export async function GET() {
         studentCode: r.student.studentCode,
         department: r.student.department?.nameAr ?? '',
         program: r.student.program?.nameAr ?? '',
-        academicSystem: r.student.program?.academicSystem === 'ANNUAL' ? 'ANNUAL' : 'CREDIT_HOURS',
+        // Program-driven and resolved server-side, under the platform-wide field name, so the
+        // screen filters and renders on it instead of guessing the system in the browser.
+        system: normalizeSystem(r.student.program?.academicSystem),
+        // Deploy-skew alias, removable after the next deploy: a tab still running the PREVIOUS
+        // bundle keys its annual branch off `academicSystem`, and without it the stored 0 CGPA of
+        // an annual student would render as a real «0.00».
+        academicSystem: normalizeSystem(r.student.program?.academicSystem),
         completedHours: r.completedHours,
         requiredHours: r.requiredHours,
         gpa: r.gpa,

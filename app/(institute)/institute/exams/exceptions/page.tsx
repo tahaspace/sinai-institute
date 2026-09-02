@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL } from "@/components/shared/academic-system-filter"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -19,13 +20,13 @@ interface ExceptionStatus { code: string; name: string; needsAction: boolean; ne
 interface LetterStatus { code: string; name: string }
 interface ReasonOpt { code: string; nameAr: string; category: string; appliesTo: string | null }
 interface RosterRow {
-  enrollmentId: string; studentCode: string; name: string
+  enrollmentId: string; studentCode: string; name: string; system: string
   gradeStatusCode: string | null; reasonCode: string | null; attemptNo: number
   resultPending: boolean; actionType: string | null; actionDueDate: string | null
   approvalState: string | null; resultLocked: boolean; academicYear: string; semester: string
 }
 interface QueueRow {
-  enrollmentId: string; studentCode: string; name: string; course: string; courseCode: string
+  enrollmentId: string; studentCode: string; name: string; system: string; course: string; courseCode: string
   gradeStatusCode: string | null; reasonCode: string | null; actionType: string | null
   actionDueDate: string | null; approvalState: string | null
 }
@@ -41,6 +42,7 @@ export default function ExceptionsPage() {
   const [pendingApproval, setPendingApproval] = useState<QueueRow[]>([])
   const [openActions, setOpenActions] = useState<QueueRow[]>([])
   const [selectedCourseId, setSelectedCourseId] = useState("")
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [roster, setRoster] = useState<RosterRow[]>([])
   const [draft, setDraft] = useState<Record<string, { code?: string; reasonCode?: string; due?: string }>>({})
   const [resolveCode, setResolveCode] = useState<Record<string, string>>({})
@@ -49,11 +51,18 @@ export default function ExceptionsPage() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
-  const load = useCallback(async (courseId?: string) => {
+  // The academic-system narrowing is sent to the SERVER, not applied in the browser: both queues are
+  // capped at 200 rows server-side, so narrowing first is the only way the cap lands on the rows the
+  // operator asked for. "all" is left off the query string entirely → the exact request as before.
+  const load = useCallback(async (courseId?: string, system?: string) => {
     setLoading(true)
     setError(null)
     try {
-      const url = courseId ? `/api/institute/exams/exceptions?courseId=${courseId}` : `/api/institute/exams/exceptions`
+      const qs = new URLSearchParams()
+      if (courseId) qs.set("courseId", courseId)
+      if (system && system !== ACADEMIC_SYSTEM_ALL) qs.set("system", system)
+      const q = qs.toString()
+      const url = q ? `/api/institute/exams/exceptions?${q}` : `/api/institute/exams/exceptions`
       const res = await fetch(url)
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
@@ -75,9 +84,13 @@ export default function ExceptionsPage() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
-  useEffect(() => { if (selectedCourseId) load(selectedCourseId) }, [selectedCourseId, load])
+  // Mount runs with no course (the server picks the list, we adopt courses[0]) then re-runs with it —
+  // the same two-step as before. Changing the system filter re-runs it too, including when there is
+  // no course selected at all, so the two queues stay narrowed.
+  useEffect(() => { load(selectedCourseId || undefined, systemFilter) }, [selectedCourseId, systemFilter, load])
 
+  // A narrowing is active → empty lists mean "no matches", never "none exist".
+  const narrowed = systemFilter !== ACADEMIC_SYSTEM_ALL
   const statusByCode = (c: string | null) => statuses.find((s) => s.code === c)
   const needsAction = (code?: string) => !!statusByCode(code ?? null)?.needsAction
 
@@ -100,7 +113,7 @@ export default function ExceptionsPage() {
       if (!res.ok) throw new Error(json.error || "فشل تطبيق الحالة")
       setNotice(`تم تطبيق الحالة ${d.code} (محاولة #${json.result?.attemptNo ?? "-"})${json.result?.resultPending ? " — بانتظار الإجراء والاعتماد" : " — بانتظار الاعتماد"}`)
       setDraft((p) => ({ ...p, [row.enrollmentId]: {} }))
-      await load(selectedCourseId)
+      await load(selectedCourseId, systemFilter)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -120,7 +133,7 @@ export default function ExceptionsPage() {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || "فشل تنفيذ الاعتماد")
       setNotice(approve ? "تم اعتماد الحالة" : "تم رفض الحالة")
-      await load(selectedCourseId)
+      await load(selectedCourseId, systemFilter)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -142,7 +155,7 @@ export default function ExceptionsPage() {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || "فشل إنهاء الإجراء")
       setNotice(`تم إنهاء الإجراء — النتيجة: ${json.result?.gradeStatusCode ?? "-"}`)
-      await load(selectedCourseId)
+      await load(selectedCourseId, systemFilter)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -152,14 +165,20 @@ export default function ExceptionsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <FileWarning className="w-7 h-7 text-red-600" />
-          الحالات الاستثنائية للنتائج
-        </h1>
-        <p className="text-muted-foreground">
-          تعيين حالات الكنترول (غائب بعذر / غير مكتمل / محروم / مؤجل …) بسبب وإجراء، واعتمادها وإنهاء الإجراءات المعلّقة
-        </p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <FileWarning className="w-7 h-7 text-red-600" />
+            الحالات الاستثنائية للنتائج
+          </h1>
+          <p className="text-muted-foreground">
+            تعيين حالات الكنترول (غائب بعذر / غير مكتمل / محروم / مؤجل …) بسبب وإجراء، واعتمادها وإنهاء الإجراءات المعلّقة
+          </p>
+        </div>
+        {/* Sits in the header because it narrows the WHOLE desk — roster, both queues, and therefore
+            the two student-derived counters below. The third card counts configured statuses, not
+            students, so it has no system dimension to follow. */}
+        <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full md:w-48" />
       </div>
 
       {error && <Card><CardContent className="p-4 text-center text-red-600">{error}</CardContent></Card>}
@@ -169,7 +188,7 @@ export default function ExceptionsPage() {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <Card><CardContent className="p-4 flex items-center gap-3"><Clock className="w-8 h-8 text-amber-500" /><div><div className="text-2xl font-bold">{pendingApproval.length}</div><div className="text-xs text-muted-foreground">بانتظار الاعتماد</div></div></CardContent></Card>
         <Card><CardContent className="p-4 flex items-center gap-3"><AlertTriangle className="w-8 h-8 text-red-600" /><div><div className="text-2xl font-bold">{openActions.length}</div><div className="text-xs text-muted-foreground">إجراءات مفتوحة</div></div></CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3"><CheckCircle2 className="w-8 h-8 text-institute-blue" /><div><div className="text-2xl font-bold">{statuses.length}</div><div className="text-xs text-muted-foreground">حالات استثنائية مُعرّفة</div></div></CardContent></Card>
+        <Card><CardContent className="p-4 flex items-center gap-3"><CheckCircle2 className="w-8 h-8 text-institute-blue" /><div><div className="text-2xl font-bold">{statuses.length}</div><div className="text-xs text-muted-foreground">حالات استثنائية مُعرّفة (إعداد)</div></div></CardContent></Card>
       </div>
 
       {/* 1) Set exceptional status on a course roster */}
@@ -189,7 +208,15 @@ export default function ExceptionsPage() {
           {loading ? (
             <div className="p-8 text-center text-muted-foreground">جارٍ التحميل...</div>
           ) : roster.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground">لا يوجد طلاب مسجلون في هذا المقرر</div>
+            <div className="p-8 text-center text-muted-foreground">
+              {/* The roster is queried by course, so with none selected it was never fetched —
+                  blaming the system filter (or the course) for that would be a false claim. */}
+              {!selectedCourseId
+                ? "اختر المقرر لعرض الطلاب"
+                : narrowed
+                  ? "لا يوجد طلاب مطابقون للنظام المختار في هذا المقرر"
+                  : "لا يوجد طلاب مسجلون في هذا المقرر"}
+            </div>
           ) : (
             <Table>
               <TableHeader>
@@ -226,6 +253,13 @@ export default function ExceptionsPage() {
                         <Select value={d.code ?? ""} onValueChange={(v) => setDraft((p) => ({ ...p, [row.enrollmentId]: { ...p[row.enrollmentId], code: v } }))} disabled={row.resultLocked}>
                           <SelectTrigger className="w-36 mx-auto"><SelectValue placeholder="اختر" /></SelectTrigger>
                           <SelectContent>
+                            {/* Annual programmes carry no GPA points and no CGPA, but applying an
+                                exceptional state stores the status' points and refreshes the cached
+                                CGPA — so a GPA-affecting code (ABS/NE/DN/DS) would stamp a
+                                credit-hour figure on a record that never had one. Annual rows get
+                                the states with no GPA weight only; the server refuses the rest. */}
+                            {/* every exceptional state is valid under both systems — the engine stores no letter/points
+                                for an annual student, so حرمان/انسحاب stay available to them */}
                             {statuses.map((s) => <SelectItem key={s.code} value={s.code}>{s.code} — {s.name}</SelectItem>)}
                           </SelectContent>
                         </Select>
@@ -264,7 +298,9 @@ export default function ExceptionsPage() {
         </CardHeader>
         <CardContent>
           {pendingApproval.length === 0 ? (
-            <div className="p-6 text-center text-muted-foreground">لا توجد حالات بانتظار الاعتماد</div>
+            <div className="p-6 text-center text-muted-foreground">
+              {narrowed ? "لا توجد حالات مطابقة للنظام المختار بانتظار الاعتماد" : "لا توجد حالات بانتظار الاعتماد"}
+            </div>
           ) : (
             <Table>
               <TableHeader><TableRow>
@@ -302,7 +338,9 @@ export default function ExceptionsPage() {
         </CardHeader>
         <CardContent>
           {openActions.length === 0 ? (
-            <div className="p-6 text-center text-muted-foreground">لا توجد إجراءات مفتوحة</div>
+            <div className="p-6 text-center text-muted-foreground">
+              {narrowed ? "لا توجد إجراءات مفتوحة مطابقة للنظام المختار" : "لا توجد إجراءات مفتوحة"}
+            </div>
           ) : (
             <Table>
               <TableHeader><TableRow>
@@ -324,7 +362,12 @@ export default function ExceptionsPage() {
                           <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__derive">من الدرجات</SelectItem>
-                            {letters.map((l) => <SelectItem key={l.code} value={l.code}>{l.code} — {l.name}</SelectItem>)}
+                            {/* Annual programmes have no credit letter and no GPA points at all
+                                (lib/gpa.ts writes letterGrade/points = null for them and lib/annual.ts
+                                derives النسبة/التقدير from the raw marks), so stamping A/B+/… on an
+                                annual enrolment would invent a credit-hour outcome. Those rows resolve
+                                from the recorded marks only. */}
+                            {r.system !== "ANNUAL" && letters.map((l) => <SelectItem key={l.code} value={l.code}>{l.code} — {l.name}</SelectItem>)}
                           </SelectContent>
                         </Select>
                         <Button size="sm" onClick={() => resolve(r.enrollmentId)} disabled={busy}>إنهاء</Button>

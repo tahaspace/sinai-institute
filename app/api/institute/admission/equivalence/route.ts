@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission, requireFeature } from '@/lib/authz';
 
 interface EquivalenceRow {
@@ -11,6 +12,9 @@ interface EquivalenceRow {
   creditHours: number;
   date: string;
   status: string; // lowercase for the page's getStatusBadge switch
+  // Academic system of the student the request belongs to. null when the request carries only a
+  // denormalized studentName and no Student row — it then belongs to neither system.
+  system: 'CREDIT_HOURS' | 'ANNUAL' | null;
 }
 
 // GET /api/institute/admission/equivalence
@@ -26,7 +30,9 @@ export async function GET() {
     const rows = await prisma.courseEquivalenceRequest.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
-        student: { select: { nameAr: true } },
+        // program.academicSystem is the only source of a student's system — pulled here so the
+        // screen filters on a server-resolved value instead of guessing one.
+        student: { select: { nameAr: true, program: { select: { academicSystem: true } } } },
         course: { select: { code: true, nameAr: true, creditHours: true } },
       },
     });
@@ -42,6 +48,9 @@ export async function GET() {
       creditHours: r.course?.creditHours ?? r.creditHours,
       date: r.createdAt.toISOString().slice(0, 10),
       status: r.status.toLowerCase(),
+      // A linked student with no programme counts as credit-hours (the platform-wide default);
+      // an unlinked request has no student dimension at all, hence null rather than a fabricated one.
+      system: r.student ? normalizeSystem(r.student.program?.academicSystem) : null,
     }));
 
     // All four tiles are aggregations over CourseEquivalenceRequest — none are stored.

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 
 // The academic term the dashboard aggregates over. Enrollment rows in the test
@@ -72,7 +73,7 @@ export async function GET() {
         where: { status: 'ACTIVE' },
         orderBy: { issuedAt: 'desc' },
         take: 3,
-        include: { student: { include: { department: true } } },
+        include: { student: { include: { department: true, program: true } } },
       }),
       prisma.setting.findFirst({ where: { key: 'institute.currentTerm' } }),
       prisma.setting.findFirst({ where: { key: 'institute.studyWeek' } }),
@@ -115,7 +116,10 @@ export async function GET() {
       id: w.id,
       student: w.student.nameAr,
       type: warningTypeLabel(w.type),
-      gpa: w.gpa ?? w.student.gpa,
+      // Annual students hold no CGPA (lib/gpa.ts stores raw marks only), so their Student.gpa is a
+      // structural 0 — falling back to it would re-materialise the very number the warnings screen
+      // deliberately renders as "—". Null is "not applicable"; the page prints "—" for it.
+      gpa: normalizeSystem(w.student.program?.academicSystem) === 'ANNUAL' ? null : w.gpa ?? w.student.gpa,
       department: w.student.department?.nameAr ?? '',
     }));
 

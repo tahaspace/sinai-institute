@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -18,6 +19,7 @@ interface PaymentRow {
   id: string
   student: string
   studentCode: string
+  system: string
   amount: number
   method: string
   receipt: string
@@ -35,6 +37,7 @@ interface CollectionStats {
 export default function CollectionPage() {
   const [studentId, setStudentId] = useState("")
   const [allPayments, setAllPayments] = useState<PaymentRow[]>([])
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [stats, setStats] = useState<CollectionStats>({
     totalPayments: 0,
     collected: 0,
@@ -71,7 +74,9 @@ export default function CollectionPage() {
     }
   }, [])
 
-  const recentPayments = allPayments
+  // Narrows the payments feed only. The four stat cards stay institute-wide: «المحصّل» / «المعلّق»
+  // are cash and receivable figures, and a display filter must never appear to restate them.
+  const recentPayments = allPayments.filter((p) => matchesSystem(p.system, systemFilter))
 
   const getStatusBadge = (status: PaymentRow["status"]) => {
     switch (status) {
@@ -211,11 +216,25 @@ export default function CollectionPage() {
       {/* Recent Payments */}
       <Card>
         <CardHeader>
-          <CardTitle>آخر المدفوعات</CardTitle>
-          <CardDescription>المدفوعات المسجلة اليوم</CardDescription>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="space-y-1.5">
+              <CardTitle>آخر المدفوعات</CardTitle>
+              {/* The endpoint returns the latest 50 payments only — named here so an empty filtered
+                  feed reads as "not in this page of results" rather than "none exist". */}
+              <CardDescription>المدفوعات المسجلة — أحدث 50 عملية فقط</CardDescription>
+            </div>
+            <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full md:w-56" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
+            {!loading && recentPayments.length === 0 && (
+              <p className="p-4 text-center text-sm text-muted-foreground">
+                {systemFilter === ACADEMIC_SYSTEM_ALL
+                  ? "لا توجد مدفوعات مسجلة"
+                  : "لا توجد مدفوعات ضمن النظام المحدد بين أحدث 50 عملية — قد توجد مدفوعات أقدم"}
+              </p>
+            )}
             {recentPayments.map((payment) => (
               <div key={payment.id} className="flex items-center justify-between p-4 rounded-lg border">
                 <div className="flex items-center gap-3">

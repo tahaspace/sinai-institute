@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 import { arAging, statementOfAccount } from '@/lib/finance/billing';
 
@@ -21,7 +22,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ type, student: { code: student.studentCode, name: student.nameAr }, report });
     }
     const report = await arAging(uni);
-    return NextResponse.json({ type: 'aging', report });
+    // Tag each aging row with its student's academic system so the registrar can narrow the list.
+    // Resolved here rather than in the AR engine: buckets, totals and grandTotal must keep tying to
+    // the AR control account, so the system is a row label the client filters on — never a where.
+    const codes = [...new Set(report.rows.map((r) => r.studentCode))];
+    const students = codes.length
+      ? await prisma.student.findMany({
+          where: { studentCode: { in: codes } }, // studentCode is globally unique
+          select: { studentCode: true, program: { select: { academicSystem: true } } },
+        })
+      : [];
+    const systemByCode = new Map(students.map((s) => [s.studentCode, normalizeSystem(s.program?.academicSystem)] as const));
+    const rows = report.rows.map((r) => ({ ...r, system: systemByCode.get(r.studentCode) ?? 'CREDIT_HOURS' }));
+    return NextResponse.json({ type: 'aging', report: { ...report, rows } });
   } catch (e) {
     console.error('Error building AR report:', e);
     return NextResponse.json({ error: 'فشل في إنشاء تقرير المدينين' }, { status: 500 });

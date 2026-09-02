@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
+import { academicSystemWhere, normalizeSystem, normalizeSystemFilter } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 
 // GET /api/institute/holds/students — the selectable roster for the "hold results"
@@ -25,12 +26,19 @@ export async function GET(request: NextRequest) {
     ];
     const paymentStatus = g('paymentStatus'); // paid | unpaid
 
+    // Academic-system narrowing runs in the QUERY, before the `take` below: this roster is capped, so
+    // narrowing the returned page in the browser could show nothing while hundreds of matches sit past
+    // the cap. The fragment carries its own OR (credit-hours ∪ no-programme), so it is composed under
+    // AND — never spread — beside the search OR set above. Absent/'all' contributes {} => no filtering.
+    const systemWhere = academicSystemWhere(normalizeSystemFilter(searchParams.get('system'))) as Prisma.StudentWhereInput;
+    if (Object.keys(systemWhere).length) where.AND = [systemWhere];
+
     const students = await prisma.student.findMany({
       where,
       select: {
         id: true, studentCode: true, nameAr: true, level: true,
         department: { select: { nameAr: true } },
-        program: { select: { nameAr: true } },
+        program: { select: { nameAr: true, academicSystem: true } },
         feeAccounts: { select: { totalFees: true, payments: { select: { amount: true, status: true } } } },
         holds: { where: { status: 'ACTIVE' }, select: { id: true, type: true } },
       },
@@ -48,6 +56,8 @@ export async function GET(request: NextRequest) {
       return {
         id: s.id, studentCode: s.studentCode, name: s.nameAr, level: s.level,
         department: s.department?.nameAr ?? '—', program: s.program?.nameAr ?? '—',
+        // the row carries its own system for display; the narrowing itself happened in the query above
+        system: normalizeSystem(s.program?.academicSystem),
         outstanding, paymentStatus: outstanding > 0 ? 'unpaid' : 'paid',
         activeHolds: s.holds.map((h) => h.type), held: s.holds.length > 0,
       };

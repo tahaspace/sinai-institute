@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -21,6 +22,7 @@ interface AppealRow {
   id: string
   student: string
   studentCode: string
+  system: string
   course: string
   courseCode: string
   reason: string
@@ -30,16 +32,9 @@ interface AppealRow {
   date: string
 }
 
-interface AppealStats {
-  total: number
-  pending: number
-  approved: number
-  rejected: number
-}
-
 export default function AppealsPage() {
   const [appeals, setAppeals] = useState<AppealRow[]>([])
-  const [apiStats, setApiStats] = useState<AppealStats>({ total: 0, pending: 0, approved: 0, rejected: 0 })
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actioning, setActioning] = useState<string | null>(null)
@@ -53,7 +48,6 @@ export default function AppealsPage() {
       const json = await res.json()
       if (!signal?.cancelled) {
         setAppeals(json.appeals ?? [])
-        setApiStats(json.stats ?? { total: 0, pending: 0, approved: 0, rejected: 0 })
       }
     } catch (e) {
       if (!signal?.cancelled) setError((e as Error).message)
@@ -88,11 +82,19 @@ export default function AppealsPage() {
     }
   }
 
+  // The endpoint hands back every appeal in one response (no server-side cap), so the narrowing is a
+  // browser-side pass — the house pattern. With "كل الأنظمة" this is the untouched `appeals` array.
+  const narrowed = systemFilter !== ACADEMIC_SYSTEM_ALL
+  const visibleAppeals = appeals.filter((a) => matchesSystem(a.system, systemFilter))
+
+  // Counted off the visible rows rather than the API's set-wide `stats`, because the cards sit above
+  // the filter and would otherwise keep quoting institute-wide totals. Unfiltered the two agree.
+  const countBy = (s: AppealStatus) => visibleAppeals.filter((a) => a.status === s).length
   const stats = [
-    { label: "إجمالي التظلمات", value: String(apiStats.total), icon: FileText, color: "text-institute-blue" },
-    { label: "قيد المراجعة", value: String(apiStats.pending), icon: Clock, color: "text-yellow-600" },
-    { label: "مقبول", value: String(apiStats.approved), icon: CheckCircle, color: "text-institute-blue" },
-    { label: "مرفوض", value: String(apiStats.rejected), icon: XCircle, color: "text-red-600" },
+    { label: "إجمالي التظلمات", value: String(visibleAppeals.length), icon: FileText, color: "text-institute-blue" },
+    { label: "قيد المراجعة", value: String(countBy("PENDING")), icon: Clock, color: "text-yellow-600" },
+    { label: "مقبول", value: String(countBy("APPROVED")), icon: CheckCircle, color: "text-institute-blue" },
+    { label: "مرفوض", value: String(countBy("REJECTED")), icon: XCircle, color: "text-red-600" },
   ]
 
   const getStatusBadge = (status: AppealStatus, statusLabel: string) => {
@@ -118,10 +120,14 @@ export default function AppealsPage() {
           </h1>
           <p className="text-muted-foreground">إدارة طلبات التظلم من نتائج الامتحانات</p>
         </div>
-        <Button>
-          <Plus className="w-4 h-4 ml-2" />
-          تقديم تظلم
-        </Button>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          {/* Above the stat cards on purpose: they are counted off the narrowed rows, so they follow it. */}
+          <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full md:w-48" />
+          <Button>
+            <Plus className="w-4 h-4 ml-2" />
+            تقديم تظلم
+          </Button>
+        </div>
       </div>
 
       {error && <Card><CardContent className="p-6 text-center text-red-600">{error}</CardContent></Card>}
@@ -170,7 +176,7 @@ export default function AppealsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {appeals.map((appeal) => (
+              {visibleAppeals.map((appeal) => (
                 <TableRow key={appeal.id}>
                   <TableCell>
                     <div>
@@ -215,6 +221,15 @@ export default function AppealsPage() {
                   </TableCell>
                 </TableRow>
               ))}
+              {/* !loading too: a reload() after an approve/reject would otherwise show the spinner
+                  card and a "no matches" row at once — asserting absence about a list still in flight. */}
+              {!loading && narrowed && visibleAppeals.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                    لا توجد تظلمات مطابقة للنظام الأكاديمي المختار
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>

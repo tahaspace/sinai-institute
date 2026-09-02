@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,6 +13,7 @@ interface ScholarshipRow {
   id: string
   student: string
   studentCode: string
+  system: string
   type: string
   amount: number
   percentage: number | null
@@ -28,6 +30,7 @@ interface ScholarshipStats {
 
 export default function ScholarshipsPage() {
   const [allScholarships, setAllScholarships] = useState<ScholarshipRow[]>([])
+  const [systemFilter, setSystemFilter] = useState(ACADEMIC_SYSTEM_ALL)
   const [apiStats, setApiStats] = useState<ScholarshipStats>({ total: 0, active: 0, totalAmount: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -55,6 +58,16 @@ export default function ScholarshipsPage() {
     return () => { cancelled = true }
   }, [])
 
+  // Both lists on this page are the same student list, so both narrow together — which is why the
+  // control sits in the list card's header, not the page header: the stat cards do NOT follow it
+  // («قيمة المنح» is the granted total finance books, «إجمالي المنح» counts every grant).
+  const scholarships = allScholarships.filter((s) => matchesSystem(s.system, systemFilter))
+
+  // "No grants at all" and "none in the selected system" are different facts, and the cards above
+  // stay institute-wide — so a blank list has to say which of the two it is.
+  const emptyScholarships = systemFilter === ACADEMIC_SYSTEM_ALL ? "لا توجد منح" : "لا توجد منح ضمن النظام المحدد"
+  const emptyBeneficiaries = systemFilter === ACADEMIC_SYSTEM_ALL ? "لا يوجد مستفيدون" : "لا يوجد مستفيدون ضمن النظام المحدد"
+
   const stats = [
     { label: "المستفيدين", value: String(apiStats.total), icon: Users, color: "text-institute-blue" },
     { label: "المنح النشطة", value: String(apiStats.active), icon: Award, color: "text-institute-gold" },
@@ -62,7 +75,7 @@ export default function ScholarshipsPage() {
     { label: "إجمالي المنح", value: String(allScholarships.length), icon: Percent, color: "text-institute-blue" },
   ]
 
-  const recentBeneficiaries = allScholarships.slice(0, 5).map((s) => ({
+  const recentBeneficiaries = scholarships.slice(0, 5).map((s) => ({
     name: s.student,
     type: s.type,
     amount: s.amount,
@@ -117,12 +130,20 @@ export default function ScholarshipsPage() {
         {/* Scholarships */}
         <Card>
           <CardHeader>
-            <CardTitle>المنح والإعفاءات</CardTitle>
-            <CardDescription>برامج المنح والإعفاءات المتاحة</CardDescription>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="space-y-1.5">
+                <CardTitle>المنح والإعفاءات</CardTitle>
+                <CardDescription>برامج المنح والإعفاءات المتاحة</CardDescription>
+              </div>
+              <AcademicSystemFilter value={systemFilter} onChange={setSystemFilter} className="w-full md:w-56" />
+            </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {allScholarships.map((scholarship, index) => (
+              {!loading && scholarships.length === 0 && (
+                <p className="p-4 text-center text-sm text-muted-foreground">{emptyScholarships}</p>
+              )}
+              {scholarships.map((scholarship, index) => (
                 <motion.div
                   key={scholarship.id}
                   initial={{ opacity: 0, x: -20 }}
@@ -157,6 +178,9 @@ export default function ScholarshipsPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              {!loading && recentBeneficiaries.length === 0 && (
+                <p className="p-4 text-center text-sm text-muted-foreground">{emptyBeneficiaries}</p>
+              )}
               {recentBeneficiaries.map((beneficiary, index) => (
                 <motion.div
                   key={index}

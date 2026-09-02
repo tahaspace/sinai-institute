@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { AcademicSystemFilter, ACADEMIC_SYSTEM_ALL, matchesSystem } from "@/components/shared/academic-system-filter"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -20,6 +21,7 @@ export default function BillingPage() {
   const [structures, setStructures] = useState<Any[]>([])
   const [receipts, setReceipts] = useState<Any[]>([])
   const [aging, setAging] = useState<Any>(null)
+  const [agingSystem, setAgingSystem] = useState(ACADEMIC_SYSTEM_ALL)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -82,6 +84,11 @@ export default function BillingPage() {
       setStmt(j)
     } catch (e) { setError((e as Error).message); setStmt(null) } finally { setBusy(false) }
   }
+
+  // Aging is the only list here whose rows carry a server-resolved academic system (see
+  // /api/institute/finance/ar). Invoices, receipts and fee structures do not, and filtering them on
+  // an absent field would silently read every row as credit-hours — so they stay unfiltered.
+  const agingRows: Any[] = (aging?.rows ?? []).filter((r: Any) => matchesSystem(r.system, agingSystem))
 
   return (
     <div className="space-y-6">
@@ -194,15 +201,28 @@ export default function BillingPage() {
         {/* Aging */}
         <TabsContent value="aging">
           <Card>
-            <CardHeader><CardTitle>أعمار الديون</CardTitle><CardDescription>إجمالي المتأخرات {aging ? n(aging.grandTotal) : "—"}</CardDescription></CardHeader>
+            <CardHeader>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="space-y-1.5">
+                  <CardTitle>أعمار الديون</CardTitle>
+                  <CardDescription>إجمالي المتأخرات {aging ? n(aging.grandTotal) : "—"}</CardDescription>
+                </div>
+                <AcademicSystemFilter value={agingSystem} onChange={setAgingSystem} className="w-full md:w-56" />
+              </div>
+            </CardHeader>
             <CardContent>
               {!aging ? <p className="p-6 text-center text-muted-foreground">جارٍ التحميل...</p> : (
                 <>
                   <div className="flex flex-wrap gap-3 mb-4">{aging.labels.map((l: string) => <Badge key={l} variant="outline" className="text-sm">{l}: {n(aging.totals[l])}</Badge>)}</div>
-                  {aging.rows.length === 0 ? <p className="text-center text-muted-foreground p-4">لا توجد ذمم مدينة مفتوحة</p> : (
+                  {/* The bucket totals above must keep tying to the AR control account, so they are
+                      never recomputed from the filtered rows — said plainly rather than left to guess. */}
+                  {agingSystem !== ACADEMIC_SYSTEM_ALL && <p className="text-xs text-muted-foreground mb-3">الإجماليات أعلاه محاسبية وتشمل كل الأنظمة؛ التصفية تضيّق قائمة الفواتير فقط.</p>}
+                  {/* Empty list vs. empty *selection*: the bucket badges above are unfiltered, so a
+                      blank table under non-zero badges must say the filter is what emptied it. */}
+                  {agingRows.length === 0 ? <p className="text-center text-muted-foreground p-4">{agingSystem === ACADEMIC_SYSTEM_ALL ? "لا توجد ذمم مدينة مفتوحة" : "لا توجد ذمم مدينة مفتوحة ضمن النظام المحدد"}</p> : (
                     <Table>
                       <TableHeader><TableRow><TableHead>الفاتورة</TableHead><TableHead>الطالب</TableHead><TableHead className="text-center">الرصيد</TableHead><TableHead className="text-center">أيام التأخير</TableHead><TableHead className="text-center">الفئة</TableHead></TableRow></TableHeader>
-                      <TableBody>{aging.rows.map((r: Any) => <TableRow key={r.number}><TableCell className="font-mono text-xs">{r.number}</TableCell><TableCell>{r.student}</TableCell><TableCell className="text-center font-bold">{n(r.balance)}</TableCell><TableCell className="text-center">{r.daysOverdue}</TableCell><TableCell className="text-center"><Badge variant="outline">{r.bucket}</Badge></TableCell></TableRow>)}</TableBody>
+                      <TableBody>{agingRows.map((r: Any) => <TableRow key={r.number}><TableCell className="font-mono text-xs">{r.number}</TableCell><TableCell>{r.student}</TableCell><TableCell className="text-center font-bold">{n(r.balance)}</TableCell><TableCell className="text-center">{r.daysOverdue}</TableCell><TableCell className="text-center"><Badge variant="outline">{r.bucket}</Badge></TableCell></TableRow>)}</TableBody>
                     </Table>
                   )}
                 </>
