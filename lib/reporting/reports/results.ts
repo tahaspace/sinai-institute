@@ -60,6 +60,10 @@ async function outcomeRows(where: Record<string, unknown>): Promise<OutcomeRow[]
       where,
       select: {
         gradeStatusCode: true, courseId: true, midterm: true, final: true, practical: true, homework: true, graceMarks: true,
+        // The exemption + attempt decide the DENOMINATOR (lib/grade-components). Without them this
+        // report divides an exempt repeater's marks by the FULL course total and prints راسب where
+        // the grade sheet prints ناجح — the same student, two answers.
+        excludedComponents: true, attemptNo: true,
         course: { select: { code: true, nameAr: true, midtermMax: true, finalMax: true, practicalMax: true, homeworkMax: true } },
         student: { select: { program: { select: { academicSystem: true } } } },
       },
@@ -77,7 +81,7 @@ async function outcomeRows(where: Record<string, unknown>): Promise<OutcomeRow[]
       return { gradeStatusCode: e.gradeStatusCode, annualGrade: null, annualPass: null };
     }
     // pct === null → nothing recorded yet for that subject, which stays غير مرصود (not a zero-mark راسب).
-    const pct = courseTotalPct(e);
+    const pct = courseTotalPct(e, { reg });
     return {
       gradeStatusCode: e.gradeStatusCode,
       annualGrade: pct == null ? null : gradeFromBands(pct, bands),

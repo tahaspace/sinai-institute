@@ -907,6 +907,12 @@ model Enrollment {
   practical           Float?
   homework            Float?
   graceMarks          Int?      @default(0) // ClientR7 — رأفة grace marks added to this course (added to total; can flip fail→pass)
+  // Components that do NOT apply to THIS student in THIS course, as a CSV of
+  // midterm|final|practical|homework. The classic case is a repeating student (طالب عايد) who is
+  // exempt from أعمال السنة and is graded on التحريري + العملي only: both the marks AND the course
+  // total must exclude them, or he is judged against a denominator he could never score against.
+  // null/empty = every component with a max > 0 counts, i.e. exactly today's behaviour.
+  excludedComponents  String?
   letterGrade         String?
   gradeStatusCode     String? // result-state code (A/B+/.../W/E/I/NE/FW/BL/DN/DS) → GradeStatus
   points              Float? // GPA points earned for this course
@@ -2252,23 +2258,24 @@ model Scholarship {
 }
 
 model Program {
-  id               String        @id @default(cuid())
+  id               String            @id @default(cuid())
   nameAr           String
   nameEn           String?
   departmentId     String?
   degree           String? // بكالوريوس | دبلوم | ماجستير
-  years            Int           @default(4)
-  totalCreditHours Int           @default(0)
-  academicSystem   String        @default("CREDIT_HOURS") // CREDIT_HOURS | ANNUAL (dual-mode, per program)
+  years            Int               @default(4)
+  totalCreditHours Int               @default(0)
+  academicSystem   String            @default("CREDIT_HOURS") // CREDIT_HOURS | ANNUAL (dual-mode, per program)
   description      String?
-  isActive         Boolean       @default(true)
+  isActive         Boolean           @default(true)
   universityId     String?
   facultyId        String?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-  department       Department?   @relation(fields: [departmentId], references: [id])
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  department       Department?       @relation(fields: [departmentId], references: [id])
   students         Student[]
   applications     Application[]
+  transferRequests TransferRequest[]
 
   @@index([departmentId])
   @@index([universityId])
@@ -2429,6 +2436,11 @@ model TransferRequest {
   departmentId  String?
   department    String? // denormalized department name fallback
   status        String      @default("PENDING") // PENDING | APPROVED | REJECTED | COMPLETED
+  // The programme this request is attributed to: the one being transferred INTO for an INCOMING
+  // request (the applicant is not a student yet, so it is the only link to an academic system), and
+  // the one being LEFT for an OUTGOING one. Nullable: legacy rows predate it.
+  programId     String?
+  program       Program?    @relation(fields: [programId], references: [id], onDelete: SetNull)
   notes         String?
   universityId  String?
   createdAt     DateTime    @default(now())
@@ -2438,6 +2450,7 @@ model TransferRequest {
 
   @@index([direction])
   @@index([status])
+  @@index([programId])
   @@index([universityId])
 }
 

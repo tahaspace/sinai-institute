@@ -58,6 +58,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { nameAr, nameEn, departmentId, degree, years, totalCreditHours, description, academicSystem } = body ?? {};
     if (!nameAr) return NextResponse.json({ error: 'اسم البرنامج مطلوب' }, { status: 400 });
+    // Required, never defaulted: the programme IS where a student's academic system comes from, so an
+    // omitted value would silently create a credit-hours programme — and every student later admitted
+    // or imported into it inherits that, discovered only when they are graded on the wrong engine.
+    // A once-per-programme admin decision has no legitimate "unspecified" case.
+    if (academicSystem !== 'CREDIT_HOURS' && academicSystem !== 'ANNUAL') {
+      return NextResponse.json(
+        { error: 'النظام الأكاديمي مطلوب — اختر «نظام الساعات المعتمدة» أو «النظام السنوي (العادي)»' },
+        { status: 400 },
+      );
+    }
 
     const program = await prisma.program.create({
       data: {
@@ -68,7 +78,7 @@ export async function POST(request: NextRequest) {
         years: years ? parseInt(String(years), 10) : 4,
         totalCreditHours: totalCreditHours ? parseInt(String(totalCreditHours), 10) : 0,
         description: description || null,
-        academicSystem: normalizeSystem(academicSystem),
+        academicSystem,
       },
     });
     return NextResponse.json(program, { status: 201 });

@@ -5,6 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+// client-safe: lib/grade-components imports nothing server-side (no Prisma)
+import { COMPONENT_KEYS, parseComponentCsv, toComponentCsv, type ComponentKey } from "@/lib/grade-components"
 import { Scale, Save, Loader2 } from "lucide-react"
 
 // Edits the bylaw thresholds that lib/regulations.ts reads from Setting key
@@ -40,6 +43,24 @@ const DEFAULT_REGULATIONS = {
   annualVeryGoodMin: 75,
   annualGoodMin: 65,
 }
+
+// Not a scalar field: the CSV of components a REPEATING student is exempt from by default.
+const DEFAULT_REPEAT_EXEMPT = ""
+
+// Not a scalar field either: does a subject count towards the annual year result only after
+// اعتماد وغلق? Mirrors DEFAULT_REGULATIONS.requireApprovedResult in lib/regulations.ts.
+const DEFAULT_REQUIRE_APPROVED = true
+
+// There is no single course on this screen, so a component cannot be named by its marks here the
+// way the grade-entry screen names it («أعمال الفصل (٣٠)»). Name each one by what it IS instead, and
+// the note under the card says the per-course maxima decide what it is worth.
+const GENERIC_LABELS_AR: Record<ComponentKey, string> = {
+  midterm: "أعمال الفصل (امتحان منتصف الفصل / الميدتيرم)",
+  final: "التحريري (الامتحان النهائي)",
+  practical: "العملي (الشفوي/المعملي)",
+  homework: "أعمال السنة (الواجبات والتقييم المستمر)",
+}
+
 
 type RegKey = Exclude<keyof typeof DEFAULT_REGULATIONS, "levelMinHours">
 
@@ -113,6 +134,10 @@ const LEVEL_KEYS = ["1", "2", "3", "4"] as const
 type FormState = {
   scalars: Record<RegKey, string>
   levelMinHours: Record<string, string>
+  // components a repeating student (طالب عايد) is exempt from by default, from the 2nd attempt on
+  repeatExempt: ComponentKey[]
+  // annual: does a subject count only once its result is approved & locked?
+  requireApprovedResult: boolean
 }
 
 // All scalar fields start blank; the input placeholders carry the default so an
@@ -124,7 +149,7 @@ function emptyForm(): FormState {
   }
   const levelMinHours: Record<string, string> = {}
   for (const lvl of LEVEL_KEYS) levelMinHours[lvl] = ""
-  return { scalars, levelMinHours }
+  return { scalars, levelMinHours, repeatExempt: parseComponentCsv(DEFAULT_REPEAT_EXEMPT), requireApprovedResult: DEFAULT_REQUIRE_APPROVED }
 }
 
 export default function RegulationsSettingsPage() {
@@ -164,7 +189,11 @@ export default function RegulationsSettingsPage() {
                 if (typeof v === "number" || typeof v === "string") levelMinHours[lvl] = String(v)
               }
             }
-            return { scalars, levelMinHours }
+            const rawExempt = (value as Record<string, unknown>).repeatExemptComponents
+            const repeatExempt = typeof rawExempt === "string" ? parseComponentCsv(rawExempt) : prev.repeatExempt
+            const rawApproved = (value as Record<string, unknown>).requireApprovedResult
+            const requireApprovedResult = typeof rawApproved === "boolean" ? rawApproved : prev.requireApprovedResult
+            return { scalars, levelMinHours, repeatExempt, requireApprovedResult }
           })
         }
       } catch {
@@ -209,6 +238,13 @@ export default function RegulationsSettingsPage() {
         if (!Number.isNaN(num)) levelMinHours[lvl] = num
       }
       if (Object.keys(levelMinHours).length > 0) value.levelMinHours = levelMinHours
+      // Written only when something is actually exempt; an empty selection is the documented
+      // default ('' = no exemption), so omitting it keeps getRegulations() on that default.
+      const exemptCsv = toComponentCsv(form.repeatExempt)
+      if (exemptCsv) value.repeatExemptComponents = exemptCsv
+      // Written only when it DIFFERS from the documented default (true), so an untouched bylaw keeps
+      // falling back to getRegulations()'s default rather than freezing a copy of it.
+      if (form.requireApprovedResult !== DEFAULT_REQUIRE_APPROVED) value.requireApprovedResult = form.requireApprovedResult
 
       const res = await fetch("/api/settings", {
         method: "PATCH",
@@ -278,6 +314,69 @@ export default function RegulationsSettingsPage() {
               </CardContent>
             </Card>
           ))}
+
+          {/* Repeating student (طالب عايد): components he is exempt from, and therefore the marks
+              his total is measured against. Empty = no exemption (today's behaviour). */}
+          <Card>
+            <CardHeader>
+              <CardTitle>إعفاء الطالب العايد من مكونات الدرجة</CardTitle>
+              <CardDescription>
+                المكونات التي يُعفى منها الطالب المعيد للمادة — تُطبَّق اعتباراً من المحاولة الثانية فصاعداً،
+                ويُحسب مجموع المادة على المكونات المتبقية فقط.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {COMPONENT_KEYS.map((c) => (
+                <label key={c} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={form.repeatExempt.includes(c)}
+                    onCheckedChange={(v) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        repeatExempt: v === true
+                          ? [...prev.repeatExempt, c]
+                          : prev.repeatExempt.filter((k) => k !== c),
+                      }))
+                    }
+                  />
+                  <span>{GENERIC_LABELS_AR[c]}</span>
+                </label>
+              ))}
+              <p className="text-xs text-muted-foreground">
+                درجة كل مكوّن تُحدَّد في بيانات المقرر نفسه، لذلك تختلف قيمة المكوّن من مادة لأخرى (مثلاً:
+                أعمال الفصل ٣٠ والتحريري ٥٠ والعملي ١٠ وأعمال السنة ١٠). وفي شاشة إدخال الدرجات تظهر الدرجة
+                الفعلية بجوار اسم كل مكوّن، ويظهر المجموع الفعّال للطالب («من ٦٠» بدل «من ١٠٠») قبل الحفظ.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                لا تختر شيئاً لعدم تطبيق أي إعفاء. يمكن للكنترول تعديل الإعفاء لطالب بعينه من شاشة إدخال الدرجات.
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Annual system: does a subject count only after اعتماد وغلق؟ Default ON — the registrar's
+              rule «النتيجة بتظهر بعد الاعتماد». Turning it off restores the pre-gate behaviour. */}
+          <Card>
+            <CardHeader>
+              <CardTitle>ظهور نتيجة المادة (النظام السنوي)</CardTitle>
+              <CardDescription>
+                متى تُحتسب المادة ضمن نتيجة الفرقة: بعد اعتماد وغلق النتيجة، أم بمجرد رصد الدرجات؟
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  checked={form.requireApprovedResult}
+                  onCheckedChange={(v) => setForm((prev) => ({ ...prev, requireApprovedResult: v === true }))}
+                />
+                <span>لا تُحتسب المادة إلا بعد «اعتماد وغلق النتائج» (الافتراضي)</span>
+              </label>
+              <p className="text-xs text-muted-foreground">
+                عند التفعيل تظهر نتيجة الطالب «قيد الرصد» ما دامت لديه مواد مرصودة لم تُعتمد بعد، مع بيان
+                عدد المواد المنتظرة — وهذا وضع طبيعي في بداية تطبيق النظام وليس خطأ. أوقف الخيار إذا كان
+                المعهد يعلن النتائج قبل خطوة الاعتماد الرسمية.
+              </p>
+            </CardContent>
+          </Card>
 
           {/* Level promotion thresholds — minimum EARNED hours to enter each level. */}
           <Card>

@@ -19,6 +19,21 @@ export const DEFAULT_REGULATIONS = {
   withdrawWeek: 12, // last week a student may withdraw (W)
   writtenMinPercent: 30, // min % on the written exam; below → board fail (BL) even if total passes
   incompleteCourseworkPercent: 60, // min coursework % to qualify for Incomplete (I/INC)
+  // Components a REPEATING student (attemptNo > 1) is exempt from by default, as a CSV of
+  // midterm|final|practical|homework. Many bylaws bar a repeater from أعمال السنة and grade them on
+  // التحريري + العملي alone, rescaling the course total accordingly. Empty = no exemption, i.e. the
+  // behaviour before this setting existed; the control desk can still exempt any single enrolment.
+  repeatExemptComponents: '',
+  // Does a subject only COUNT towards the annual year result once its result was approved & locked
+  // (اعتماد وغلق)? true = the registrar's rule «النتيجة بتظهر بعد الاعتماد» — a subject with marks but
+  // no approval leaves the student «قيد الرصد». false = today's behaviour, a subject counts as soon as
+  // it has marks, for an institute that publishes before the formal approval step.
+  // A subject is JUDGED only after اعتماد وغلق (the registrar's own rule). Ships OFF so the release
+  // stays additive: turning it on before every existing enrolment has been approved would silently
+  // park whole cohorts at «قيد الرصد», which in turn makes ClientR7 رأفة and promotion return empty
+  // candidate lists with no explanation. The institute enables it from the bylaw screen once its
+  // recorded results have been approved.
+  requireApprovedResult: false,
   makeupDeadlineWeeks: 2, // INC/AB makeup must be completed within N weeks of the next term (الأسبوع الأول/الثاني)
   graduationHours: 132, // total credit hours required to graduate (per program bylaw)
   // minimum EARNED credit hours to be promoted INTO each level
@@ -38,7 +53,13 @@ export async function getRegulations(): Promise<Regulations> {
   if (!row) return DEFAULT_REGULATIONS;
   try {
     const parsed = JSON.parse(row.value);
-    return { ...DEFAULT_REGULATIONS, ...parsed, levelMinHours: { ...DEFAULT_REGULATIONS.levelMinHours, ...(parsed.levelMinHours || {}) } };
+    const merged = { ...DEFAULT_REGULATIONS, ...parsed, levelMinHours: { ...DEFAULT_REGULATIONS.levelMinHours, ...(parsed.levelMinHours || {}) } };
+    // A saved bylaw that exempts EVERY component would leave a repeater with a denominator of zero —
+    // scored 0% and stored as a fail on the credit path, stuck at «قيد الرصد» on the annual one. The
+    // per-enrolment path is guarded at its API; this guards the bylaw path, wherever it was saved from.
+    const exempt = String(merged.repeatExemptComponents ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    if (exempt.length >= 4) merged.repeatExemptComponents = DEFAULT_REGULATIONS.repeatExemptComponents;
+    return merged;
   } catch {
     return DEFAULT_REGULATIONS;
   }

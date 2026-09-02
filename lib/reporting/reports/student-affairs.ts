@@ -34,8 +34,10 @@ async function studentRoster(where: Record<string, unknown>, label?: string): Pr
 
 // Two narrowing shapes live below. The Student rosters scope through `studentWhere`, which composes
 // the academic-system fragment under AND. The transfer sheets have no Student row of their own, so
-// they narrow through TransferRequest's OPTIONAL `student` relation via `studentSystemWhere`. Both
-// are no-ops when the filter is absent/'all', so the unfiltered result is unchanged.
+// both narrow through the SAME two-branch precedence the transfers screen badges a row with: the
+// linked student's programme (`studentSystemWhere` on the optional `student` relation) where the
+// student has one, else the request's own `programId`. Both are no-ops when the filter is
+// absent/'all', so the unfiltered result is unchanged.
 // ctx.academicSystem is the same value the hub sends as the `academicSystem` filter.
 const VIEW = 'student.view';
 
@@ -101,17 +103,42 @@ export const studentAffairsReports: ReportDef[] = [
     id: 'transferred-students', category: 'student-affairs', nameAr: 'كشف المحولين',
     permission: 'transfer.view', filters: ['departmentId', 'status'], systemAware: true,
     run: async (f, ctx) => {
+      // Same precedence the transfers screen badges a row with: the linked student's own programme
+      // first, then the request's own `programId` — the programme this request is attributed to:
+      // transferred INTO for INCOMING, LEFT for OUTGOING. A row whose student carries NO programme
+      // is therefore judged by the request's programme, not silently bucketed under credit-hours,
+      // so the report can never contradict the badge. Legacy rows attributable through neither link
+      // stay excluded from BOTH systems — listing them under a picked system would assert one
+      // nobody recorded. With no system selected this is `{}` and the list is unchanged.
+      const outSystem = ctx.academicSystem;
+      const systemWhere = outSystem
+        ? {
+            OR: [
+              // the student's own programme wins wherever the student has one …
+              { AND: [{ student: { programId: { not: null } } }, studentSystemWhere(outSystem)] },
+              // … otherwise the programme the request itself is attributed to.
+              {
+                AND: [
+                  { OR: [{ studentId: null }, { student: { programId: null } }] },
+                  { program: { academicSystem: outSystem } },
+                ],
+              },
+            ],
+          }
+        : {};
       const reqs = await prisma.transferRequest.findMany({
-        // Unlike the rosters above (which go through studentWhere) a transfer narrows through its
-        // OPTIONAL `student` relation, which is deliberately ASYMMETRIC about the unknown case:
-        //   · UNLINKED request (studentId = null) — excluded from BOTH systems. A relation filter
-        //     matches only rows that have a related row, and with no Student there is no program, so
-        //     listing it under a picked system would assert a system we cannot know.
-        //   · LINKED student with NO program — INCLUDED under credit-hours, because the shared
-        //     fragment treats "no program" as credit-hours (the platform-wide default).
-        // Spreading is safe: the fragment nests its OR under `student`, adding no top-level key
-        // that collides here. With no system selected it is `{}` — the list is unchanged.
-        where: { universityId: ctx.universityId ?? undefined, direction: 'OUTGOING', ...(f.status ? { status: f.status } : {}), ...studentSystemWhere(ctx.academicSystem) },
+        // Spreading is safe: `systemWhere` is `{}` unless a system is picked, and the base where
+        // below carries no OR of its own for its single OR key to collide with.
+        where: {
+          universityId: ctx.universityId ?? undefined,
+          direction: 'OUTGOING',
+          ...(f.status ? { status: f.status } : {}),
+          // departmentId is declared in `filters`, so it has to be honoured — the hub rendering a
+          // control the query ignores is the silent lie this whole rollout exists to remove.
+          // Under AND because systemWhere already contributes a top-level OR.
+          ...(f.departmentId ? { AND: [{ departmentId: f.departmentId }] } : {}),
+          ...systemWhere,
+        },
         select: { studentName: true, institution: true, department: true, status: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
       });
@@ -125,17 +152,48 @@ export const studentAffairsReports: ReportDef[] = [
   },
   {
     id: 'incoming-students', category: 'student-affairs', nameAr: 'كشف الطلاب الوافدين',
-    description: 'طلاب محوَّلون من جهات أخرى', permission: 'transfer.view', filters: ['departmentId', 'status'],
+    description: 'طلاب محوَّلون من جهات أخرى', permission: 'transfer.view', filters: ['departmentId', 'status'], systemAware: true,
     run: async (f, ctx) => {
+      // An incoming applicant is not a student here yet, so — exactly like an admission application —
+      // the request's own `programId` is what attributes it to a system. That field is the programme
+      // the request is attributed to: transferred INTO for INCOMING, LEFT for OUTGOING. The create
+      // path now refuses a request in EITHER direction that would end up with no programme, so this
+      // report genuinely narrows and declares `systemAware`; it did not before, when every incoming
+      // row was unlinked and a system pick could only blank the table.
+      //
+      // Precedence is identical to كشف المحولين and to the screen's own badge: the linked student's
+      // programme where the student has one (a returning student recorded against their existing
+      // file), the request's programme otherwise. Legacy rows attributable through neither link stay
+      // excluded from both systems.
+      const system = ctx.academicSystem;
+      const systemWhere = system
+        ? {
+            OR: [
+              // the student's own programme wins wherever the student has one …
+              { AND: [{ student: { programId: { not: null } } }, studentSystemWhere(system)] },
+              // … otherwise the programme the request itself is attributed to.
+              {
+                AND: [
+                  { OR: [{ studentId: null }, { student: { programId: null } }] },
+                  { program: { academicSystem: system } },
+                ],
+              },
+            ],
+          }
+        : {};
       const reqs = await prisma.transferRequest.findMany({
-        // Same relation-based narrowing as كشف المحولين — but this report deliberately does NOT
-        // declare `systemAware`, so the hub never offers the filter for it. No write path in the repo
-        // ever sets studentId on an INCOMING request (they are recorded under the other institution's
-        // free-text name; the transfers API is GET + a status-only PATCH), so every incoming row is
-        // unlinked and a system pick could only blank the table. The narrowing is kept so the report
-        // becomes filterable for free the day incoming requests are linked to a Student — re-declare
-        // `systemAware` then. With no system selected it is `{}` — the list is unchanged today.
-        where: { universityId: ctx.universityId ?? undefined, direction: 'INCOMING', ...(f.status ? { status: f.status } : {}), ...studentSystemWhere(ctx.academicSystem) },
+        // Spreading is safe: `systemWhere` is `{}` unless a system is picked, and the base where
+        // below carries no OR of its own for its single OR key to collide with.
+        where: {
+          universityId: ctx.universityId ?? undefined,
+          direction: 'INCOMING',
+          ...(f.status ? { status: f.status } : {}),
+          // departmentId is declared in `filters`, so it has to be honoured — the hub rendering a
+          // control the query ignores is the silent lie this whole rollout exists to remove.
+          // Under AND because systemWhere already contributes a top-level OR.
+          ...(f.departmentId ? { AND: [{ departmentId: f.departmentId }] } : {}),
+          ...systemWhere,
+        },
         select: { studentName: true, institution: true, department: true, status: true },
         orderBy: { createdAt: 'desc' },
       });

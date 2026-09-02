@@ -1,5 +1,11 @@
 import prisma from '@/lib/prisma';
 import { getRegulations } from '@/lib/regulations';
+import {
+  COMPONENT_KEYS,
+  resolveApplicableComponents,
+  type ComponentApplicability,
+  type ComponentKey,
+} from '@/lib/grade-components';
 
 // Academic GPA engine — the single source of truth for standing. It honors the
 // configurable GradeStatus table (affectsGpa / isPass / points) and the per-course
@@ -89,12 +95,19 @@ export async function deriveGradeCode(
   course: CourseMaxes,
   c: GradeComponents,
   reg?: Awaited<ReturnType<typeof getRegulations>>,
+  // Which components apply to THIS enrolment (repeating student exempt from أعمال السنة …).
+  // Omitted → every component with a max > 0, i.e. the denominator used before exemptions existed.
+  applicability?: ComponentApplicability,
 ): Promise<{ code: string; totalPct: number; finalPct: number | null }> {
   const r = reg ?? (await getRegulations());
-  const max = course.midtermMax + course.finalMax + course.practicalMax + course.homeworkMax;
-  const total = c.midterm + c.final + c.practical + c.homework;
+  const app = applicability ?? resolveApplicableComponents(null, course, r);
+  // Same fairness rule as the annual engine: measure the marks he CAN earn against the marks
+  // that were on offer for him — never against components he was barred from sitting.
+  const max = app.maxTotal;
+  const total = app.countedKeys.reduce((sum, k) => sum + c[k], 0);
   const totalPct = max > 0 ? (total / max) * 100 : 0;
-  const finalPct = course.finalMax > 0 ? (c.final / course.finalMax) * 100 : null;
+  // The board-fail rule can only speak about a written exam the student actually sat.
+  const finalPct = app.applicable.final ? (c.final / course.finalMax) * 100 : null;
   if (finalPct != null && finalPct < r.writtenMinPercent && totalPct >= 60) {
     return { code: 'BL', totalPct, finalPct };
   }
@@ -143,11 +156,28 @@ export async function setEnrollmentResult(
   // further mutation of the grade — callers must reopen (unlock) first.
   if (e.resultLocked) throw new Error('النتيجة معتمدة ومغلقة');
 
+  // Write ONLY what the caller actually supplied. The schema is explicit that a null component
+  // means "not yet graded"; persisting 0 for an unentered mark turned a half-rostered term into a
+  // mass failure. Everything the caller left out keeps its stored value (null stays null).
+  // A non-numeric mark must FAIL, never disappear: silently dropping '40' would return 200 with the
+  // grade unwritten. Numeric strings are coerced (the JSON body is unvalidated at both PATCH routes),
+  // anything else throws.
+  const supplied: Partial<Record<ComponentKey, number>> = {};
+  for (const k of COMPONENT_KEYS) {
+    const v = opts.components?.[k] as unknown;
+    if (v == null) continue; // "not supplied" — keep the stored value (null stays null)
+    // Number('') is 0 — an empty string is a missing mark, not a zero, so it is rejected too.
+    const n = typeof v === 'string' ? (v.trim() === '' ? NaN : Number(v.trim())) : (v as number);
+    if (typeof n !== 'number' || !Number.isFinite(n)) throw new Error(`درجة غير صالحة: ${k}`);
+    supplied[k] = n;
+  }
+  // For the DERIVED letter an unrecorded component still counts as 0, exactly as today — the
+  // letter is provisional until اعتماد وغلق anyway.
   const c: GradeComponents = {
-    midterm: opts.components?.midterm ?? e.midterm ?? 0,
-    final: opts.components?.final ?? e.final ?? 0,
-    practical: opts.components?.practical ?? e.practical ?? 0,
-    homework: opts.components?.homework ?? e.homework ?? 0,
+    midterm: supplied.midterm ?? e.midterm ?? 0,
+    final: supplied.final ?? e.final ?? 0,
+    practical: supplied.practical ?? e.practical ?? 0,
+    homework: supplied.homework ?? e.homework ?? 0,
   };
 
   // ── Dual-system: ANNUAL students save RAW marks only ──
@@ -163,7 +193,7 @@ export async function setEnrollmentResult(
     const updated = await prisma.enrollment.update({
       where: { id: enrollmentId },
       data: {
-        midterm: c.midterm, final: c.final, practical: c.practical, homework: c.homework,
+        ...supplied,
         gradeStatusCode: opts.code ?? null,
         letterGrade: null, // no credit letter for annual — تقدير is derived from % at read time
         points: null,      // no GPA points
@@ -180,7 +210,9 @@ export async function setEnrollmentResult(
     };
   }
 
-  const code = opts.code ?? (await deriveGradeCode(e.course, c)).code;
+  const reg = await getRegulations();
+  const app = resolveApplicableComponents(e, e.course, reg);
+  const code = opts.code ?? (await deriveGradeCode(e.course, c, reg, app)).code;
   const st = await prisma.gradeStatus.findFirst({ where: { code } });
   if (!st) throw new Error(`unknown-grade-status:${code}`);
 
@@ -197,10 +229,7 @@ export async function setEnrollmentResult(
   const updated = await prisma.enrollment.update({
     where: { id: enrollmentId },
     data: {
-      midterm: c.midterm,
-      final: c.final,
-      practical: c.practical,
-      homework: c.homework,
+      ...supplied,
       gradeStatusCode: code,
       letterGrade: code, // displayed token: A / B+ / W / I / BL …
       points: st.points, // null for non-GPA statuses (W/E/I/FW/TR/P/NP)

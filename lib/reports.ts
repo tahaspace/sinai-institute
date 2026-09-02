@@ -2,6 +2,7 @@ import prisma from '@/lib/prisma';
 import { computeStandingForStudents, computeAcademicStanding } from '@/lib/standing';
 import { DEFAULT_REGULATIONS, getRegulations } from '@/lib/regulations';
 import { bandsFromRegulations, courseTotalPct, gradeFromBands } from '@/lib/annual';
+import { resolveApplicableComponents } from '@/lib/grade-components';
 import { studentSystemWhere, type AcademicSystem } from '@/lib/academic-system';
 
 // Registrar reports engine. All reports are aggregations over Enrollment + the
@@ -88,10 +89,11 @@ export async function courseResults(f: TermFilter) {
 
 // Grade recording sheet (كشف رصد) for one course: roster with components + status.
 export async function gradeSheet(courseId: string, f: TermFilter) {
-  const [course, enrollments, statuses] = await Promise.all([
+  const [course, enrollments, statuses, reg] = await Promise.all([
     prisma.course.findUnique({ where: { id: courseId } }),
     prisma.enrollment.findMany({ where: { courseId, ...termWhere(f) }, include: { student: true }, orderBy: { student: { studentCode: 'asc' } } }),
     prisma.gradeStatus.findMany(),
+    getRegulations(),
   ]);
   if (!course) return null;
   const nameByCode = new Map(statuses.map((s) => [s.code, s.name]));
@@ -101,8 +103,13 @@ export async function gradeSheet(courseId: string, f: TermFilter) {
   return {
     course: { code: course.code, name: course.nameAr, max, midtermMax: course.midtermMax, finalMax: course.finalMax, practicalMax: course.practicalMax, homeworkMax: course.homeworkMax },
     rows: enrollments.map((e) => {
-      const total = (e.midterm ?? 0) + (e.final ?? 0) + (e.practical ?? 0) + (e.homework ?? 0);
+      // Same denominator as the grade-entry screen and the annual engine: an exempt repeater must not
+      // read 48/100 راسب on the sheet the control desk signs while the screen beside it says 48/60.
+      const app = resolveApplicableComponents(e, course, reg);
+      const total = app.countedKeys.reduce((sum, k) => sum + (e[k] ?? 0), 0);
       return {
+        maxTotal: app.maxTotal,
+        excludedComponents: app.excludedKeys,
         studentCode: e.student.studentCode,
         name: e.student.nameAr,
         midterm: e.midterm,
@@ -217,7 +224,7 @@ export async function passFailRoster(courseId: string, f: TermFilter, system?: A
     // for codes that WERE deliberately recorded (NP, or a code whose GradeStatus row is missing),
     // and a registrar's explicit decision must never be overwritten by the marks rule.
     if (bands && outcome === 'ungraded' && !e.gradeStatusCode && e.student?.program?.academicSystem === 'ANNUAL') {
-      const pct = courseTotalPct({ courseId: e.courseId, midterm: e.midterm, final: e.final, practical: e.practical, homework: e.homework, graceMarks: e.graceMarks, course });
+      const pct = courseTotalPct({ courseId: e.courseId, midterm: e.midterm, final: e.final, practical: e.practical, homework: e.homework, graceMarks: e.graceMarks, excludedComponents: e.excludedComponents, attemptNo: e.attemptNo, course }, { reg });
       if (pct != null) {
         outcome = pct >= annualPassPct ? 'pass' : 'fail';
         // annual has no GradeStatus row, so the تقدير band is the only grade these columns can show.
@@ -432,7 +439,7 @@ export async function successStats(f: TermFilter, system?: AcademicSystem) {
       if (e.student?.program?.academicSystem !== 'ANNUAL') return coded;
       const course = courseById.get(e.courseId);
       if (!course) return 'ungraded';
-      const pct = courseTotalPct({ courseId: e.courseId, midterm: e.midterm, final: e.final, practical: e.practical, homework: e.homework, graceMarks: e.graceMarks, course });
+      const pct = courseTotalPct({ courseId: e.courseId, midterm: e.midterm, final: e.final, practical: e.practical, homework: e.homework, graceMarks: e.graceMarks, excludedComponents: e.excludedComponents, attemptNo: e.attemptNo, course }, { reg });
       return pct == null ? 'ungraded' : pct >= passPct ? 'pass' : 'fail';
     };
   }

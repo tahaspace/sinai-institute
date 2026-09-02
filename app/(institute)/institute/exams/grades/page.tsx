@@ -22,7 +22,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ClipboardList, Save, Upload, Download, Search, Lock, Unlock } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+// client-safe: lib/grade-components imports nothing server-side (no Prisma)
+import { COMPONENT_KEYS, COMPONENT_LABELS_AR, type ComponentKey } from "@/lib/grade-components"
+import { ClipboardList, Save, Upload, Download, Search, Lock, Unlock, SlidersHorizontal } from "lucide-react"
 
 // --- API shapes ---
 interface CourseLite { id: string; code: string; nameAr: string }
@@ -34,6 +38,7 @@ interface CourseMax {
   finalMax: number
   practicalMax: number
   homeworkMax: number
+  maxTotal: number
 }
 interface RosterRow {
   enrollmentId: string
@@ -47,6 +52,13 @@ interface RosterRow {
   practical: number | null
   homework: number | null
   total: number
+  // this row's OWN denominator — a repeating student exempt from أعمال السنة is «من ٧٠», not «من ١٠٠»
+  maxTotal: number
+  attemptNo: number
+  // null = undecided (bylaw default applies from the 2nd attempt) · '' = explicitly no exemption
+  excludedComponents: string | null
+  effectiveExcluded: ComponentKey[]
+  exemptionSource: "enrollment" | "bylaw" | "none"
   letterGrade: string | null
   gradeStatusCode: string | null
   statusName: string | null
@@ -55,12 +67,14 @@ interface RosterRow {
   semester: string
 }
 interface StatusOption { code: string; name: string }
-type Component = "midterm" | "final" | "practical" | "homework"
+type Component = ComponentKey
 type Edits = Record<string, Partial<Record<Component, number>>>
 
 export default function GradesPage() {
   const [courses, setCourses] = useState<CourseLite[]>([])
   const [statuses, setStatuses] = useState<StatusOption[]>([])
+  // the bylaw's default repeat exemption (لائحة) — shown so a pre-applied exemption is explainable
+  const [repeatExempt, setRepeatExempt] = useState<ComponentKey[]>([])
   const [selectedCourseId, setSelectedCourseId] = useState("")
   const [course, setCourse] = useState<CourseMax | null>(null)
   const [roster, setRoster] = useState<RosterRow[]>([])
@@ -82,6 +96,7 @@ export default function GradesPage() {
         if (cancelled) return
         setCourses(json.courses ?? [])
         setStatuses(json.statuses ?? [])
+        setRepeatExempt(json.repeatExemptComponents ?? [])
         setCourse(json.course ?? null)
         setRoster(json.roster ?? [])
         if (json.course?.id) setSelectedCourseId(json.course.id)
@@ -108,6 +123,7 @@ export default function GradesPage() {
       const res = await fetch(`/api/institute/exams/grades?courseId=${courseId}`)
       if (!res.ok) throw new Error("فشل في جلب الدرجات")
       const json = await res.json()
+      if (json.repeatExemptComponents) setRepeatExempt(json.repeatExemptComponents)
       setCourse(json.course ?? null)
       setRoster(json.roster ?? [])
     } catch (e) {
@@ -132,8 +148,56 @@ export default function GradesPage() {
     setEdits((prev) => ({ ...prev, [enrollmentId]: { ...prev[enrollmentId], [c]: n } }))
   }
 
+  const isExempt = (row: RosterRow, c: Component) => row.effectiveExcluded.includes(c)
+  const maxFor = (c: Component) =>
+    c === "midterm" ? course?.midtermMax ?? 0
+    : c === "final" ? course?.finalMax ?? 0
+    : c === "practical" ? course?.practicalMax ?? 0
+    : course?.homeworkMax ?? 0
+  const applies = (row: RosterRow, c: Component) => maxFor(c) > 0 && !isExempt(row, c)
+
+  // the row's total counts only the components that apply to him — same rule as the engines
   const rowTotal = (row: RosterRow) =>
-    valueOf(row, "midterm") + valueOf(row, "final") + valueOf(row, "practical") + valueOf(row, "homework")
+    COMPONENT_KEYS.filter((c) => !isExempt(row, c)).reduce((sum, c) => sum + valueOf(row, c), 0)
+
+  // Persist a row's exemption immediately: [] = «لا استثناء» (overrides the bylaw), null = back to
+  // the bylaw default. The marks themselves are untouched — only the denominator changes.
+  const setExemption = async (row: RosterRow, next: ComponentKey[] | null) => {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/institute/exams/grades`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enrollmentId: row.enrollmentId, excludedComponents: next }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || "فشل في حفظ المكونات المطبقة")
+      // Never refetch the roster while marks are being typed: loadCourse() clears `edits`, so a
+      // desk operator who toggles one exemption mid-entry used to lose every unsaved mark on the
+      // screen with no warning. The PATCH returns the resolved row, so patch just that row.
+      setRoster((prev) =>
+        prev.map((r) =>
+          r.enrollmentId === row.enrollmentId
+            ? {
+                ...r,
+                excludedComponents: json.excludedComponents ?? null,
+                effectiveExcluded: json.effectiveExcluded ?? [],
+                exemptionSource: json.exemptionSource ?? "none",
+                maxTotal: json.maxTotal ?? r.maxTotal,
+              }
+            : r
+        )
+      )
+      // The stored التقدير is derived server-side from the new denominator; refresh it only when
+      // there is nothing unsaved to lose.
+      if (Object.keys(edits).length === 0) await loadCourse(selectedCourseId)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const courseMaxTotal = course
     ? course.midtermMax + course.finalMax + course.practicalMax + course.homeworkMax
@@ -170,8 +234,12 @@ export default function GradesPage() {
     setSaving(true)
     setError(null)
     try {
+      // Re-derive from the marks ALREADY recorded — send only the ones that exist, so an
+      // unentered component stays null instead of being written back as a real zero.
+      const recorded: Partial<Record<Component, number>> = {}
+      for (const c of COMPONENT_KEYS) if (row[c] != null) recorded[c] = row[c] as number
       const body = value === "__auto"
-        ? { enrollmentId: row.enrollmentId, midterm: row.midterm ?? 0, final: row.final ?? 0, practical: row.practical ?? 0, homework: row.homework ?? 0 }
+        ? { enrollmentId: row.enrollmentId, ...recorded }
         : { enrollmentId: row.enrollmentId, statusCode: value }
       const res = await fetch(`/api/institute/exams/grades`, {
         method: "PATCH",
@@ -346,6 +414,12 @@ export default function GradesPage() {
             {course
               ? `${course.code} - ${course.nameAr} | أعمال الفصل: ${course.midtermMax} | النهائي: ${course.finalMax} | عملي: ${course.practicalMax} | أعمال السنة: ${course.homeworkMax}`
               : ""}
+            {repeatExempt.length > 0 && (
+              <span className="block text-xs mt-1">
+                اللائحة تستثني الطالب العايد (من المحاولة الثانية) من:{" "}
+                {repeatExempt.map((c) => COMPONENT_LABELS_AR[c]).join(" / ")} — ويُحسب مجموعه على باقي المكونات.
+              </span>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -371,6 +445,8 @@ export default function GradesPage() {
                   <TableHead className="text-center">النهائي ({course?.finalMax ?? 0})</TableHead>
                   <TableHead className="text-center">عملي ({course?.practicalMax ?? 0})</TableHead>
                   <TableHead className="text-center">أعمال السنة ({course?.homeworkMax ?? 0})</TableHead>
+                  <TableHead className="text-center">المكونات المطبقة</TableHead>
+                  {/* the header shows the COURSE denominator; each row prints its own beside it */}
                   <TableHead className="text-center">المجموع ({courseMaxTotal})</TableHead>
                   <TableHead className="text-center">التقدير</TableHead>
                   <TableHead className="text-center">الحالة (الكنترول)</TableHead>
@@ -391,21 +467,96 @@ export default function GradesPage() {
                       <TableCell className="font-medium">{row.name}</TableCell>
                       {cols.map(({ c, max }) => (
                         <TableCell key={c}>
-                          <Input
-                            type="number"
-                            className="w-20 text-center mx-auto"
-                            value={valueOf(row, c)}
-                            max={max}
-                            min={0}
-                            disabled={max === 0 || row.resultLocked}
-                            onChange={(e) => setEdit(row.enrollmentId, c, e.target.value)}
-                          />
+                          {isExempt(row, c) ? (
+                            // Barred from this component: it is out of BOTH the numerator and the
+                            // denominator. Any mark already recorded stays on file, so say so —
+                            // otherwise the desk cannot tell a hidden mark exists.
+                            <span className="block text-center text-xs text-muted-foreground">
+                              غير مطبق
+                              {row[c] != null && ` (${row[c]} محفوظة)`}
+                            </span>
+                          ) : (
+                            <Input
+                              type="number"
+                              className="w-20 text-center mx-auto"
+                              value={valueOf(row, c)}
+                              max={max}
+                              min={0}
+                              disabled={max === 0 || row.resultLocked}
+                              onChange={(e) => setEdit(row.enrollmentId, c, e.target.value)}
+                            />
+                          )}
                         </TableCell>
                       ))}
                       <TableCell className="text-center">
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" size="sm" className="gap-1" disabled={saving || row.resultLocked}>
+                              <SlidersHorizontal className="w-3 h-3" />
+                              {row.effectiveExcluded.length === 0
+                                ? "الكل"
+                                : `${row.effectiveExcluded.length} مستثنى`}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 text-right" align="center">
+                            <p className="text-sm font-medium mb-1">المكونات المطبقة على الطالب</p>
+                            <p className="text-xs text-muted-foreground mb-3">
+                              المحاولة رقم {row.attemptNo}
+                              {row.exemptionSource === "bylaw" && " — الاستثناء مطبَّق تلقائياً من اللائحة (طالب عايد)"}
+                              {row.exemptionSource === "enrollment" && " — استثناء مسجَّل لهذا الطالب"}
+                            </p>
+                            <div className="space-y-2">
+                              {COMPONENT_KEYS.map((c) => (
+                                <label key={c} className="flex items-center gap-2 text-sm">
+                                  <Checkbox
+                                    checked={applies(row, c)}
+                                    // the last applicable component may not be unticked: a total out
+                                    // of 0 is a silent F on the credit path (the server refuses it too)
+                                    disabled={
+                                      maxFor(c) === 0 ||
+                                      saving ||
+                                      (applies(row, c) &&
+                                        COMPONENT_KEYS.filter((k) => applies(row, k)).length === 1)
+                                    }
+                                    onCheckedChange={(v) => {
+                                      const next = v === true
+                                        ? row.effectiveExcluded.filter((k) => k !== c)
+                                        : [...row.effectiveExcluded, c]
+                                      setExemption(row, next)
+                                    }}
+                                  />
+                                  <span className={maxFor(c) === 0 ? "text-muted-foreground" : ""}>
+                                    {COMPONENT_LABELS_AR[c]} ({maxFor(c)})
+                                    {maxFor(c) === 0 && " — غير مقرر في المادة"}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-3">
+                              المجموع الفعّال: من {row.maxTotal} (بدلاً من {courseMaxTotal} للمادة)
+                            </p>
+                            {row.excludedComponents !== null && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="mt-2 w-full"
+                                disabled={saving}
+                                onClick={() => setExemption(row, null)}
+                              >
+                                العودة إلى افتراضي اللائحة
+                              </Button>
+                            )}
+                          </PopoverContent>
+                        </Popover>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {/* the denominator is the student's own, never the course's when they differ */}
                         <Badge variant="outline">
-                          {total}/{courseMaxTotal}
+                          {total}/{row.maxTotal}
                         </Badge>
+                        {row.maxTotal !== courseMaxTotal && (
+                          <div className="text-[11px] text-muted-foreground mt-1">من {row.maxTotal} بدل {courseMaxTotal}</div>
+                        )}
                       </TableCell>
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center gap-1">

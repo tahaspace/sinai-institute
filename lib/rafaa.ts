@@ -13,6 +13,7 @@
 import prisma from '@/lib/prisma';
 import { writeAudit } from '@/lib/audit';
 import { getRegulations } from '@/lib/regulations';
+import { COMPONENT_KEYS } from '@/lib/grade-components';
 import { computeAnnualForStudents, bandsFromRegulations, type AnnualCourseResult, type AnnualGrade, type AnnualResultStatus } from '@/lib/annual';
 
 // ───────────────────────── Bylaw config (config-as-data in Setting) ─────────────────────────
@@ -92,10 +93,16 @@ export type AdjustmentRow = {
 };
 
 function marksNeeded(c: AnnualCourseResult, passPct: number) {
-  const totalMax = c.midtermMax + c.finalMax + c.practicalMax + c.homeworkMax;
+  // Same denominator as the engine that judged him: a repeater exempt from أعمال السنة is measured
+  // out of his own maxTotal, and only the components he actually sat enter the numerator. Using the
+  // course's full 100 here overstated `needed` and filtered the exempt repeater — the very student
+  // رأفة exists for — out of every candidate list.
+  const totalMax = c.maxTotal;
   const passMarks = Math.ceil((passPct / 100) * totalMax);
-  const got = (c.midterm ?? 0) + (c.final ?? 0) + (c.practical ?? 0) + (c.homework ?? 0);
-  return { needed: passMarks - got, hasWritten: c.finalMax > 0, writtenPct: c.finalMax > 0 ? ((c.final ?? 0) / c.finalMax) * 100 : null };
+  const got = COMPONENT_KEYS.filter((k) => !c.excludedComponents.includes(k)).reduce((s, k) => s + (c[k] ?? 0), 0);
+  // a student exempt from التحريري has no written exam to judge, exactly like a course with finalMax 0
+  const hasWritten = c.finalMax > 0 && !c.excludedComponents.includes('final');
+  return { needed: passMarks - got, hasWritten, writtenPct: hasWritten ? ((c.final ?? 0) / c.finalMax) * 100 : null };
 }
 function statusFromFailed(failed: number, allGraded: boolean, maxCarry: number): AnnualResultStatus {
   if (!allGraded) return 'قيد الرصد';
