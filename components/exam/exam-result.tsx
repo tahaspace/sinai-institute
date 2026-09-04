@@ -26,6 +26,14 @@ interface ExamResultProps {
   earnedPoints: number
   timeTaken: string // formatted time
   passingScore: number // percentage
+  /**
+   * The institute's own grade ladder (GradeStatus rows, edited on «حالات وقواعد النتائج»), highest
+   * band first. Passed in because a "use client" component may not read it from the DB itself.
+   * Omit it and no تقدير is claimed — the result still shows the percentage and the pass verdict,
+   * which is honest. It must never be invented here: a fixed 90/80/70/60 scale contradicted the
+   * bylaw's جدول 3, whose pass floor is 50%, and showed the student a تقدير nobody awarded.
+   */
+  gradeBands?: { name: string; minPercent: number; isPass: boolean }[]
   onReviewAnswers?: () => void
   onBackToDashboard?: () => void
   className?: string
@@ -41,6 +49,7 @@ export function ExamResult({
   earnedPoints,
   timeTaken,
   passingScore,
+  gradeBands,
   onReviewAnswers,
   onBackToDashboard,
   className,
@@ -48,15 +57,13 @@ export function ExamResult({
   const percentage = Math.round((earnedPoints / totalPoints) * 100)
   const passed = percentage >= passingScore
 
-  const getGrade = (pct: number) => {
-    if (pct >= 90) return { grade: "ممتاز", color: "text-green-600" }
-    if (pct >= 80) return { grade: "جيد جداً", color: "text-blue-600" }
-    if (pct >= 70) return { grade: "جيد", color: "text-cyan-600" }
-    if (pct >= 60) return { grade: "مقبول", color: "text-yellow-600" }
-    return { grade: "ضعيف", color: "text-red-600" }
-  }
-
-  const { grade, color } = getGrade(percentage)
+  // Read the band off the institute's ladder; claim nothing when none was supplied.
+  const band = (gradeBands ?? [])
+    .slice()
+    .sort((a, b) => b.minPercent - a.minPercent)
+    .find((b) => percentage >= b.minPercent)
+  const grade = band?.name ?? null
+  const color = band ? (band.isPass ? "text-green-600" : "text-red-600") : "text-muted-foreground"
 
   return (
     <motion.div
@@ -100,7 +107,7 @@ export function ExamResult({
               transition={{ delay: 0.3 }}
             >
               <span className={cn("text-6xl font-bold", color)}>{percentage}%</span>
-              <p className={cn("text-xl font-medium mt-2", color)}>{grade}</p>
+              {grade && <p className={cn("text-xl font-medium mt-2", color)}>{grade}</p>}
               <p className="text-sm text-muted-foreground mt-1">
                 {earnedPoints} من {totalPoints} درجة
               </p>

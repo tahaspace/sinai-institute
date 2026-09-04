@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
         // Effective denominator for THIS student: components he is exempt from (طالب عايد barred
         // from أعمال السنة …) leave both the numerator and the «من ...» out of the total.
         const app = course
-          ? resolveApplicableComponents(e, course, reg)
+          ? resolveApplicableComponents({ ...e, academicSystem: e.student.program?.academicSystem }, course, reg)
           : { applicable: { midterm: false, final: false, practical: false, homework: false }, applicableKeys: [], countedKeys: COMPONENT_KEYS, excludedKeys: [], maxTotal: 0, source: 'none' as const };
         const total = app.countedKeys.reduce((sum, k) => sum + (e[k] ?? 0), 0);
         const isAnnual = e.student.program?.academicSystem === 'ANNUAL';
@@ -127,7 +127,7 @@ export async function PATCH(request: NextRequest) {
       // Excluding EVERY component leaves maxTotal 0 — a silent F on the credit path and a permanent
       // «قيد الرصد» on the annual one. Refuse before anything is written.
       const reg = await getRegulations();
-      const check = resolveApplicableComponents({ excludedComponents: exemptionCsv, attemptNo: e.attemptNo }, e.course, reg);
+      const check = resolveApplicableComponents({ excludedComponents: exemptionCsv, attemptNo: e.attemptNo, academicSystem: e.student?.program?.academicSystem }, e.course, reg);
       if (check.maxTotal <= 0) {
         return NextResponse.json(
           { error: 'لا يمكن استثناء كل مكونات الدرجة — يجب أن يتبقّى مكوّن واحد على الأقل' },
@@ -172,7 +172,7 @@ export async function PATCH(request: NextRequest) {
         // Coursework % is judged over the coursework components that apply to THIS student.
         // use the exemption as of THIS request, not the row as it was read above
         const app = resolveApplicableComponents(
-          { excludedComponents: appliedExcluded !== undefined ? appliedExcluded : e.excludedComponents, attemptNo: e.attemptNo },
+          { excludedComponents: appliedExcluded !== undefined ? appliedExcluded : e.excludedComponents, attemptNo: e.attemptNo, academicSystem: e.student?.program?.academicSystem },
           e.course,
           reg,
         );

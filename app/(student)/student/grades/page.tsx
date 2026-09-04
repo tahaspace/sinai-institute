@@ -64,10 +64,19 @@ interface GradesStats {
   maxGrade: number
   percentage: number
 }
+/** One band of the scale this student is graded on, as the API ships it (highest band first). */
+interface LadderRow {
+  code: string
+  name: string
+  minPercent: number
+  isPass: boolean
+}
 interface GradesResponse {
   student: { id: string; studentCode: string; name: string; level: number }
   system?: "CREDIT_HOURS" | "ANNUAL"
   stats: GradesStats | null
+  /** سلّم التقديرات: the institute's letter ladder (جدول 3) or, for an annual student, the bylaw bands. */
+  ladder?: LadderRow[]
   subjects: SubjectGrade[]
   exams: ExamResult[]
   // ClientR5 — result-visibility hold: when true the marks are withheld and only the message shows.
@@ -90,19 +99,32 @@ interface StandingData {
   flags: string[]
 }
 
-const getGradeColor = (percentage: number) => {
-  if (percentage >= 90) return "text-green-600"
-  if (percentage >= 75) return "text-blue-600"
-  if (percentage >= 60) return "text-yellow-600"
-  return "text-red-600"
-}
+// The تقدير a student reads here MUST be the one on his transcript, so nothing about the scale is
+// written down in this file: the label, the pass/fail verdict and the colour all come from the
+// ladder the API ships (the GradeStatus rows the institute typed in, or the annual bylaw bands).
+// The bands this page used to invent — 90/80/70/60 with a «ضعيف» that is in no table — disagreed
+// with جدول 3 at three points, worst of all calling a passing 55% (C- «مقبول») a failure.
+const PASS_TEXT = ["text-green-600", "text-lime-600", "text-blue-600", "text-yellow-600"]
+const PASS_BADGE = [
+  "bg-green-100 text-green-700",
+  "bg-lime-100 text-lime-700",
+  "bg-blue-100 text-blue-700",
+  "bg-yellow-100 text-yellow-700",
+]
+const FAIL_TEXT = "text-red-600"
+const FAIL_BADGE = "bg-red-100 text-red-700"
+const UNKNOWN_TEXT = "text-muted-foreground"
+const UNKNOWN_BADGE = "bg-gray-100 text-gray-600"
 
-const getGradeLabel = (percentage: number) => {
-  if (percentage >= 90) return "ممتاز"
-  if (percentage >= 80) return "جيد جداً"
-  if (percentage >= 70) return "جيد"
-  if (percentage >= 60) return "مقبول"
-  return "ضعيف"
+/** The band a percentage falls in — the ladder is ordered highest-first, so the first hit wins. */
+const bandFor = (ladder: LadderRow[], percentage: number): LadderRow | null =>
+  ladder.find((b) => percentage >= b.minPercent) ?? null
+
+/** Shade a passing band by its rank among the passing bands, so any ladder length spreads evenly. */
+const shadeOf = (ladder: LadderRow[], band: LadderRow, shades: string[]) => {
+  const passing = ladder.filter((b) => b.isPass)
+  const rank = Math.max(passing.findIndex((b) => b.code === band.code), 0)
+  return shades[Math.min(Math.floor((rank * shades.length) / Math.max(passing.length, 1)), shades.length - 1)]
 }
 
 export default function StudentGradesPage() {
@@ -150,6 +172,29 @@ export default function StudentGradesPage() {
   const subjectGrades = data?.subjects ?? []
   const examResults = data?.exams ?? []
   const stats = data?.stats
+  // Empty until the payload lands (and for an institute that has not typed its ladder in yet):
+  // every helper below then renders «—» rather than guessing a تقدير.
+  const ladder = data?.ladder ?? []
+  const labelOf = (band: LadderRow | null) => band?.name ?? "—"
+  const textClassOf = (band: LadderRow | null) =>
+    !band ? UNKNOWN_TEXT : band.isPass ? shadeOf(ladder, band, PASS_TEXT) : FAIL_TEXT
+  const badgeClassOf = (band: LadderRow | null) =>
+    !band ? UNKNOWN_BADGE : band.isPass ? shadeOf(ladder, band, PASS_BADGE) : FAIL_BADGE
+  // A recorded result is a FACT: show the band of the letter actually stored on the enrolment
+  // (its code is sealed; only its name and colour are config).
+  const bandOfSubject = (g: SubjectGrade): LadderRow | null => {
+    const code = g.letterGrade ?? g.gradeStatusCode
+    const onLadder = code ? ladder.find((b) => b.code === code) : undefined
+    if (onLadder) return onLadder
+    // A recorded state that is NOT a letter — BL راسب لائحه, W منسحب, I غير مكتمل … — is itself the
+    // result: re-banding the raw marks would print «مقبول» next to a bylaw fail. Its own name and
+    // its own ناجح flag come from the same configurable GradeStatus row, via the payload.
+    if (g.gradeStatusCode) {
+      return { code: g.gradeStatusCode, name: g.statusName ?? g.gradeStatusCode, minPercent: 0, isPass: g.isPass }
+    }
+    // Nothing recorded yet (or an annual student, who carries no letter) — band the raw percentage.
+    return bandFor(ladder, g.percentage)
+  }
 
   return (
     <div className="space-y-6">
@@ -324,7 +369,7 @@ export default function StudentGradesPage() {
                         </thead>
                         <tbody>
                           {subjectGrades.map((grade) => {
-                            const percentage = grade.percentage
+                            const band = bandOfSubject(grade)
 
                             return (
                               <tr key={grade.courseId} className="border-b">
@@ -342,7 +387,7 @@ export default function StudentGradesPage() {
                                   {grade.homework}/{grade.homeworkMax}
                                 </td>
                                 <td className="p-3 text-center font-bold">
-                                  <span className={getGradeColor(percentage)}>
+                                  <span className={textClassOf(band)}>
                                     {grade.total}/{grade.max}
                                   </span>
                                 </td>
@@ -365,13 +410,12 @@ export default function StudentGradesPage() {
                                   )}
                                 </td>
                                 <td className="p-3 text-center">
-                                  <Badge className={cn(
-                                    percentage >= 90 ? "bg-green-100 text-green-700" :
-                                    percentage >= 75 ? "bg-blue-100 text-blue-700" :
-                                    percentage >= 60 ? "bg-yellow-100 text-yellow-700" :
-                                    "bg-red-100 text-red-700"
-                                  )}>
-                                    {getGradeLabel(percentage)}
+                                  {/* التقدير in the cell, the letter itself (A- / B+ …) on hover. */}
+                                  <Badge
+                                    className={badgeClassOf(band)}
+                                    title={band && band.code !== band.name ? band.code : undefined}
+                                  >
+                                    {labelOf(band)}
                                   </Badge>
                                 </td>
                                 <td className="p-3 text-center">
@@ -410,18 +454,12 @@ export default function StudentGradesPage() {
                           </p>
                         </div>
                         <div className="text-center">
-                          <p className={cn(
-                            "text-3xl font-bold",
-                            getGradeColor(exam.average)
-                          )}>
+                          {/* An exam rollup carries no recorded letter — band its average. */}
+                          <p className={cn("text-3xl font-bold", textClassOf(bandFor(ladder, exam.average)))}>
                             {exam.average}%
                           </p>
-                          <Badge className={cn(
-                            exam.average >= 90 ? "bg-green-100 text-green-700" :
-                            exam.average >= 75 ? "bg-blue-100 text-blue-700" :
-                            "bg-yellow-100 text-yellow-700"
-                          )}>
-                            {getGradeLabel(exam.average)}
+                          <Badge className={badgeClassOf(bandFor(ladder, exam.average))}>
+                            {labelOf(bandFor(ladder, exam.average))}
                           </Badge>
                         </div>
                       </div>

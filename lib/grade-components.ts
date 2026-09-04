@@ -43,6 +43,11 @@ export type ComponentApplicabilityInput = {
   // CSV of midterm|final|practical|homework; null/undefined = "not decided for this enrolment"
   excludedComponents?: string | null;
   attemptNo?: number | null;
+  // The student's academic system. The BYLAW default only ever applies to the traditional term system:
+  // barring a repeater from أعمال السنة is a يعيد-السنة rule. Under credit hours the student simply
+  // re-registers the course — and may take one from an earlier level entirely — so there is nothing to
+  // bar him from. Undefined behaves as credit-hours, matching normalizeSystem everywhere else.
+  academicSystem?: string | null;
 };
 
 export type ComponentApplicability = {
@@ -85,6 +90,9 @@ export function toComponentCsv(keys: ComponentKey[]): string {
  * Which components apply, and the denominator they add up to.
  * With no per-enrolment CSV and an empty `repeatExemptComponents` bylaw (the default) this
  * returns every component whose max > 0 — i.e. today's denominator, unchanged.
+ *
+ * The per-enrolment CSV is available under BOTH systems — it is the control desk's case-by-case
+ * decision. The bylaw default is annual-only; see ComponentApplicabilityInput.academicSystem.
  */
 export function resolveApplicableComponents(
   e: ComponentApplicabilityInput | null | undefined,
@@ -96,7 +104,7 @@ export function resolveApplicableComponents(
   if (e?.excludedComponents != null) {
     excluded = parseComponentCsv(e.excludedComponents);
     source = 'enrollment';
-  } else if ((e?.attemptNo ?? 1) > 1) {
+  } else if ((e?.attemptNo ?? 1) > 1 && e?.academicSystem === 'ANNUAL') {
     const byLaw = parseComponentCsv(reg?.repeatExemptComponents);
     if (byLaw.length) {
       excluded = byLaw;

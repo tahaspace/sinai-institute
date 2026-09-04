@@ -2227,7 +2227,10 @@ model GraduationRequest {
   studentId      String
   status         String    @default("PENDING") // PENDING | APPROVED | REJECTED
   completedHours Int       @default(0)
-  requiredHours  Int       @default(132)
+  // Bylaw value (Regulations.graduationHours = 130 — «اجتياز عدد ساعات 130 ساعة»). This column
+  // default is only a last resort: every create must pass the value resolved from the bylaw /
+  // the programme via resolveGraduationHours() in lib/regulations.ts.
+  requiredHours  Int       @default(130)
   gpa            Float     @default(0)
   notes          String?
   createdAt      DateTime  @default(now())

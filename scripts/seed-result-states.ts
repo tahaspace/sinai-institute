@@ -22,8 +22,11 @@ const L = (over: Partial<Props> = {}): Props => ({
 });
 
 const STATUS_PROPS: Record<string, Props> = {
-  // letter grades — pass, count toward GPA + attempt, terminal
-  A: L(), 'A-': L(), 'B+': L(), B: L(), 'C+': L(), C: L(), D: L(),
+  // letter grades — pass, count toward GPA + attempt, terminal.
+  // All ten passing bands of جدول 3 (A · A- · B+ · B · B- · C+ · C · C- · D+ · D); the ladder itself
+  // (bands + points + names) lives in the GradeStatus rows the institute edits from سلّم التقديرات —
+  // this map only carries the per-status POLICY columns, which are the same for every letter.
+  A: L(), 'A-': L(), 'B+': L(), B: L(), 'B-': L(), 'C+': L(), C: L(), 'C-': L(), 'D+': L(), D: L(),
   // F / board-fail / deprivation — counts as a failed attempt, repeat the course
   F: L({ isPass: false, nextAction: 'REPEAT' }),
   BL: L({ isPass: false, nextAction: 'REPEAT' }), // راسب لائحة (سقوط التحريري) — system-derived, not an exception

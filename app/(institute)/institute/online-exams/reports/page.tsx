@@ -80,45 +80,69 @@ interface ScoreBucket {
 interface ApiStats {
   participants: number
   average: number
-  passRate: number
+  /** null when no pass line is configured for the students on show — rendered «—», never 0%. */
+  passRate: number | null
   highest: number
   lowest: number
 }
 
+/** One band of the institute's own سلّم التقديرات, as the API ships it (highest band first). */
+interface LadderRow {
+  code: string
+  name: string
+  minPercent: number | null
+  isPass: boolean
+}
+
 const PIE_COLORS = ["#22c55e", "#84cc16", "#eab308", "#f97316", "#f59e0b", "#ef4444", "#94a3b8", "#14b8a6"]
 
-// Two scales share this table: credit-hour letters and — for annual students, who have no
-// letterGrade — the bylaw's تقدير bands (lib/annual.ts). Every value the API can emit needs a key
-// here, or the Badge renders with className={undefined}. "A-" was missing (letterOf returns it at ≥85).
-const gradeColors: Record<string, string> = {
-  "A+": "bg-institute-blue text-green-700",
-  "A": "bg-institute-blue text-green-700",
-  "A-": "bg-lime-100 text-lime-700",
-  "B+": "bg-lime-100 text-lime-700",
-  "B": "bg-yellow-100 text-yellow-700",
-  "C+": "bg-amber-100 text-amber-700",
-  "C": "bg-institute-gold text-orange-700",
-  "D+": "bg-red-100 text-red-600",
-  "D": "bg-red-100 text-red-600",
-  "F": "bg-red-200 text-red-800",
-  "ممتاز": "bg-green-100 text-green-700",
-  "جيد جداً": "bg-lime-100 text-lime-700",
-  "جيد": "bg-yellow-100 text-yellow-700",
-  "مقبول": "bg-amber-100 text-amber-700",
-  "راسب": "bg-red-200 text-red-800",
-  "-": "bg-gray-100 text-gray-600",
+// Badge colours are DERIVED from the ladder the API sends, never from a table of letters kept here:
+// the old map had no key for B- / C- / D+ and rendered them with className={undefined}, and it would
+// have missed whatever codes the next institute types in. A failing band is red; a passing band is
+// shaded by its rank among the passing bands, so any ladder of any length gets a full spread.
+const PASS_SHADES = [
+  "bg-green-100 text-green-700",
+  "bg-lime-100 text-lime-700",
+  "bg-yellow-100 text-yellow-700",
+  "bg-amber-100 text-amber-700",
+]
+const FAIL_BADGE = "bg-red-200 text-red-800"
+const UNKNOWN_BADGE = "bg-gray-100 text-gray-600"
+
+// Annual students carry a تقدير BAND, not a letter (lib/annual.ts): a closed set of five labels
+// whose thresholds live in the bylaw settings. Only the colour of each label is fixed here.
+const ANNUAL_BADGES: Record<string, string> = {
+  "ممتاز": PASS_SHADES[0],
+  "جيد جداً": PASS_SHADES[1],
+  "جيد": PASS_SHADES[2],
+  "مقبول": PASS_SHADES[3],
+  "راسب": FAIL_BADGE,
+}
+
+function gradeBadgeClass(grade: string, ladder: LadderRow[]): string {
+  const passing = ladder.filter((r) => r.isPass)
+  const rank = passing.findIndex((r) => r.code === grade)
+  if (rank >= 0) {
+    // Spread the passing bands evenly across the shades, best band first.
+    const slot = Math.floor((rank * PASS_SHADES.length) / Math.max(passing.length, 1))
+    return PASS_SHADES[Math.min(slot, PASS_SHADES.length - 1)]
+  }
+  if (ladder.some((r) => r.code === grade)) return FAIL_BADGE
+  return ANNUAL_BADGES[grade] ?? UNKNOWN_BADGE
 }
 
 export default function OnlineExamReportsPage() {
   const [courses, setCourses] = useState<CourseOption[]>([])
   const [selectedCourseId, setSelectedCourseId] = useState<string>("")
   const [studentResults, setStudentResults] = useState<StudentResult[]>([])
+  // The institute's سلّم التقديرات, shipped by the API — the only source of تقدير names and colours.
+  const [ladder, setLadder] = useState<LadderRow[]>([])
   const [gradeDistribution, setGradeDistribution] = useState<GradeBucket[]>([])
   const [scoreDistribution, setScoreDistribution] = useState<ScoreBucket[]>([])
   const [apiStats, setApiStats] = useState<ApiStats>({
     participants: 0,
     average: 0,
-    passRate: 0,
+    passRate: null,
     highest: 0,
     lowest: 0,
   })
@@ -147,11 +171,12 @@ export default function OnlineExamReportsPage() {
         const json = await res.json()
         if (cancelled) return
         setCourses(json.courses ?? [])
+        setLadder(json.ladder ?? [])
         setStudentResults(json.studentResults ?? [])
         setGradeDistribution(json.gradeDistribution ?? [])
         setScoreDistribution(json.scoreDistribution ?? [])
         setApiStats(
-          json.stats ?? { participants: 0, average: 0, passRate: 0, highest: 0, lowest: 0 }
+          json.stats ?? { participants: 0, average: 0, passRate: null, highest: 0, lowest: 0 }
         )
         // No courseId yet → default to the first course returned, then refetch with ?courseId=
         if (!selectedCourseId && json.course?.id) {
@@ -316,12 +341,15 @@ export default function OnlineExamReportsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-muted-foreground">نسبة النجاح</p>
-                    <p className="text-2xl font-bold text-institute-blue">{hasPopulation ? `${apiStats.passRate}%` : "—"}</p>
+                    <p className="text-2xl font-bold text-institute-blue">
+                      {hasPopulation && apiStats.passRate != null ? `${apiStats.passRate}%` : "—"}
+                    </p>
                   </div>
                   <CheckCircle2 className="w-8 h-8 text-institute-blue" />
                 </div>
                 <div className="mt-2">
-                  <Progress value={hasPopulation ? apiStats.passRate : 0} className="h-2" />
+                  {/* No configured pass band → no pass rate. An empty bar is honest; 0% is not. */}
+                  <Progress value={hasPopulation ? apiStats.passRate ?? 0 : 0} className="h-2" />
                 </div>
               </CardContent>
             </Card>
@@ -484,7 +512,10 @@ export default function OnlineExamReportsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge className={gradeColors[student.grade]}>
+                        <Badge
+                          className={gradeBadgeClass(student.grade, ladder)}
+                          title={ladder.find((r) => r.code === student.grade)?.name ?? undefined}
+                        >
                           {student.grade}
                         </Badge>
                       </TableCell>

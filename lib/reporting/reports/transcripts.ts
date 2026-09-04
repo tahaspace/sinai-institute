@@ -2,6 +2,7 @@ import prisma from '@/lib/prisma';
 import type { ReportDef, ReportColumn, ReportRow } from '@/lib/reporting/types';
 import { SEMESTERS, studentWhere, academicSystemWhere } from '@/lib/reporting/filters';
 import { computeStandingForStudents } from '@/lib/standing';
+import { getRegulations, cgpaGrade, NO_CGPA_GRADE } from '@/lib/regulations';
 import { classify } from '@/lib/reports';
 import { buildMinistryMatrix, rankByDesc, courseComponents, MARK_COMPONENTS, type MinistryScaleRow, type MinistryComponent } from '@/lib/reporting/ministry-matrix';
 
@@ -23,14 +24,24 @@ const MINISTRY_SIGNATURES = ['رئيس الكنترول', 'وكيل المعهد
 const semLabel = (s: string) => SEMESTERS.find((x) => x.value === s)?.label ?? s;
 const termLabelOf = (academicYear: string, semester: string) => `${semLabel(semester)} ${academicYear}`;
 
-/** تقدير from CGPA on the 4.0 scale (derived presentation label, not stored). */
-function cgpaToGrade(cgpa: number): string {
-  if (cgpa >= 3.4) return 'ممتاز';
-  if (cgpa >= 2.8) return 'جيد جداً';
-  if (cgpa >= 2.4) return 'جيد';
-  if (cgpa >= 2.0) return 'مقبول';
-  return 'ضعيف';
+/**
+ * تقدير عام from the CGPA (جدول 4). This used to be a literal ladder here (3.4/2.8/2.4/2.0) that
+ * matched neither the bylaw nor the copy in lib/promotion.ts, so the transcript and the graduation
+ * batch printed different classifications for the same graduate. The table now lives in the bylaw
+ * settings; each report run resolves it once and closes over it (the call sites are inside `.map`s,
+ * so they must stay synchronous).
+ */
+async function cgpaGrader(): Promise<(cgpa: number) => string> {
+  const reg = await getRegulations();
+  return (cgpa: number) => cgpaGrade(cgpa, reg);
 }
+
+/**
+ * A CGPA below every band in the institute's جدول 4 has NO تقدير — the cell prints «—». In a
+ * توزيع التقديرات a bare dash reads as a missing count rather than a bucket, so name it there.
+ * Each sheet keeps its own wording for the real bands (`prefix`).
+ */
+const gradeDistLabel = (grade: string, prefix = '') => (grade === NO_CGPA_GRADE ? 'بدون تقدير' : `${prefix}${grade}`);
 
 async function instituteName(universityId: string | null): Promise<string> {
   if (!universityId) return INSTITUTE_FALLBACK;
@@ -75,6 +86,7 @@ export const transcriptsReports: ReportDef[] = [
     description: 'كشف تفصيلي بالمقررات لكل فصل مع المعدل الفصلي والتراكمي والساعات المكتسبة',
     permission: VIEW, filters: ['studentCode'], requires: ['studentCode'],
     run: async (f, ctx) => {
+      const cgpaToGrade = await cgpaGrader();
       const student = await prisma.student.findFirst({
         where: { studentCode: f.studentCode, universityId: ctx.universityId ?? undefined },
         include: { program: { select: { nameAr: true, academicSystem: true } }, department: { select: { nameAr: true } } },
@@ -174,6 +186,7 @@ export const transcriptsReports: ReportDef[] = [
     description: 'قائمة الخريجين مع المعدل التراكمي والساعات والتقدير وتوزيع التقديرات',
     permission: VIEW, filters: ['departmentId', 'programId'],
     run: async (f, ctx) => {
+      const cgpaToGrade = await cgpaGrader();
       const students = await prisma.student.findMany({
         where: { AND: [{ universityId: ctx.universityId ?? undefined, status: 'GRADUATED', ...(f.departmentId ? { departmentId: f.departmentId } : {}), ...(f.programId ? { programId: f.programId } : {}) }, academicSystemWhere('CREDIT_HOURS')] },
         include: { program: { select: { nameAr: true } } },
@@ -187,7 +200,7 @@ export const transcriptsReports: ReportDef[] = [
       });
       const dist = new Map<string, number>();
       for (const r of rows) dist.set(r.grade, (dist.get(r.grade) ?? 0) + 1);
-      const stats = [{ label: 'إجمالي الخريجين', value: rows.length }, ...[...dist.entries()].map(([label, value]) => ({ label, value }))];
+      const stats = [{ label: 'إجمالي الخريجين', value: rows.length }, ...[...dist.entries()].map(([label, value]) => ({ label: gradeDistLabel(label), value }))];
       return {
         kind: 'sheet',
         title: 'كشف الخريجين',
@@ -209,6 +222,7 @@ export const transcriptsReports: ReportDef[] = [
     description: 'كل طالب في المستوى، عمود لكل مقرر، مع المعدل الفصلي والنتيجة وتوزيع النتائج',
     permission: VIEW, filters: ['level', 'academicYear', 'semester', 'departmentId', 'programId'], requires: ['level', 'academicYear', 'semester'],
     run: async (f, ctx) => {
+      const cgpaToGrade = await cgpaGrader();
       const students = await prisma.student.findMany({
         where: { AND: [studentWhere(f, ctx.universityId ?? null), academicSystemWhere('CREDIT_HOURS')] },
         select: { id: true, studentCode: true, nameAr: true, seatNumber: true },
@@ -338,6 +352,7 @@ export const transcriptsReports: ReportDef[] = [
     description: 'كشف التخرج: الفرقة النهائية بتقسيمة كل مادة بالكامل، والسنوات السابقة كمعدل إجمالي لكل فرقة، مع المعدل التراكمي وتقدير التخرج — تُصدَّر بصيغة الوزارة للتوقيع',
     permission: VIEW, filters: ['academicYear', 'departmentId', 'programId'],
     run: async (f, ctx) => {
+      const cgpaToGrade = await cgpaGrader();
       const uid = ctx.universityId ?? null;
       const students = await prisma.student.findMany({ where: { AND: [studentWhere(f, uid), academicSystemWhere('CREDIT_HOURS'), { status: 'GRADUATED' }] }, select: { id: true, studentCode: true, nameAr: true, seatNumber: true }, orderBy: { studentCode: 'asc' } });
       if (!students.length) return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'لا يوجد خريجون بهذه المعايير' } };
@@ -422,7 +437,7 @@ export const transcriptsReports: ReportDef[] = [
         return { id: s.id, seat: s.seatNumber ?? s.studentCode, name: s.nameAr, leading, cells, cgpa, gtotal: grandTotal, gavg, gpct };
       });
       const rankMap = rankByDesc(grecs, (r) => r.id, (r) => r.gpct);
-      const stats = [{ label: 'إجمالي الخريجين', value: grecs.length }, ...[...gradeDist.entries()].map(([label, value]) => ({ label: `تقدير ${label}`, value }))];
+      const stats = [{ label: 'إجمالي الخريجين', value: grecs.length }, ...[...gradeDist.entries()].map(([label, value]) => ({ label: gradeDistLabel(label, 'تقدير '), value }))];
 
       // screen (photo) columns/rows: prior-year per-course totals + final-year course grades + cumulative
       const columns: ReportColumn[] = [

@@ -91,7 +91,13 @@ export async function courseResults(f: TermFilter) {
 export async function gradeSheet(courseId: string, f: TermFilter) {
   const [course, enrollments, statuses, reg] = await Promise.all([
     prisma.course.findUnique({ where: { id: courseId } }),
-    prisma.enrollment.findMany({ where: { courseId, ...termWhere(f) }, include: { student: true }, orderBy: { student: { studentCode: 'asc' } } }),
+    prisma.enrollment.findMany({
+      where: { courseId, ...termWhere(f) },
+      // the programme carries the academic system, which decides whether the bylaw's repeat
+      // exemption applies at all (it is an annual-system rule)
+      include: { student: { include: { program: { select: { academicSystem: true } } } } },
+      orderBy: { student: { studentCode: 'asc' } },
+    }),
     prisma.gradeStatus.findMany(),
     getRegulations(),
   ]);
@@ -105,7 +111,7 @@ export async function gradeSheet(courseId: string, f: TermFilter) {
     rows: enrollments.map((e) => {
       // Same denominator as the grade-entry screen and the annual engine: an exempt repeater must not
       // read 48/100 راسب on the sheet the control desk signs while the screen beside it says 48/60.
-      const app = resolveApplicableComponents(e, course, reg);
+      const app = resolveApplicableComponents({ ...e, academicSystem: e.student.program?.academicSystem }, course, reg);
       const total = app.countedKeys.reduce((sum, k) => sum + (e[k] ?? 0), 0);
       return {
         maxTotal: app.maxTotal,

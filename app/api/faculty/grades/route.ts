@@ -37,7 +37,18 @@ export async function GET(request: NextRequest) {
     ]);
     const nameByCode = new Map(statuses.map((s) => [s.code, s.name]));
 
+    // The ONE ladder, shipped to the page: a "use client" file may not import a server module, and
+    // colouring a pass/fail badge from a hardcoded 60% is exactly how the platform came to disagree
+    // with its own bylaw (جدول 3 puts the floor at 50%, and another institute may configure another).
+    const letters = statuses.filter((st) => st.isLetter && st.minPercent != null);
+    const passFloors = letters.filter((st) => st.isPass).map((st) => st.minPercent as number);
+
     return NextResponse.json({
+      ladder: letters
+        .slice()
+        .sort((a, b) => (b.minPercent as number) - (a.minPercent as number))
+        .map((st) => ({ code: st.code, name: st.name, minPercent: st.minPercent as number, isPass: st.isPass })),
+      passFloor: passFloors.length ? Math.min(...passFloors) : null,
       course: { id: course.id, code: course.code, nameAr: course.nameAr, midtermMax: course.midtermMax, finalMax: course.finalMax, practicalMax: course.practicalMax, homeworkMax: course.homeworkMax },
       roster: enrollments.map((e) => ({
         enrollmentId: e.id,

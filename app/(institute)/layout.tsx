@@ -254,7 +254,8 @@ const navItems = [
       { title: "الإعدادات العامة", href: "/institute/settings" },
       { title: "السنوات الدراسية", href: "/institute/settings/academic-years" },
       { title: "النظام الأكاديمي للبرامج", href: "/institute/settings/academic-system" },
-      { title: "إعدادات الساعات المعتمدة", href: "/institute/settings/credit-hours" },
+      // «إعدادات الساعات المعتمدة» removed: it was a second bylaw form whose Setting key nothing
+      // read, sitting right above the real one. Its route now redirects to «اللوائح والقواعد».
       { title: "اللوائح والقواعد", href: "/institute/settings/regulations" },
       { title: "إعدادات الذكاء الاصطناعي", href: "/institute/settings/ai" },
     ],
@@ -280,6 +281,9 @@ const NAV_REQUIRES: Record<string, string> = {
   "/institute/payroll": "payroll.view",
   "/institute/banking": "banking.view",
   "/institute/settings": "settings.view",
+  // The bylaw screen answers only «إعدادات المعهد»; middleware bounces anyone else, so don't
+  // offer the link to a role that would be redirected away from it.
+  "/institute/settings/regulations": "institute.settings.view",
 }
 
 export default function InstituteLayout({
@@ -438,7 +442,7 @@ export default function InstituteLayout({
                       exit={{ opacity: 0, height: 0 }}
                       className="mr-6 mt-1 space-y-1 border-r pr-4"
                     >
-                      {item.children?.map((child) => (
+                      {item.children?.filter((child) => canSee(child.href)).map((child) => (
                         <Link
                           key={child.href}
                           href={child.href}

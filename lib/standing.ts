@@ -1,5 +1,5 @@
 import prisma from '@/lib/prisma';
-import { getRegulations, type Regulations } from '@/lib/regulations';
+import { getRegulations, resolveGraduationHours, type Regulations } from '@/lib/regulations';
 
 // Academic-standing engine — the bylaw layer on top of the GPA engine. It walks a
 // student's terms in chronological order, tracks the *running* CGPA after each regular
@@ -29,9 +29,14 @@ export type AcademicStanding = {
   probationTermsTotal: number; // separate regular terms spent on probation
   probationConsecutive: number; // longest consecutive run of probation terms
   escalation: 'none' | 'warning' | 'track-change-or-dismissal';
-  // honor roll
+  // honor roll — مرتبة الشرف. The bylaw joins its conditions with «و», so there is ONE verdict:
+  // `honorRoll`. `termHonor`/`cumulativeHonor` are kept as aliases of that same verdict because
+  // several screens and reports still read them (some as `cumulativeHonor || termHonor`); splitting
+  // them again would resurrect the OR the bylaw forbids.
+  honorRoll: boolean;
   termHonor: boolean;
   cumulativeHonor: boolean;
+  honorBlockers: string[]; // which bylaw honour conditions this student misses (Arabic, for the UI)
   // level promotion
   currentLevel: number;
   qualifiedLevel: number;
@@ -39,6 +44,8 @@ export type AcademicStanding = {
   // graduation
   graduationEligible: boolean;
   graduationHours: number; // per-program requirement (or reg default) used for this student
+  graduationMinCgpa: number; // bylaw floor applied to this student (0 = the institute disabled it)
+  meetsGraduationCgpa: boolean; // «الحد الادني للتخرج … تقدير تراكمي 2»
   remainingHours: number;
   passedGraduationProject: boolean; // مشروع التخرج passed?
   atLastLevel: boolean; // reached the program's final academic year?
@@ -72,6 +79,10 @@ type Loaded = {
     points: number | null;
     affectsGpa: boolean;
     isPass: boolean;
+    // Is this enrolment's result settled? false while it is un-graded or parked in a non-terminal
+    // status (GradeStatus.isFinal === false → INC/DEFER). Used to tell a term that is STILL BEING
+    // RECORDED from one the bylaw can actually judge.
+    resolved: boolean;
   }[];
 };
 
@@ -112,6 +123,11 @@ async function load(studentId: string): Promise<Loaded | null> {
         points: st?.points ?? null,
         affectsGpa: st?.affectsGpa ?? false,
         isPass: st?.isPass ?? false,
+        // No status at all = the registrar has not recorded this course yet. A status the institute
+        // marked non-final (INC/DEFER) is likewise unsettled. A code with no matching GradeStatus row
+        // counts as settled: something WAS recorded, and treating it as pending would freeze the
+        // term's verdict forever.
+        resolved: e.gradeStatusCode != null && (st ? st.isFinal : true),
       };
     }),
   };
@@ -121,7 +137,7 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
   const { student, enrollments } = data;
 
   // ---- term aggregation (GPA-affecting components only) ----
-  const terms = new Map<number, { qp: number; hours: number; summer: boolean; hasFail: boolean; gpaHours: number }>();
+  const terms = new Map<number, { qp: number; hours: number; summer: boolean; hasFail: boolean; gpaHours: number; pending: boolean }>();
   let cgpaQp = 0;
   let cgpaHours = 0;
   let earnedHours = 0;
@@ -130,7 +146,9 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
     if (e.isPass) earnedHours += e.creditHours;
     const counts = e.affectsGpa && e.countsInGpa && e.points != null;
     const key = termSortKey(e.academicYear, e.semester);
-    const t = terms.get(key) ?? { qp: 0, hours: 0, summer: isSummer(e.semester), hasFail: false, gpaHours: 0 };
+    const t = terms.get(key) ?? { qp: 0, hours: 0, summer: isSummer(e.semester), hasFail: false, gpaHours: 0, pending: false };
+    // A GPA-bearing course with no settled result yet leaves the whole term half-recorded.
+    if (e.countsInGpa && !e.resolved) t.pending = true;
     if (counts) {
       t.qp += (e.points as number) * e.creditHours;
       t.hours += e.creditHours;
@@ -173,11 +191,18 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
     escalation = 'warning';
   }
 
-  // ---- honor roll ----
-  // latest regular term
-  const latestRegularKey = [...orderedKeys].reverse().find((k) => !terms.get(k)!.summer);
-  const latestTerm = latestRegularKey != null ? terms.get(latestRegularKey)! : null;
-  const latestTermGpa = latestTerm && latestTerm.hours > 0 ? latestTerm.qp / latestTerm.hours : 0;
+  // ---- honor roll (مرتبة الشرف) — bylaw conditions, measured here, joined below ----
+  // «لم يقل تقدير الفصلي عن 3.00 GPA» reads on EVERY regular term the student has a GPA in, not on
+  // the last one only: a level-2 term of 1.90 disqualifies him however strong his final term is.
+  // Summer terms are excluded, as they are from the probation sequence («ولا يحتسب الفصل الصيفي»).
+  const regularTerms = orderedKeys.map((k) => terms.get(k)!).filter((t) => !t.summer && t.hours > 0);
+  // …but only over terms whose results are IN. A term's GPA here is `qp / hours` over graded hours
+  // only, so a 15-hour term with its first 2-hour course posted as C reads 2.00 and used to drop the
+  // student off the honour list mid-grading, then put him back when the rest was posted. A
+  // half-recorded term is not yet a «تقدير فصلي» the bylaw can measure, so it is not measured.
+  const judgedTerms = regularTerms.filter((t) => !t.pending);
+  const everyTermMeetsHonorGpa =
+    judgedTerms.length > 0 && judgedTerms.every((t) => t.qp / t.hours >= reg.honorTermGpa);
 
   // per-course best outcome: passed if any attempt passed; track failed mandatory
   const passedCourse = new Set<string>();
@@ -212,9 +237,10 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
     .filter(([id, v]) => !passedCourse.has(id) && v.fails >= reg.maxCourseAttempts)
     .map(([, v]) => v);
 
-  const allMandatoryPassed = failedMandatory.length === 0 && mandatoryCourses.size > 0;
-  const termHonor = !!latestTerm && !latestTerm.hasFail && latestTermGpa >= reg.honorTermGpa;
-  const cumulativeHonor = cgpaHours > 0 && cgpa >= reg.honorCgpa && allMandatoryPassed;
+  // «والا يكون طالب رسب في اي مقرر دراسي خلال تسجيله» — ANY graded fail, ever, even one later
+  // repaired by a successful retake. (The old test was allMandatoryPassed, which forgives a repaired
+  // fail and also punishes a student merely still enrolled in a mandatory course.)
+  const everFailedAnyCourse = failCountByCourse.size > 0;
 
   // ---- level promotion (by earned hours) ----
   const levelEntries = Object.entries(reg.levelMinHours)
@@ -228,18 +254,44 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
 
   // ---- graduation ----
   // Per-program credit-hour requirement wins over the institute-wide default
-  // (e.g. a 130 CH program vs a 160 CH program); fall back to reg.graduationHours.
-  const graduationHours = student.programTotalCreditHours ?? reg.graduationHours;
+  // (e.g. a 130 CH program vs a 160 CH program); fall back to reg.graduationHours. Shared with
+  // every other place that must quote the requirement (a graduation request, a report).
+  const graduationHours = resolveGraduationHours(student.programTotalCreditHours, reg);
   // "Last level": the student must have reached the final academic year of the
   // program (Program.years) — fall back to the bylaw max when there's no program.
   const lastLevel = student.programYears ?? FALLBACK_MAX_LEVEL;
   const atLastLevel = student.level >= lastLevel;
   const remainingHours = Math.max(0, graduationHours - earnedHours);
+  // «الحد الادني للتخرج نقطتين حتي يصل الي تقدير تراكمي 2 ويصبح مقبول ويتم التخرج» — the bylaw's CGPA
+  // floor. Without it a student on 1.40 who merely accumulated the hours was auto-graduated by the
+  // promotion engine. Configured (0 disables the gate for an institute whose bylaw has no floor).
+  // Number() because a hand-saved bylaw can store "2" as a string; every read of it below formats.
+  const graduationMinCgpa = Number(reg.graduationMinCgpa) || 0;
+  const meetsGraduationCgpa = cgpa >= graduationMinCgpa;
   const graduationEligible =
     earnedHours >= graduationHours &&
     failedMandatory.length === 0 &&
     passedGraduationProject && // مشروع التخرج must be passed
+    meetsGraduationCgpa &&
     atLastLevel;
+
+  // ---- the honour verdict: every bylaw condition, ANDed ----
+  // «و ان يكون حاصل في خلال المدة الاعتادية للدراسة من ( 7-9 فصول دراسية اعتيادية )» — «خلال» is
+  // WITHIN, so the bylaw sets a CEILING: the honour must be earned inside the normal span. It never
+  // asks the student to spend seven terms, so the floor ships disabled (Regulations.honorMinTerms 0)
+  // and stays available for an institute whose own bylaw imposes a residency. Duration counts every
+  // regular term the student actually studied — a term still being graded is time spent even though
+  // its GPA is not yet judged above.
+  const regularTermCount = regularTerms.length;
+  const withinHonorCeiling = reg.honorMaxTerms > 0 ? regularTermCount <= reg.honorMaxTerms : true;
+  const withinHonorFloor = !graduationEligible || reg.honorMinTerms <= 0 || regularTermCount >= reg.honorMinTerms;
+  const honorBlockers: string[] = [];
+  if (!(cgpaHours > 0 && cgpa >= reg.honorCgpa)) honorBlockers.push(`المعدل التراكمي أقل من ${reg.honorCgpa}`);
+  if (!everyTermMeetsHonorGpa) honorBlockers.push(`معدل أحد الفصول أقل من ${reg.honorTermGpa}`);
+  if (everFailedAnyCourse) honorBlockers.push('سبق الرسوب في مقرر');
+  if (!withinHonorCeiling) honorBlockers.push(`تجاوز ${reg.honorMaxTerms} فصول اعتيادية`);
+  if (!withinHonorFloor) honorBlockers.push(`أقل من ${reg.honorMinTerms} فصول اعتيادية`);
+  const honorRoll = honorBlockers.length === 0;
 
   // ---- Arabic flags ----
   const flags: string[] = [];
@@ -247,15 +299,21 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
   else if (escalation === 'warning') flags.push(`إنذار أكاديمي (المعدل ${cgpa.toFixed(2)} < ${reg.probationGpa})`);
   if (repeatedFailure.length) flags.push(`رسوب متكرر (${reg.maxCourseAttempts}+ مرات): ${repeatedFailure.map((r) => r.code).join('، ')}`);
   if (onProbation) flags.push(`تحت الملاحظة — الحد الأقصى للتسجيل ${reg.probationHourCap} ساعة`);
-  if (cumulativeHonor) flags.push('قائمة الشرف (تراكمي)');
-  if (termHonor) flags.push('قائمة الشرف (فصلي)');
+  if (honorRoll) flags.push('مرتبة الشرف');
   if (canPromote) flags.push(`مؤهل للترقية إلى المستوى ${qualifiedLevel}`);
   if (graduationEligible) flags.push('مستوفٍ لشروط التخرج');
   else if (earnedHours > 0) {
     if (remainingHours > 0) flags.push(`متبقٍ للتخرج ${remainingHours} ساعة`);
     // Surface the non-hour graduation blockers so the gate is auditable in the UI.
     if (remainingHours === 0 && !passedGraduationProject) flags.push('متبقٍ: مشروع التخرج');
-    if (remainingHours === 0 && passedGraduationProject && !atLastLevel)
+    // The CGPA floor must be SAID, not silently applied: without this line a student who has the
+    // hours and the project simply never appears in the graduates list with no reason given. Gated
+    // like its two neighbours (hours done, project passed) so it names what is ACTUALLY standing
+    // between this student and the certificate — ungated it fired on every probation student, adding
+    // «متبقٍ للتخرج: رفع المعدل» to someone 118 hours away who already carries the إنذار أكاديمي flag.
+    if (remainingHours === 0 && passedGraduationProject && !meetsGraduationCgpa)
+      flags.push(`متبقٍ للتخرج: رفع المعدل التراكمي إلى ${graduationMinCgpa.toFixed(2)} (الحالي ${cgpa.toFixed(2)})`);
+    if (remainingHours === 0 && passedGraduationProject && meetsGraduationCgpa && !atLastLevel)
       flags.push(`متبقٍ: بلوغ المستوى الأخير (${lastLevel})`);
   }
 
@@ -269,13 +327,19 @@ export function deriveStanding(data: Loaded, reg: Regulations): AcademicStanding
     probationTermsTotal: probationTotal,
     probationConsecutive: maxConsecutive,
     escalation,
-    termHonor,
-    cumulativeHonor,
+    honorRoll,
+    // Aliases of the single verdict — see the type. Existing consumers that OR the two now get the
+    // bylaw's conjunction either way instead of two half-conditions.
+    termHonor: honorRoll,
+    cumulativeHonor: honorRoll,
+    honorBlockers,
     currentLevel: student.level,
     qualifiedLevel,
     canPromote,
     graduationEligible,
     graduationHours,
+    graduationMinCgpa,
+    meetsGraduationCgpa,
     remainingHours,
     passedGraduationProject,
     atLastLevel,

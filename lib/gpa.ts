@@ -21,17 +21,40 @@ export type Standing = {
   termGpas: { term: string; academicYear: string; semester: string; gpa: number; hours: number }[];
 };
 
-// Map a numeric total percentage to a letter-grade code using the GradeStatus
-// letter rows (their minPercent bounds). Returns 'F' if below all bounds.
-export async function letterForPercent(pct: number): Promise<string> {
-  const letters = await prisma.gradeStatus.findMany({
+// The institute's letter ladder (جدول 3 in its bylaw), highest band first. It is the ONLY
+// definition of what a percentage is worth — no band, floor or letter is written down in code,
+// because every institute loads its own from the سلّم التقديرات screen.
+type LadderRow = { code: string; minPercent: number | null; isPass: boolean };
+
+async function letterLadder(): Promise<LadderRow[]> {
+  return prisma.gradeStatus.findMany({
     where: { isLetter: true, minPercent: { not: null } },
     orderBy: { minPercent: 'desc' },
+    select: { code: true, minPercent: true, isPass: true },
   });
-  for (const g of letters) {
+}
+
+function pickLetter(ladder: LadderRow[], pct: number): string {
+  for (const g of ladder) {
     if (g.minPercent != null && pct >= g.minPercent) return g.code;
   }
-  return 'F';
+  // Below every configured band. A well-formed ladder reaches 0 so this cannot happen; if the
+  // institute's ladder stops short, fall to ITS own lowest grade rather than assuming a code
+  // named 'F' exists — an invented code would blow up setEnrollmentResult with unknown-grade-status.
+  return ladder.length ? ladder[ladder.length - 1].code : 'F';
+}
+
+// The pass floor is not a constant either: it is the lowest band the institute marked as ناجح.
+// This bylaw puts it at 50% (جدول 3: «مقبول | اقل من 53 %الي 50% | 1.00 | D»); another institute
+// moves it by editing the ladder, and nothing in code has to change.
+function passFloorOf(ladder: LadderRow[]): number | null {
+  const passing = ladder.filter((g) => g.isPass && g.minPercent != null).map((g) => g.minPercent as number);
+  return passing.length ? Math.min(...passing) : null;
+}
+
+// Map a numeric total percentage to a letter-grade code using the ladder's minPercent bounds.
+export async function letterForPercent(pct: number): Promise<string> {
+  return pickLetter(await letterLadder(), pct);
 }
 
 // Compute a student's standing from their enrollments + result states.
@@ -89,8 +112,10 @@ export async function recomputeStudentGpa(studentId: string): Promise<number> {
 
 // Decide the result-state code from recorded scores, applying the bylaw's
 // "board fail" rule: a written/final exam below the written-min % fails the course
-// (BL) even when the aggregate total would otherwise pass. Below 60% total it is a
-// plain F, so the BL branch only fires when the total would have passed.
+// (BL) even when the aggregate total would otherwise pass — «رغم أن مجموع الطالب 53:
+// يعتبر راسباً طبقاً للائحة. ويظهر: BL». Below the pass floor it is a plain fail anyway,
+// so the BL branch only fires when the total would have passed; that floor comes from the
+// institute's own ladder, never from a literal.
 export async function deriveGradeCode(
   course: CourseMaxes,
   c: GradeComponents,
@@ -100,6 +125,7 @@ export async function deriveGradeCode(
   applicability?: ComponentApplicability,
 ): Promise<{ code: string; totalPct: number; finalPct: number | null }> {
   const r = reg ?? (await getRegulations());
+  const ladder = await letterLadder();
   const app = applicability ?? resolveApplicableComponents(null, course, r);
   // Same fairness rule as the annual engine: measure the marks he CAN earn against the marks
   // that were on offer for him — never against components he was barred from sitting.
@@ -108,10 +134,11 @@ export async function deriveGradeCode(
   const totalPct = max > 0 ? (total / max) * 100 : 0;
   // The board-fail rule can only speak about a written exam the student actually sat.
   const finalPct = app.applicable.final ? (c.final / course.finalMax) * 100 : null;
-  if (finalPct != null && finalPct < r.writtenMinPercent && totalPct >= 60) {
+  const passFloor = passFloorOf(ladder);
+  if (finalPct != null && finalPct < r.writtenMinPercent && passFloor != null && totalPct >= passFloor) {
     return { code: 'BL', totalPct, finalPct };
   }
-  return { code: await letterForPercent(totalPct), totalPct, finalPct };
+  return { code: pickLetter(ladder, totalPct), totalPct, finalPct };
 }
 
 // Default result-reason auto-attached for system-derived non-pass codes so the
@@ -211,7 +238,9 @@ export async function setEnrollmentResult(
   }
 
   const reg = await getRegulations();
-  const app = resolveApplicableComponents(e, e.course, reg);
+  // The bylaw's repeat exemption is annual-only; a credit-hour repeater simply re-registers the
+  // course, so nothing bars him from its coursework.
+  const app = resolveApplicableComponents({ ...e, academicSystem: e.student?.program?.academicSystem }, e.course, reg);
   const code = opts.code ?? (await deriveGradeCode(e.course, c, reg, app)).code;
   const st = await prisma.gradeStatus.findFirst({ where: { code } });
   if (!st) throw new Error(`unknown-grade-status:${code}`);

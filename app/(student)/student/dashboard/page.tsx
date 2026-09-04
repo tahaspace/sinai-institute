@@ -357,13 +357,11 @@ export default function StudentDashboard() {
                         <p className="text-sm text-muted-foreground">{grade.exam}</p>
                       </div>
                       <div className="text-left">
-                        <p className={cn(
-                          "font-bold",
-                          percentage >= 90 ? "text-green-600" :
-                          percentage >= 75 ? "text-blue-600" :
-                          percentage >= 60 ? "text-yellow-600" :
-                          "text-red-600"
-                        )}>
+                        {/* Neutral: colouring a mark needs the institute's own ladder, and the
+                            90/75/60 cut points here were invented — they contradicted جدول 3, whose
+                            pass floor is 50%. The mark itself is shown; the تقدير lives on
+                            «الدرجات والنتائج», which reads the configured ladder. */}
+                        <p className="font-bold">
                           {grade.grade}/{grade.total}
                         </p>
                       </div>

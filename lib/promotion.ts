@@ -11,11 +11,14 @@ import { writeAudit } from '@/lib/audit';
 import { computeStandingForStudents } from '@/lib/standing';
 import { computeAnnualForStudents } from '@/lib/annual';
 import { outstandingFeesFor } from '@/lib/holds';
+import { getRegulations, cgpaGrade } from '@/lib/regulations';
 
 export type PromotionAction = 'PROMOTE' | 'GRADUATE' | 'STAY' | 'SKIP';
 
-const GRADE_BANDS: [number, string][] = [[3.67, 'ممتاز'], [3.0, 'جيد جداً'], [2.33, 'جيد'], [2.0, 'مقبول'], [0, 'ضعيف']];
-export function cgpaGrade(cgpa: number): string { for (const [min, g] of GRADE_BANDS) if (cgpa >= min) return g; return 'ضعيف'; }
+// The overall تقدير band table used to live here as a literal ladder (3.67/3.00/2.33/2.00) that
+// disagreed with both جدول 4 and the transcript's own copy — the same graduate printed «جيد جداً»
+// here and «ممتاز» there. It now comes from the bylaw settings (Regulations.cgpaGradeBands), which
+// is the single table every official document reads; import cgpaGrade from '@/lib/regulations'.
 
 export type PromotionSettings = { blockDebtPromotion: boolean };
 export const PROMOTION_SETTINGS_KEY = 'institute.promotion';
@@ -51,10 +54,11 @@ export async function evaluateCohort(opts: { academicYear: string; level: number
   // score an annual student with the credit CGPA engine (they'd wrongly come back as STAY/raسب).
   const annualIds = students.filter((s) => s.program?.academicSystem === 'ANNUAL').map((s) => s.id);
   const creditIds = students.filter((s) => s.program?.academicSystem !== 'ANNUAL').map((s) => s.id);
-  const [standings, annuals, settings] = await Promise.all([
+  const [standings, annuals, settings, reg] = await Promise.all([
     computeStandingForStudents(creditIds),
     computeAnnualForStudents(annualIds, { academicYear: opts.academicYear }),
     getPromotionSettings(),
+    getRegulations(),
   ]);
 
   const rows: PromotionRow[] = [];
@@ -92,7 +96,7 @@ export async function evaluateCohort(opts: { academicYear: string; level: number
       // ── CREDIT_HOURS: المعدل التراكمي / الساعات المكتسبة ──
       const st = standings.get(s.id);
       cgpa = st?.cgpa ?? 0;
-      grade = cgpaGrade(cgpa);
+      grade = cgpaGrade(cgpa, reg);
       if (st?.graduationEligible) { action = 'GRADUATE'; eligible = true; reason = 'مستوفٍ لشروط التخرج'; result = 'ناجح — خريج'; }
       else if (st?.canPromote) { action = 'PROMOTE'; toLevel = st.qualifiedLevel; eligible = true; reason = 'ناجح — مؤهل للترقية'; result = 'ناجح'; }
       else { action = 'STAY'; reason = 'لم يستوفِ شروط الترقية (راسب / ساعات ناقصة)'; result = 'راسب'; }

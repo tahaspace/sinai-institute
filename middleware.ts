@@ -36,6 +36,10 @@ const AREA_RULES: Array<[string, string[]]> = [
   ['/institute/hr', ['hr.staff.view']],
   ['/institute/marketing', ['marketing.manage']],
   ['/institute/reports', ['reports.view', 'institute.reports.view']],
+  // The bylaw screen. Without its own entry it fell through to the generic '/institute' rule below,
+  // which admits student.view / finance.view / exam.schedule.view — roles its API then refuses, so
+  // the admin saw an empty form under «فشل في جلب اللائحة» instead of a permission message.
+  ['/institute/settings/regulations', ['institute.settings.view', 'institute.settings.edit']],
   ['/institute', ['institute.dashboard.view', 'department.view', 'student.view', 'finance.view', 'exam.schedule.view']],
 ];
 

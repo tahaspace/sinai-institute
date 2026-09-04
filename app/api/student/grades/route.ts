@@ -3,7 +3,8 @@ import prisma from '@/lib/prisma';
 import { resolveStudent } from '@/lib/student';
 import { computeStanding } from '@/lib/gpa';
 import { resolveStudentSystem } from '@/lib/academic-system';
-import { computeAnnualForStudents } from '@/lib/annual';
+import { bandsFromRegulations, computeAnnualForStudents } from '@/lib/annual';
+import { getRegulations } from '@/lib/regulations';
 import { getAcademicYears } from '@/lib/academic-years';
 import { academicSystemWhere } from '@/lib/reporting/filters';
 import { scopeBlock } from '@/lib/holds';
@@ -113,6 +114,11 @@ export async function GET(request: NextRequest) {
     const system = await resolveStudentSystem(student.id);
     const baseStats = { totalGrade, maxGrade, percentage: maxGrade > 0 ? (totalGrade / maxGrade) * 100 : 0 };
     let stats: Record<string, unknown>;
+    // The تقدير scale this student is actually graded on, shipped as data because the page is
+    // "use client" and may not import a server module. It replaces the page's own invented bands
+    // (90/80/70/60 + «ضعيف»), which showed the student a تقدير his transcript never says: under
+    // جدول 3 a 55% is C- «مقبول», not a failure. Highest band first.
+    let ladder: { code: string; name: string; minPercent: number; isPass: boolean }[] = [];
 
     if (system === 'ANNUAL') {
       const { current } = await getAcademicYears();
@@ -122,12 +128,27 @@ export async function GET(request: NextRequest) {
       const results = await computeAnnualForStudents(peers.map((p) => p.id), current ? { academicYear: current } : {});
       const ranked = peers.map((p) => ({ id: p.id, pct: results.get(p.id)?.overallPct ?? -1 })).sort((a, b) => b.pct - a.pct);
       const ar = results.get(student.id) ?? null;
+      // Annual students carry no letterGrade (lib/gpa.ts stores raw marks for them): their تقدير is
+      // a percentage BAND from the bylaw's own thresholds, exactly as lib/annual.ts grades them.
+      // «راسب» is by construction the only failing band (gradeFromBands returns it below the
+      // configured pass percent), so pass/fail is read off the label — no threshold repeated here.
+      ladder = bandsFromRegulations(await getRegulations()).map((b) => ({
+        code: b.label,
+        name: b.label,
+        minPercent: b.min,
+        isPass: b.label !== 'راسب',
+      }));
       stats = {
         ...baseStats,
         result: ar?.result ?? 'قيد الرصد', overallPct: ar?.overallPct ?? null, overallGrade: ar?.overallGrade ?? null,
         rank: Math.max(ranked.findIndex((r) => r.id === student!.id) + 1, 1), totalStudents: ranked.length,
       };
     } else {
+      // Credit-hour letters — the GradeStatus rows edited on «حالات وقواعد النتائج», the ONE ladder.
+      ladder = statuses
+        .filter((st) => st.isLetter && st.minPercent != null)
+        .sort((a, b) => (b.minPercent as number) - (a.minPercent as number))
+        .map((st) => ({ code: st.code, name: st.name, minPercent: st.minPercent as number, isPass: st.isPass }));
       const standing = await computeStanding(student.id);
       let rank = 1, totalStudents = 1;
       if (student.departmentId) {
@@ -143,6 +164,7 @@ export async function GET(request: NextRequest) {
       system,
       student: { id: student.id, studentCode: student.studentCode, name: student.nameAr, level: student.level },
       stats,
+      ladder,
       subjects: withTrend,
       exams,
     });

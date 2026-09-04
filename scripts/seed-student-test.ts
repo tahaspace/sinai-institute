@@ -16,6 +16,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { hash } from 'bcryptjs';
+import { getRegulations, resolveGraduationHours } from '@/lib/regulations';
 
 const url = process.env.DATABASE_URL || '';
 if (!/(@(127\.0\.0\.1|localhost))[:/]/.test(url) && process.env.ALLOW_REMOTE_SEED !== '1') {
@@ -31,15 +32,45 @@ const prisma = new PrismaClient();
 const ACADEMIC_YEAR = '2024-2025';
 const SEMESTER = 'first';
 
+// سلّم التقديرات — transcribed verbatim from جدول 3 of the institute's bylaw (معهد سيناء العالي).
+// Eleven bands, and the تقدير names are PAIRED exactly as the document pairs them: A and A- are both
+// «ممتاز», B+ and B «جيد جدا», B- and C+ «جيد», C / C- / D+ / D «مقبول». They are not invented
+// per-band labels. Rows, in the document's own words:
+//   ممتاز  | 90 % او اكثر            | 4.00 | A
+//   ممتاز  | اقل من90 %الي 85%       | 3.67 | A-
+//   جيد جدا | اقل من 85%الي 80%      | 3.33 | B+
+//   جيد جدا | اقل من 80 %الي 75 %    | 3.00 | B
+//   جيد    | اقل من 75 %الي 70%      | 2.67 | B-
+//   جيد    | اقل من 70 %الي 65%      | 2.33 | C+
+//   مقبول  | اقل من %65 الي 60%      | 2.00 | C
+//   مقبول  | اقل من 60% الي 56%      | 1.67 | C-
+//   مقبول  | اقل من 56 %الي 53%      | 1.33 | D+
+//   مقبول  | اقل من 53 %الي 50%      | 1.00 | D
+//   راسب   | اقل من 50 %             | 1(?) | F
+// The pass floor is therefore 50%, not 60%. F's points cell literally reads «1» in the docx while
+// every other row carries two decimals; it is seeded as 0 because the rows the bylaw says are equal
+// to a fail — BL «راسب لائحه», DS «تتساوي مع راسب في التقدير», DN «تتساوي مع راسب» — all carry 0
+// in the same table. Flagged NEEDS_CLARIFICATION; an institute that reads it as 1.00 edits the row
+// on the سلّم التقديرات screen, no code change needed.
+const BYLAW_LETTER_LADDER: { code: string; name: string; minPercent: number; points: number; isPass: boolean }[] = [
+  { code: 'A', name: 'ممتاز', minPercent: 90, points: 4.0, isPass: true },
+  { code: 'A-', name: 'ممتاز', minPercent: 85, points: 3.67, isPass: true },
+  { code: 'B+', name: 'جيد جدا', minPercent: 80, points: 3.33, isPass: true },
+  { code: 'B', name: 'جيد جدا', minPercent: 75, points: 3.0, isPass: true },
+  { code: 'B-', name: 'جيد', minPercent: 70, points: 2.67, isPass: true },
+  { code: 'C+', name: 'جيد', minPercent: 65, points: 2.33, isPass: true },
+  { code: 'C', name: 'مقبول', minPercent: 60, points: 2.0, isPass: true },
+  { code: 'C-', name: 'مقبول', minPercent: 56, points: 1.67, isPass: true },
+  { code: 'D+', name: 'مقبول', minPercent: 53, points: 1.33, isPass: true },
+  { code: 'D', name: 'مقبول', minPercent: 50, points: 1.0, isPass: true },
+  { code: 'F', name: 'راسب', minPercent: 0, points: 0, isPass: false },
+];
+
+// Demo enrolment grades use the SAME ladder as the seeded config — a second copy of the bands here
+// is how the old seed ended up recording C = 2.3 while its own GradeStatus row said C = 2.0.
 function gradeFromPct(pct: number): { letter: string; points: number } {
-  if (pct >= 90) return { letter: 'A', points: 4.0 };
-  if (pct >= 85) return { letter: 'A-', points: 3.7 };
-  if (pct >= 80) return { letter: 'B+', points: 3.3 };
-  if (pct >= 75) return { letter: 'B', points: 3.0 };
-  if (pct >= 70) return { letter: 'C+', points: 2.7 };
-  if (pct >= 65) return { letter: 'C', points: 2.3 };
-  if (pct >= 60) return { letter: 'D', points: 2.0 };
-  return { letter: 'F', points: 0.0 };
+  const band = BYLAW_LETTER_LADDER.find((g) => pct >= g.minPercent) ?? BYLAW_LETTER_LADDER[BYLAW_LETTER_LADDER.length - 1];
+  return { letter: band.code, points: band.points };
 }
 
 async function main() {
@@ -70,15 +101,13 @@ async function main() {
   await prisma.gradeStatus.deleteMany({});
   await prisma.gradeStatus.createMany({
     data: [
-      // letter grades (isLetter, minPercent drives numeric→letter mapping)
-      { code: 'A', name: 'ممتاز', points: 4.0, affectsGpa: true, isPass: true, isLetter: true, minPercent: 90, order: 1 },
-      { code: 'A-', name: 'ممتاز منخفض', points: 3.67, affectsGpa: true, isPass: true, isLetter: true, minPercent: 85, order: 2 },
-      { code: 'B+', name: 'جيد جداً مرتفع', points: 3.33, affectsGpa: true, isPass: true, isLetter: true, minPercent: 80, order: 3 },
-      { code: 'B', name: 'جيد جداً', points: 3.0, affectsGpa: true, isPass: true, isLetter: true, minPercent: 75, order: 4 },
-      { code: 'C+', name: 'جيد مرتفع', points: 2.33, affectsGpa: true, isPass: true, isLetter: true, minPercent: 70, order: 5 },
-      { code: 'C', name: 'جيد', points: 2.0, affectsGpa: true, isPass: true, isLetter: true, minPercent: 65, order: 6 },
-      { code: 'D', name: 'مقبول', points: 1.0, affectsGpa: true, isPass: true, isLetter: true, minPercent: 60, order: 7 },
-      { code: 'F', name: 'راسب', points: 0, affectsGpa: true, isPass: false, isLetter: true, minPercent: 0, order: 8 },
+      // letter grades — جدول 3 of the bylaw (see BYLAW_LETTER_LADDER above). minPercent drives
+      // the numeric→letter mapping in lib/gpa.ts; the institute retunes the whole ladder from
+      // الإعدادات ← حالات وقواعد النتائج ← سلّم التقديرات without touching this file.
+      ...BYLAW_LETTER_LADDER.map((g, i) => ({
+        code: g.code, name: g.name, points: g.points,
+        affectsGpa: true, isPass: g.isPass, isLetter: true, minPercent: g.minPercent, order: i + 1,
+      })),
       // special statuses
       { code: 'W', name: 'منسحب', points: null, affectsGpa: false, isPass: false, isLetter: false, order: 20 },
       { code: 'E', name: 'غائب بعذر', points: null, affectsGpa: false, isPass: false, isLetter: false, order: 21 },
@@ -88,7 +117,12 @@ async function main() {
       { code: 'BL', name: 'راسب لائحة', points: 0, affectsGpa: true, isPass: false, isLetter: false, order: 25 },
       { code: 'DN', name: 'محروم', points: 0, affectsGpa: true, isPass: false, isLetter: false, order: 26 },
       { code: 'DS', name: 'حرمان تأديبي', points: 0, affectsGpa: true, isPass: false, isLetter: false, order: 27 },
-      { code: 'TR', name: 'مقاصة', points: null, affectsGpa: false, isPass: true, isLetter: false, order: 28 },
+      // bylaw جدول 3, صف مقاصة: «تضاف درجه والتقدير الي معدل تراكمي للطالب» — so an equated course DOES
+      // carry into the CGPA. The same cell then lists what each institute must still decide (مصدر
+      // الدرجة · من يعتمدها · هل تضاف الساعات · تراكمي فقط أم فصلي أيضاً); those are configuration, not
+      // a contradiction of the sentence above. points stays null because the equated course carries its
+      // OWN grade — the control desk records the letter, and affectsGpa lets it count.
+      { code: 'TR', name: 'مقاصة', points: null, affectsGpa: true, isPass: true, isLetter: false, order: 28 },
       { code: 'P', name: 'ناجح (صيفي)', points: null, affectsGpa: false, isPass: true, isLetter: false, order: 29 },
       { code: 'NP', name: 'لم يجتز', points: null, affectsGpa: false, isPass: false, isLetter: false, order: 30 },
     ],
@@ -346,16 +380,26 @@ async function main() {
     ],
   });
 
+  // Graduation requests. requiredHours is RESOLVED, never typed: the bylaw value
+  // (Regulations.graduationHours = «اجتياز عدد ساعات 130 ساعة») unless the student's programme
+  // carries its own total. This seed is the platform's ONLY GraduationRequest create path, so a
+  // literal here is what every row in every environment ends up saying — it used to stamp 132 and
+  // the graduation screen printed «/ 132 ساعة» however the institute had configured its bylaw.
+  const reg = await getRegulations();
   await prisma.graduationRequest.deleteMany({ where: { studentId: { in: [demo.id, struggling.id] } } });
-  const gradFor = await prisma.student.findUnique({ where: { studentCode: '2024-101' } });
+  const gradFor = await prisma.student.findUnique({ where: { studentCode: '2024-101' }, include: { program: { select: { totalCreditHours: true } } } });
   if (gradFor) {
+    const requiredHours = resolveGraduationHours(gradFor.program?.totalCreditHours, reg);
     await prisma.graduationRequest.deleteMany({ where: { studentId: gradFor.id } });
-    await prisma.graduationRequest.create({ data: { studentId: gradFor.id, status: 'PENDING', completedHours: 128, requiredHours: 132, gpa: 3.95 } });
+    // still two hours short — the "pending, not yet complete" demo row
+    await prisma.graduationRequest.create({ data: { studentId: gradFor.id, status: 'PENDING', completedHours: Math.max(0, requiredHours - 2), requiredHours, gpa: 3.95 } });
   }
-  const gradFor2 = await prisma.student.findUnique({ where: { studentCode: '2024-102' } });
+  const gradFor2 = await prisma.student.findUnique({ where: { studentCode: '2024-102' }, include: { program: { select: { totalCreditHours: true } } } });
   if (gradFor2) {
+    const requiredHours = resolveGraduationHours(gradFor2.program?.totalCreditHours, reg);
     await prisma.graduationRequest.deleteMany({ where: { studentId: gradFor2.id } });
-    await prisma.graduationRequest.create({ data: { studentId: gradFor2.id, status: 'PENDING', completedHours: 132, requiredHours: 132, gpa: 3.9 } });
+    // hours complete — the "ready to approve" demo row
+    await prisma.graduationRequest.create({ data: { studentId: gradFor2.id, status: 'PENDING', completedHours: requiredHours, requiredHours, gpa: 3.9 } });
   }
 
   // 8d) Faculty office hours, appointments, and publications (for the demo instructor)

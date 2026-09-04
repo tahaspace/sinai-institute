@@ -27,6 +27,7 @@ type Component = "midterm" | "final" | "practical" | "homework"
 type Edits = Record<string, Partial<Record<Component, number>>>
 
 export default function FacultyGradesPage() {
+  const [passFloor, setPassFloor] = useState<number | null>(null)
   const [courses, setCourses] = useState<FacultyCourseLite[]>([])
   const [selectedCourseId, setSelectedCourseId] = useState("")
   const [course, setCourse] = useState<CourseMax | null>(null)
@@ -69,6 +70,7 @@ export default function FacultyGradesPage() {
       const json = await res.json()
       setCourse(json.course)
       setRoster(json.roster ?? [])
+      setPassFloor(typeof json.passFloor === 'number' ? json.passFloor : null)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -236,7 +238,9 @@ export default function FacultyGradesPage() {
                             </TableCell>
                           ))}
                           <TableCell className="text-center">
-                            <Badge className={pct >= 60 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
+                            {/* the configured pass floor, not a literal: جدول 3 puts it at 50%, and each institute may set
+                                its own. With no ladder saved yet we make no pass claim at all. */}
+                            <Badge className={passFloor == null ? "bg-muted text-muted-foreground" : pct >= passFloor ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
                               {total}/{courseMaxTotal}
                             </Badge>
                           </TableCell>

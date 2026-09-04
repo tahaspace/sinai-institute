@@ -114,7 +114,9 @@ export function courseTotalPct(
   e: EnrollmentWithCourse,
   opts?: { ignoreGrace?: boolean; reg?: { repeatExemptComponents?: string | null } | null },
 ): number | null {
-  const app = resolveApplicableComponents(e, e.course, opts?.reg);
+  // This engine only ever runs for ANNUAL students, so the bylaw's repeat exemption — which is an
+  // annual-system rule — is in force here by construction.
+  const app = resolveApplicableComponents({ ...e, academicSystem: 'ANNUAL' }, e.course, opts?.reg);
   const max = app.maxTotal;
   const comps: (number | null)[] = app.countedKeys.map((k) => e[k]);
   if (max <= 0 || !comps.some((v) => v != null)) return null;
@@ -125,7 +127,7 @@ export function courseTotalPct(
 
 /** The applicable components + effective denominator for one enrolment (UI/report helper). */
 export function courseApplicable(e: EnrollmentWithCourse, reg?: { repeatExemptComponents?: string | null } | null) {
-  return resolveApplicableComponents(e, e.course, reg);
+  return resolveApplicableComponents({ ...e, academicSystem: 'ANNUAL' }, e.course, reg);
 }
 
 export { COMPONENT_LABELS_AR, type ComponentKey };
@@ -159,7 +161,7 @@ export async function computeAnnualForStudents(studentIds: string[], f: TermFilt
   for (const s of students) {
     const es = byStudent.get(s.id) ?? [];
     const courses: AnnualCourseResult[] = es.map((e) => {
-      const app = resolveApplicableComponents(e, e.course, reg);
+      const app = resolveApplicableComponents({ ...e, academicSystem: 'ANNUAL' }, e.course, reg);
       const total = courseTotalPct(e, { ignoreGrace: opts.ignoreGrace, reg });
       // The registrar's own rule: «نتيجة المادة فعلا بتظهر بعد الاعتماد وغلق المادة». A subject is
       // JUDGED only once its result is approved and locked; half-entered marks must leave the

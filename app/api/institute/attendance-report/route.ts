@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { requirePermission } from '@/lib/authz';
 import { courseAttendance } from '@/lib/attendance';
 import { setEnrollmentResult } from '@/lib/gpa';
+import { getRegulations } from '@/lib/regulations';
 import { normalizeSystemFilter } from '@/lib/academic-system';
 
 const DEFAULT_TERM = { academicYear: '2024-2025', semester: 'first' };
@@ -43,9 +44,19 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// PATCH /api/institute/attendance-report — apply deprivation (حرمان → DN) to an
-// enrollment whose absence exceeded the threshold. DN counts as a fail (0) toward GPA,
-// and the student's CGPA is recomputed via the shared write path.
+// The desk already knows WHY: this button is pressed because the student passed the bylaw's absence
+// percentage, never because he asked to withdraw. Without saying so, a configured FW would inherit
+// gpa.ts's default reason «طلب انسحاب» and the bylaw's own requirement — «بس في تقرير لازم افرق ان
+// طالب راسب نتيجة تجاوز نسبة الغياب» — would count these rows as voluntary withdrawals.
+const ABSENCE_REASON_CODE = 'AttendanceShortage';
+
+// PATCH /api/institute/attendance-report — apply the deprivation (حرمان / انسحاب إجباري) to an
+// enrollment whose absence passed the bylaw threshold. WHICH result status is written comes from the
+// bylaw (Regulations.absenceBanStatusCode), never from a literal: جدول 3 attaches two opposite
+// outcomes to the same trigger — FW «منسحب اجباري … ولا يدخل في معدل التراكمي» (the bylaw's own
+// wording for «زادت نسبه الغياب عن 25%», hence the default) and DN «محروم … تتساوي مع راسب وتضاف الي
+// معدل تراكمي». The choice decides whether a zero enters the student's CGPA, so it must be the
+// institute's, and hardcoding DN here made the bylaw screen describe a policy the engine ignored.
 export async function PATCH(request: NextRequest) {
   try {
     const guard = await requirePermission('attendance.edit');
@@ -55,7 +66,23 @@ export async function PATCH(request: NextRequest) {
     const { enrollmentId } = body ?? {};
     if (!enrollmentId) return NextResponse.json({ error: 'معرف التسجيل مطلوب' }, { status: 400 });
 
-    const result = await setEnrollmentResult(enrollmentId, { code: 'DN' });
+    const reg = await getRegulations();
+    const code = String(reg.absenceBanStatusCode || '').trim();
+    // The settings route only accepts a code that exists, but a bylaw blob can also be written
+    // directly; say which code is wrong instead of failing as a generic 500 from the write path
+    // (and, for an ANNUAL student, instead of silently stamping a dangling code on the enrolment).
+    const status = code ? await prisma.gradeStatus.findFirst({ where: { code }, select: { code: true } }) : null;
+    if (!status) {
+      return NextResponse.json(
+        { error: `حالة النتيجة المحددة في اللائحة للحرمان (${code || 'غير محددة'}) غير موجودة في جدول حالات النتائج` },
+        { status: 400 },
+      );
+    }
+    // Only send the reason when the institute's catalogue actually has it — the reason list is
+    // configurable too, and an unknown code must not be forced onto the enrolment.
+    const reason = await prisma.courseResultReason.findFirst({ where: { code: ABSENCE_REASON_CODE, isActive: true }, select: { code: true } });
+
+    const result = await setEnrollmentResult(enrollmentId, { code: status.code, ...(reason ? { reasonCode: reason.code } : {}) });
     // No `cgpa` on the wire: for an ANNUAL student setEnrollmentResult returns a placeholder 0
     // (annual programs have no CGPA), and no caller reads it — the client only checks res.ok.
     return NextResponse.json({ ok: true, gradeStatusCode: result.gradeStatusCode, statusName: result.statusName });
