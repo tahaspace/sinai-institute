@@ -71,14 +71,14 @@ export async function POST(request: NextRequest) {
     const specializationId: string | null = typeof body?.specializationId === 'string' && body.specializationId ? body.specializationId : null;
     if (!studentIds.length) return NextResponse.json({ error: 'اختر طالبًا واحدًا على الأقل' }, { status: 400 });
 
-    let spec: { id: string; programId: string | null; kind: string | null; minLevel: number | null } | null = null;
+    let spec: { id: string; programId: string | null; kind: string | null; minLevel: number | null; maxLevel: number | null } | null = null;
     if (specializationId) {
       // Specialization has no universityId; its programme is the tenant anchor, so resolve it only
       // among programmes in scope (or with no programme at all, like any untenanted row).
       const scopedPrograms = await prisma.program.findMany({ where: tenantOrGlobalWhere(guard.ctx.universityId), select: { id: true } });
       spec = await prisma.specialization.findFirst({
         where: { AND: [{ id: specializationId }, { OR: [{ programId: { in: scopedPrograms.map((p) => p.id) } }, { programId: null }] }] },
-        select: { id: true, programId: true, kind: true, minLevel: true },
+        select: { id: true, programId: true, kind: true, minLevel: true, maxLevel: true },
       });
       if (!spec) return NextResponse.json({ error: 'التخصص غير موجود' }, { status: 404 });
     }
@@ -98,6 +98,14 @@ export async function POST(request: NextRequest) {
         }
         // «التخصص الفرعي يكون في المستوي الرابع فقط» — enforced from the specialisation's own
         // minLevel, which the institute typed from its لائحة.
+        // «فقط» is a RANGE, not a floor: «تظهر تخصصات الفرعية في المستوي الرابع فقط» would otherwise
+        // admit levels 5 and 6 too, and the bylaw reserves 5 for the SECOND minor.
+        if (spec.maxLevel && st.level > spec.maxLevel) {
+          return NextResponse.json(
+            { error: `الطالب ${st.studentCode}: هذا التخصص متاح حتى المستوى ${spec.maxLevel} والطالب في المستوى ${st.level}` },
+            { status: 400 },
+          );
+        }
         if (spec.minLevel && st.level < spec.minLevel) {
           return NextResponse.json(
             { error: `الطالب ${st.studentCode}: هذا التخصص متاح من المستوى ${spec.minLevel} فأعلى` },

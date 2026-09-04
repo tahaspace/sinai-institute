@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
         departmentId: s.departmentId,
         departmentName: s.department?.nameAr ?? '',
         minLevel: s.minLevel,
+        maxLevel: s.maxLevel,
         minCgpaForSecond: s.minCgpaForSecond,
         year: s.year,
         isActive: s.isActive,
@@ -96,7 +97,7 @@ export async function GET(request: NextRequest) {
 
 type Input = {
   nameAr?: unknown; nameEn?: unknown; kind?: unknown; programId?: unknown; departmentId?: unknown;
-  minLevel?: unknown; minCgpaForSecond?: unknown; order?: unknown; isActive?: unknown;
+  minLevel?: unknown; maxLevel?: unknown; minCgpaForSecond?: unknown; order?: unknown; isActive?: unknown;
 };
 
 async function normalize(body: Input, universityId: string | null) {
@@ -137,6 +138,23 @@ async function normalize(body: Input, universityId: string | null) {
     return { error: 'حدد أول مستوى يظهر فيه التخصص الفرعي (اللائحة تحدده بمستوى بعينه)' };
   }
 
+  // maxLevel is what makes «فقط» real. The bylaw says «تظهر تخصصات الفرعية في المستوي الرابع فقط»
+  // and puts the SECOND minor at «المستوي الخامس» — so a floor alone would let a level-4 minor be
+  // chosen at 5 and 6 as well. An institute that types only minLevel gets the single level it named.
+  let maxLevel: number | null = null;
+  if (body.maxLevel !== null && body.maxLevel !== undefined && String(body.maxLevel) !== '') {
+    maxLevel = parseInt(String(body.maxLevel), 10);
+    if (!Number.isInteger(maxLevel) || maxLevel < 1) {
+      return { error: 'آخر مستوى للتخصص يجب أن يكون رقمًا من 1 فأعلى' };
+    }
+    if (minLevel !== null && maxLevel < minLevel) {
+      return { error: 'آخر مستوى للتخصص لا يجوز أن يسبق أول مستوى' };
+    }
+  } else if (kind === 'MINOR') {
+    // «فقط»: with no explicit end, a minor lives at exactly the level the institute named.
+    maxLevel = minLevel;
+  }
+
   let minCgpaForSecond: number | null = null;
   if (body.minCgpaForSecond !== null && body.minCgpaForSecond !== undefined && String(body.minCgpaForSecond) !== '') {
     minCgpaForSecond = Number(body.minCgpaForSecond);
@@ -158,6 +176,7 @@ async function normalize(body: Input, universityId: string | null) {
       programId,
       departmentId,
       minLevel,
+      maxLevel,
       minCgpaForSecond,
       order: Number.isInteger(orderRaw) ? orderRaw : 0,
       isActive: body.isActive === undefined ? true : Boolean(body.isActive),
