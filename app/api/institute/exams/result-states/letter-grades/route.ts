@@ -137,17 +137,36 @@ async function usageByCode(): Promise<Record<string, number>> {
 }
 
 // GET — the ladder exactly as the grading engine reads it, plus its health.
+
+/**
+ * The tenant whose ladder this screen edits.
+ *
+ * Writing to universityId=null unconditionally made the feature DEAD in production: the eight rows
+ * live there are bound to the institute (GradeStatus is @@unique([universityId, code])), so the
+ * screen listed nothing and could not edit the ladder the engine actually reads. On a single-tenant
+ * deployment we therefore resolve to that one university, exactly as lib/regulations.ts does, so the
+ * screen edits the same rows lib/gpa.ts and lib/standing.ts consume.
+ */
+async function ladderTenantId(ctxUniversityId: string | null | undefined): Promise<string | null> {
+  if (ctxUniversityId) return ctxUniversityId;
+  const unis = await prisma.university.findMany({ select: { id: true }, take: 2 });
+  return unis.length === 1 ? unis[0].id : null;
+}
+
 export async function GET() {
   try {
     const guard = await requirePermission('exam.grade.view');
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
+    const tenantId = await ladderTenantId(guard.ctx.universityId);
     const rows = await prisma.gradeStatus.findMany({
       where: { isLetter: true },
       orderBy: [{ minPercent: 'desc' }, { order: 'asc' }],
     });
-    const globalRows = rows.filter((r) => r.universityId === null);
-    const scopedRows = rows.filter((r) => r.universityId !== null);
+    // "ours" = the ladder this screen owns and the engine reads; anything under a DIFFERENT tenant is
+    // reported as a warning rather than silently edited.
+    const globalRows = rows.filter((r) => r.universityId === tenantId);
+    const scopedRows = rows.filter((r) => r.universityId !== tenantId);
 
     // minPercent stays NULLABLE on the way out: a letter row with no band is a real, saved state
     // that the engine ignores (lib/gpa.ts filters minPercent != null). Showing it as 0% would
@@ -202,6 +221,9 @@ export async function PUT(request: NextRequest) {
     const guard = await requirePermission('exam.grade.edit');
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
+    // Same resolution as GET, so the screen writes back the rows it just showed.
+    const tenantId = await ladderTenantId(guard.ctx.universityId);
+
     const body = await request.json().catch(() => null);
     const raw = (body as { letters?: unknown })?.letters;
     if (!Array.isArray(raw)) return NextResponse.json({ error: 'قائمة التقديرات مطلوبة' }, { status: 400 });
@@ -236,7 +258,7 @@ export async function PUT(request: NextRequest) {
       const clash = letters.find((l) => specials.some((s2) => s2.code === l.code));
       if (clash) return { kind: 'clash' as const, code: clash.code };
 
-      const existing = await tx.gradeStatus.findMany({ where: { isLetter: true, universityId: null } });
+      const existing = await tx.gradeStatus.findMany({ where: { isLetter: true, universityId: tenantId } });
       const keptCodes = new Set(letters.map((l) => l.code));
       const removed = existing.filter((e) => !keptCodes.has(e.code));
 
@@ -263,12 +285,12 @@ export async function PUT(request: NextRequest) {
       // Delete-then-recreate is safe here: Enrollment references a status by CODE, never by id,
       // so re-issuing ids breaks no stored result. It also guarantees the saved ladder is exactly
       // what was submitted, with no leftover row from the previous bylaw.
-      await tx.gradeStatus.deleteMany({ where: { isLetter: true, universityId: null } });
+      await tx.gradeStatus.deleteMany({ where: { isLetter: true, universityId: tenantId } });
       await tx.gradeStatus.createMany({
         data: sorted.map((l, i) => {
           const p = prevProps.get(l.code);
           return {
-            universityId: null,
+            universityId: tenantId,
             code: l.code,
             name: l.name,
             points: l.points,
