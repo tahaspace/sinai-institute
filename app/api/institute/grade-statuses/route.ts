@@ -321,6 +321,20 @@ export async function DELETE(request: NextRequest) {
     // code when a student passes the deprivation threshold, and would then write a state that has
     // no definition. Read from the saved regulations, never from a literal here.
     const reg = await getRegulations();
+    // BL is emitted by lib/gpa.ts whenever the written exam falls under writtenMinPercent while the
+    // total would otherwise pass — جدول 3's «راسب لائحه». Deleting it leaves the engine writing a
+    // code with no definition, so computeStanding can no longer classify those results at all.
+    const ENGINE_WRITTEN_CODES = ['BL'];
+    if (ENGINE_WRITTEN_CODES.includes(row.code)) {
+      return NextResponse.json(
+        {
+          error:
+            `الحالة ${row.code} يكتبها المحرّك تلقائيًا (راسب لائحة: أقل من ${reg.writtenMinPercent}% في الامتحان ` +
+            `التحريري) — لا يمكن حذفها، وإلا سُجّلت نتائج بحالة بلا تعريف.`,
+        },
+        { status: 409 },
+      );
+    }
     if (reg.absenceBanStatusCode === row.code) {
       return NextResponse.json(
         {

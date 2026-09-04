@@ -138,6 +138,18 @@ export async function GET(request: NextRequest) {
         minPercent: b.min,
         isPass: b.label !== 'راسب',
       }));
+      // Take each subject's percentage from the ENGINE, not from a second computation here. The raw
+      // (marks ÷ all four maxes) above misses two things the engine applies: ClientR7 رأفة grace
+      // marks, and the applicable-components denominator for a student exempt from a component
+      // (طالب عايد). Without this the student's own portal shows a percentage — and so a تقدير —
+      // that disagrees with his result sheet, which is precisely the class of defect being removed.
+      if (ar) {
+        const engineByCourse = new Map(ar.courses.map((c) => [c.courseId, c.total]));
+        for (const s of subjects) {
+          const t = engineByCourse.get(s.courseId);
+          if (t != null) s.percentage = t;
+        }
+      }
       stats = {
         ...baseStats,
         result: ar?.result ?? 'قيد الرصد', overallPct: ar?.overallPct ?? null, overallGrade: ar?.overallGrade ?? null,

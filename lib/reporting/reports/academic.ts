@@ -1,4 +1,5 @@
 import prisma from '@/lib/prisma';
+import { getRegulations } from '@/lib/regulations';
 import type { ReportDef, TableResult } from '@/lib/reporting/types';
 import { termWhere } from '@/lib/reporting/filters';
 import { academicSystemWhere, programSystemWhere, studentSystemWhere } from '@/lib/academic-system';
@@ -125,6 +126,9 @@ export const academicReports: ReportDef[] = [
         prisma.gradeStatus.findMany(),
       ]);
       const byCode = new Map(statuses.map((s) => [s.code, s]));
+      // The >25%-absence outcome is bylaw-configured (جدول 3 makes it FW «منسحب اجباري»), so the
+      // legacy DN set alone would drop those students out of the deprivation count entirely.
+      const deprivedSet = new Set(['DN', 'NE', 'ABS', 'DS', (await getRegulations()).absenceBanStatusCode].filter(Boolean) as string[]);
       const c = { fails: 0, withdrawals: 0, excuses: 0, deprivations: 0, deferrals: 0, retakes: 0, earnedHours: 0, registeredHours: 0 };
       const ch = course?.creditHours ?? 0;
       for (const e of enrollments) {
@@ -135,7 +139,8 @@ export const academicReports: ReportDef[] = [
         if (cls === 'fail') c.fails++; if (cls === 'pass') c.earnedHours += ch;
         if (e.gradeStatusCode === 'W' || e.gradeStatusCode === 'FW') c.withdrawals++;
         if (['AB', 'E'].includes(e.gradeStatusCode ?? '')) c.excuses++;
-        if (['DN', 'NE', 'ABS', 'DS'].includes(e.gradeStatusCode ?? '')) c.deprivations++;
+        // includes the bylaw's configured >25%-absence code, not just the legacy DN set
+        if (deprivedSet.has(e.gradeStatusCode ?? '')) c.deprivations++;
         if (['INC', 'I', 'DEFER'].includes(e.gradeStatusCode ?? '')) c.deferrals++;
       }
       const rows = [

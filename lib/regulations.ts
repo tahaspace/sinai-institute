@@ -110,7 +110,31 @@ async function resolveTenantId(tenant?: RegulationsTenant): Promise<string | nul
   if (typeof tenant === 'object') return tenant.universityId ?? null;
   const ambient = getTenantCtx();
   if (ambient?.universityId) return ambient.universityId;
-  return sessionUniversityId();
+  const fromSession = await sessionUniversityId();
+  if (fromSession) return fromSession;
+  // Falling straight through to the shared row would SPLIT the platform the moment one institute
+  // saves: student, parent and faculty accounts are created without a universityId, so their reads
+  // would land on the untenanted row while staff reads landed on the tenant's — two different
+  // bylaws for the same institute. On a single-tenant deployment (the normal case) there is exactly
+  // one university, so resolve to it; only a genuinely multi-tenant deployment falls back to shared.
+  return soleUniversityId();
+}
+
+/**
+ * The only university on this deployment, or null when there are none or more than one.
+ * Cached for the process: the answer changes only when a university is created, and this sits on
+ * the read path of every bylaw lookup.
+ */
+let soleUniversityCache: { value: string | null } | null = null;
+async function soleUniversityId(): Promise<string | null> {
+  if (soleUniversityCache) return soleUniversityCache.value;
+  try {
+    const unis = await prisma.university.findMany({ select: { id: true }, take: 2 });
+    soleUniversityCache = { value: unis.length === 1 ? unis[0].id : null };
+  } catch {
+    soleUniversityCache = { value: null }; // no DB (build/script) — the shared row is correct there
+  }
+  return soleUniversityCache.value;
 }
 
 /** The signed-in user's university, or null outside a request (a script, a seed, the build). */

@@ -335,7 +335,14 @@ export async function studentStatus(studentCode: string) {
 //                   level — a student denied entry to the exam is listed regardless.
 export type MinistryStage = 'transitional' | 'final' | 'deprived';
 // DN/NE/E (legacy) + ABS/AB (ClientR2 canonical synonyms) — the deprived/absent exam-board set.
+// The bylaw's own >25%-absence outcome is configurable (Regulations.absenceBanStatusCode; جدول 3
+// makes it FW «منسحب اجباري»), so it is added at read time. Hardcoding this set meant an institute
+// whose configured code was not DN saw its deprived students vanish from the exam-board sheet.
 const DEPRIVED_CODES = new Set(['DN', 'NE', 'E', 'ABS', 'AB']);
+async function deprivedCodes(): Promise<string[]> {
+  const reg = await getRegulations();
+  return [...new Set([...DEPRIVED_CODES, reg.absenceBanStatusCode].filter(Boolean) as string[])];
+}
 const PROGRAM_YEARS_FALLBACK = 4;
 
 export async function ministrySheet(stage: MinistryStage, f: TermFilter) {
@@ -355,7 +362,7 @@ export async function ministrySheet(stage: MinistryStage, f: TermFilter) {
   if (stage === 'deprived') {
     // students with any DN/NE/E enrollment in the selected term — list the courses
     const deprivedEnr = await prisma.enrollment.findMany({
-      where: { ...termWhere(f), gradeStatusCode: { in: [...DEPRIVED_CODES] } },
+      where: { ...termWhere(f), gradeStatusCode: { in: await deprivedCodes() } },
       include: { course: { select: { code: true, nameAr: true } }, student: { select: { id: true, studentCode: true, nameAr: true, level: true, department: { select: { nameAr: true } } } } },
       orderBy: { student: { studentCode: 'asc' } },
     });

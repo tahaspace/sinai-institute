@@ -92,7 +92,7 @@ async function main() {
       departmentId: dept.id,
       degree: 'بكالوريوس',
       years: 4,
-      totalCreditHours: 132,
+      totalCreditHours: 130 /* bylaw: «اجتياز عدد ساعات 130 ساعة مقسمة علي 8 فصول» */,
       description: 'برنامج بكالوريوس في علوم الحاسب',
     },
   });
