@@ -1,11 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { tenantOrGlobalWhere } from '@/lib/tenant';
 import { resolveApplicationProgramId } from '@/lib/admission-program';
 import { normalizeSystem, normalizeSystemFilter } from '@/lib/academic-system';
 import { hasPermission, requirePermission } from '@/lib/authz';
+import { parseAdmissionRequirements } from '@/lib/admission-requirements';
+import { getRegulations } from '@/lib/regulations';
+import type { AuthContext } from '@/lib/authz';
 
-type ProgramRow = { id: string; nameAr: string; nameEn: string | null; academicSystem: string };
+/**
+ * Tenant scope for rows whose `universityId` is nullable AND legacy-null (Program, Application).
+ *
+ * Deliberately NOT `tenantOrGlobalWhere(ctx.universityId)`: that helper returns `{}` — completely
+ * unfiltered — for a caller with no universityId, which is most callers, so a non-platform user
+ * without a tenant would keep seeing every institute's rows. The three cases are spelled out:
+ *   · platform admin  → everything (that is the job)
+ *   · has a tenant    → own rows OR the untenanted legacy rows (never another tenant's)
+ *   · neither         → the untenanted legacy rows ONLY
+ * Single-tenant deployments have universityId NULL on every row, so case 2 and case 3 both keep
+ * returning exactly what they returned before (rule 1).
+ */
+function legacyTenantScope(ctx: Pick<AuthContext, 'universityId' | 'isPlatformAdmin'>): Record<string, unknown> {
+  if (ctx.isPlatformAdmin) return {};
+  if (ctx.universityId) return { OR: [{ universityId: ctx.universityId }, { universityId: null }] };
+  return { universityId: null };
+}
+
+/** Compose a scope onto a where that may already carry its own `OR` — never spread an OR into an OR. */
+function withScope(where: Record<string, unknown>, scope: Record<string, unknown>): Record<string, unknown> {
+  if (!Object.keys(scope).length) return where;
+  if (!Object.keys(where).length) return scope;
+  return { AND: [where, scope] };
+}
+
+/**
+ * «مجموع الثانوية العامة (من 410)» — the prior certificate's OWN maximum, as configured by the
+ * institute. It is a ministry total that changes between years, so it is never a literal in code;
+ * it is read from the bylaw settings and shipped to the review screen, which passes it (with the
+ * RAW stored total) to checkOverallPercent. Absent ⇒ null ⇒ the screen says «يُراجَع يدوياً»
+ * instead of comparing a raw 380 against a 70% floor.
+ */
+function priorCertificateMaxTotal(reg: unknown): number | null {
+  const v = (reg as Record<string, unknown> | null)?.priorCertificateMaxTotal;
+  const n = typeof v === 'string' ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+type ProgramRow = { id: string; nameAr: string; nameEn: string | null; academicSystem: string; admissionRequirements: string | null };
 
 const statusLabel = (s: string) =>
   ({ PENDING: 'قيد المراجعة', APPROVED: 'مقبول', REJECTED: 'مرفوض', ENROLLED: 'تم التسجيل' } as Record<string, string>)[s] ?? s;
@@ -20,6 +60,10 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     // Status scope on its own. Kept separate from the system fragment so the "unlinked" count below
     // is measured against the tab the user is looking at, not against the already-narrowed subset.
+    // Tenant scope first: an applications list is per-institute, and Application.universityId is
+    // nullable, so the scope has to be composed explicitly rather than left to a helper that
+    // degrades to "no filter".
+    const scope = legacyTenantScope(guard.ctx);
     const baseWhere: Record<string, unknown> = {};
     if (status && status !== 'all') baseWhere.status = status.toUpperCase();
 
@@ -28,7 +72,7 @@ export async function GET(request: NextRequest) {
     // programme is unresolved, which is what we want: such a row belongs to NEITHER system and must
     // not be silently counted into one. No filter ⇒ no fragment ⇒ byte-identical to the old query.
     const system = normalizeSystemFilter(searchParams.get('system'));
-    const where = system ? { ...baseWhere, program: { academicSystem: system } } : baseWhere;
+    const where = withScope(system ? { ...baseWhere, program: { academicSystem: system } } : baseWhere, scope);
 
     // Served here rather than from /api/institute/programs so the review screen can stamp a
     // programme at enrolment under the admissions permission alone (no extra program.view grant).
@@ -36,14 +80,17 @@ export async function GET(request: NextRequest) {
     // gated behind `program.view`, so a view-only reviewer neither receives the catalogue nor pays
     // for the query that builds it. ADMISSIONS/INSTITUTE_ADMIN still get it via `admission.*`/ALL.
     const canDecide = hasPermission(guard.ctx, 'admission.application.decide');
+    // Tenant-scoped: without a `where` this shipped every institute's programmes AND their typed
+    // «متطلبات الالتحاق» to every reviewer, and offered them in the editor's dropdown as targets.
     const programsQuery: Promise<ProgramRow[]> = canDecide
       ? prisma.program.findMany({
-          select: { id: true, nameAr: true, nameEn: true, academicSystem: true },
+          where: scope,
+          select: { id: true, nameAr: true, nameEn: true, academicSystem: true, admissionRequirements: true },
           orderBy: { nameAr: 'asc' },
         })
       : Promise.resolve([]);
 
-    const [apps, unlinked, programs] = await Promise.all([
+    const [apps, unlinked, programs, reg] = await Promise.all([
       prisma.application.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -51,8 +98,9 @@ export async function GET(request: NextRequest) {
       }),
       // How many applications in this tab carry no programme at all. A system-narrowed view can
       // never show them, so the screen reports the gap instead of implying they do not exist.
-      prisma.application.count({ where: { ...baseWhere, programId: null } }),
+      prisma.application.count({ where: withScope({ ...baseWhere, programId: null }, scope) }),
       programsQuery,
+      getRegulations(guard.ctx.universityId),
     ]);
 
     const byStatus = (s: string) => apps.filter((a) => a.status === s).length;
@@ -64,6 +112,11 @@ export async function GET(request: NextRequest) {
         email: a.email,
         phone: a.phone,
         highSchoolGrade: a.highSchoolGrade,
+        // The prior certificate the bylaw's first condition speaks about («ان يكون طالب حصل علي
+        // ثانويه عامه») and its year — printed beside the requirement so the reviewer can judge it.
+        qualificationType: a.qualificationType ?? null,
+        highSchoolYear: a.highSchoolYear,
+        documentsComplete: a.documentsComplete,
         firstChoice: a.firstChoice,
         programId: a.programId,
         // null (not a defaulted CREDIT_HOURS) when no programme is resolved — the UI shows "—".
@@ -77,7 +130,20 @@ export async function GET(request: NextRequest) {
         nameAr: p.nameAr,
         nameEn: p.nameEn ?? '',
         academicSystem: normalizeSystem(p.academicSystem),
+        // «متطلبات الالتحاق بقسم …» — the bylaw states them per department/programme, and an
+        // Application carries none of the per-subject data they speak about. So they travel to the
+        // review screen as TEXT the reviewer checks the paper file against, next to the applicant.
+        // A programme with nothing typed sends an empty set and the screen says so.
+        admissionRequirements: parseAdmissionRequirements(p.admissionRequirements),
       })),
+      // Whether the reviewer may actually SAVE what the requirements editor writes. Requirements
+      // live on Program, so the save needs `program.edit`, which the ADMISSIONS role does not hold.
+      // Shipped so the screen can render the editor read-only instead of offering a save button
+      // whose only outcome for its primary role is a 403 with the draft lost.
+      canEditPrograms: hasPermission(guard.ctx, 'program.edit'),
+      // The prior certificate's configured maximum — the ONLY thing that turns the applicant's raw
+      // «مجموع الثانوية العامة» into a percentage comparable with minOverallPercent.
+      priorCertificateMaxTotal: priorCertificateMaxTotal(reg),
       stats: {
         total: apps.length,
         pending: byStatus('PENDING'),
@@ -108,7 +174,11 @@ export async function PATCH(request: NextRequest) {
     const { id, status, departmentId, programId } = body ?? {};
     if (!id || !status) return NextResponse.json({ error: 'المعرف والحالة مطلوبان' }, { status: 400 });
 
-    const app = await prisma.application.findUnique({ where: { id } });
+    // Scope-check before touching it: a bare `where: { id }` let any admissions officer decide —
+    // and enrol — another institute's applicant by id alone. Out of scope reads as 404, not 403,
+    // so the id itself is not confirmed to exist.
+    const scope = legacyTenantScope(guard.ctx);
+    const app = await prisma.application.findFirst({ where: { id, ...scope } });
     if (!app) return NextResponse.json({ error: 'الطلب غير موجود' }, { status: 404 });
 
     const next = String(status).toUpperCase();
@@ -154,7 +224,9 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: 'هذا الطلب مُسجَّل بالفعل — لا يمكن تسجيله مرة أخرى' }, { status: 409 });
       }
       const program = await prisma.program.findFirst({
-        where: { id: explicitProgramId, isActive: true, ...tenantOrGlobalWhere(guard.ctx.universityId) },
+        // Same explicit scope as everywhere else in this route — tenantOrGlobalWhere() degrades to
+        // {} for a caller with no universityId and would accept another institute's programme.
+        where: { id: explicitProgramId, isActive: true, ...scope },
         select: { departmentId: true },
       });
       if (!program) {

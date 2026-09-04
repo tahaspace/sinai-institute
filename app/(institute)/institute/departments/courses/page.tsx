@@ -50,12 +50,31 @@ interface CourseRow {
   availableInSummer: boolean
   isGraduationProject: boolean
   gradeSplit: { midterm: number; final: number; practical: number; homework: number }
+  /** طبيعة المقرر (جدول 2) — null = لم تُحدَّد، فلا قاعدة توزيع تنطبق */
+  courseTypeCode: string | null
+  courseTypeName: string | null
+  /** أعمدة توزيع الدرجات المخالفة لجدول 2 — تنبيه فقط، لا يمنع الحفظ */
+  splitMismatch: string[]
+  /** ساعات الاتصال الأسبوعية وما تُكافئه من ساعات معتمدة */
+  theoryContactHours: number | null
+  practicalContactHours: number | null
+  derivedCreditHours: number | null
   /** المستوى الدراسي — the effective level: the course's own, else the study-plan row */
   level: number | null
   /** المستوى المُدخل على المقرر نفسه؛ null = لم يُدخل، فيُعرض المشتق من الخطة الدراسية */
   courseLevel: number | null
   /** متطلبات سابقة, with the bylaw's optional minimum grade («تقدير جيد على الأقل») */
   prerequisites: { id: string; code: string; name: string; minGradeCode: string | null }[]
+}
+
+/** صف من جدول 2 كما أدخله المعهد في «لائحة المعهد» */
+interface CourseTypeRow {
+  code: string
+  nameAr: string
+  homework: number
+  written: number
+  practical: number
+  total: number
 }
 
 interface DepartmentRow {
@@ -78,6 +97,9 @@ interface CourseForm {
   finalMax: string
   practicalMax: string
   homeworkMax: string
+  courseTypeCode: string
+  theoryContactHours: string
+  practicalContactHours: string
   level: string
   prerequisites: { id: string; minGradeCode: string }[]
 }
@@ -97,6 +119,9 @@ const EMPTY_FORM: CourseForm = {
   finalMax: "100",
   practicalMax: "0",
   homeworkMax: "20",
+  courseTypeCode: "",
+  theoryContactHours: "",
+  practicalContactHours: "",
   level: "",
   prerequisites: [],
 }
@@ -108,6 +133,10 @@ export default function CoursesPage() {
   const [allCourses, setAllCourses] = useState<CourseRow[]>([])
   const [departments, setDepartments] = useState<DepartmentRow[]>([])
   const [apiStats, setApiStats] = useState<{ total: number; totalCreditHours: number }>({ total: 0, totalCreditHours: 0 })
+  // جدول 2 ومعامل تحويل ساعات الاتصال يأتيان من اللائحة عبر الـ API: هذه الصفحة "use client" فلا
+  // يجوز لها استيراد lib/regulations.ts (بريزما في المتصفح يُفشل بناء الإنتاج).
+  const [courseTypes, setCourseTypes] = useState<CourseTypeRow[]>([])
+  const [contactRatio, setContactRatio] = useState<{ theory: number; practical: number }>({ theory: 1, practical: 2 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -133,6 +162,8 @@ export default function CoursesPage() {
       if (!signal?.cancelled) {
         setAllCourses(json.courses ?? [])
         setApiStats(json.stats ?? { total: 0, totalCreditHours: 0 })
+        setCourseTypes(Array.isArray(json.courseTypes) ? json.courseTypes : [])
+        if (json.contactHoursPerCredit) setContactRatio(json.contactHoursPerCredit)
         setDepartments(Array.isArray(deptJson) ? deptJson : [])
       }
     } catch (e) {
@@ -177,6 +208,9 @@ export default function CoursesPage() {
       finalMax: String(course.gradeSplit.final),
       practicalMax: String(course.gradeSplit.practical),
       homeworkMax: String(course.gradeSplit.homework),
+      courseTypeCode: course.courseTypeCode ?? "",
+      theoryContactHours: course.theoryContactHours != null ? String(course.theoryContactHours) : "",
+      practicalContactHours: course.practicalContactHours != null ? String(course.practicalContactHours) : "",
       level: course.courseLevel != null ? String(course.courseLevel) : "",
       prerequisites: (course.prerequisites ?? []).map((p) => ({ id: p.id, minGradeCode: p.minGradeCode ?? "" })),
     })
@@ -186,6 +220,47 @@ export default function CoursesPage() {
 
   const updateField = <K extends keyof CourseForm>(key: K, value: CourseForm[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
+
+  // اختيار طبيعة المقرر يملأ توزيع الدرجات من جدول 2 مرّة واحدة («توزيع الدرجات يُحدَّد طبقاً
+  // لطبيعة المقرر»)، ويبقى قابلاً للتعديل يدوياً بعدها — التوزيع المخالف يُنبَّه عليه ولا يُمنع.
+  const applyCourseType = (code: string) => {
+    const t = courseTypes.find((x) => x.code === code)
+    setForm((f) => ({
+      ...f,
+      courseTypeCode: code,
+      // جدول 2 لا يحمل عمود «نصفي» أصلاً (أعمال سنه | تحريري | شفوي/تطبيقي/عملي | الاجمالي 100)،
+      // فقيمته تحت طبيعة مقرر من الجدول = صفر لا «غير محدد»؛ بدون تصفيره يصبح المجموع 150.
+      ...(t
+        ? { homeworkMax: String(t.homework), finalMax: String(t.written), practicalMax: String(t.practical), midtermMax: "0" }
+        : {}),
+    }))
+  }
+
+  // ما تُكافئه ساعات الاتصال المُدخلة من ساعات معتمدة — «ساعة نظريا و(2-3) عملي او تطبيقي».
+  const formDerivedCredit = (() => {
+    const t = Number(form.theoryContactHours) || 0
+    const p = Number(form.practicalContactHours) || 0
+    if (form.theoryContactHours.trim() === "" && form.practicalContactHours.trim() === "") return null
+    const tDiv = contactRatio.theory > 0 ? contactRatio.theory : 1
+    const pDiv = contactRatio.practical > 0 ? contactRatio.practical : 2
+    return Math.round((t / tDiv + p / pDiv) * 100) / 100
+  })()
+
+  // صف جدول 2 المختار في النموذج — لعرض التوزيع المتوقّع بجانب المُدخل.
+  const selectedType = courseTypes.find((t) => t.code === form.courseTypeCode) ?? null
+  const formSplitMismatch = selectedType
+    ? [
+        Number(form.homeworkMax) !== selectedType.homework ? `أعمال السنة ${form.homeworkMax} بدل ${selectedType.homework}` : "",
+        Number(form.finalMax) !== selectedType.written ? `التحريري ${form.finalMax} بدل ${selectedType.written}` : "",
+        Number(form.practicalMax) !== selectedType.practical ? `العملي/الشفوي ${form.practicalMax} بدل ${selectedType.practical}` : "",
+        Number(form.midtermMax) !== 0 ? `النصفي ${form.midtermMax} بدل 0 (لا عمود له في جدول 2)` : "",
+        (() => {
+          const sum =
+            (Number(form.homeworkMax) || 0) + (Number(form.midtermMax) || 0) + (Number(form.finalMax) || 0) + (Number(form.practicalMax) || 0)
+          return sum !== selectedType.total ? `الإجمالي ${sum} بدل ${selectedType.total}` : ""
+        })(),
+      ].filter(Boolean)
+    : []
 
   // Build the JSON payload shared by POST (add) and PATCH (edit). Caps go as numbers.
   const buildPayload = () => ({
@@ -202,6 +277,10 @@ export default function CoursesPage() {
     finalMax: Number(form.finalMax) || 0,
     practicalMax: Number(form.practicalMax) || 0,
     homeworkMax: Number(form.homeworkMax) || 0,
+    // فارغ = لم تُحدَّد طبيعة المقرر / لم تُدخل ساعات الاتصال، فتُخزَّن null كما كانت
+    courseTypeCode: form.courseTypeCode || null,
+    theoryContactHours: form.theoryContactHours.trim() === "" ? null : Number(form.theoryContactHours),
+    practicalContactHours: form.practicalContactHours.trim() === "" ? null : Number(form.practicalContactHours),
     // فارغ = لا مستوى محدد للمقرر، فيُقرأ من الخطة الدراسية إن وُجد
     level: form.level.trim() === "" ? null : Number(form.level),
     // An empty minGradeCode means «النجاح يكفي» — sent as null so the engine reads it that way.
@@ -305,6 +384,8 @@ export default function CoursesPage() {
                 <TableHead>القسم</TableHead>
                 <TableHead>المستوى</TableHead>
                 <TableHead>الساعات</TableHead>
+                <TableHead>ساعات الاتصال (نظري/عملي)</TableHead>
+                <TableHead>طبيعة المقرر</TableHead>
                 <TableHead>متطلب سابق</TableHead>
                 <TableHead>يدخل في المعدل</TableHead>
                 <TableHead>النوع</TableHead>
@@ -329,6 +410,29 @@ export default function CoursesPage() {
                   </TableCell>
                   <TableCell>
                     <Badge className="bg-institute-blue text-institute-blue">{course.creditHours}</Badge>
+                  </TableCell>
+                  {/* ساعات الاتصال الأسبوعية وما تُكافئه؛ اختلافها عن الساعات المخزَّنة تنبيه لا أكثر */}
+                  <TableCell className="text-sm">
+                    {course.theoryContactHours != null || course.practicalContactHours != null ? (
+                      <span className="font-mono">
+                        {course.theoryContactHours ?? 0}/{course.practicalContactHours ?? 0}
+                        {course.derivedCreditHours != null && (
+                          <span className={course.derivedCreditHours !== course.creditHours ? "text-amber-700 mr-1" : "text-muted-foreground mr-1"}>
+                            (= {course.derivedCreditHours} س.م)
+                          </span>
+                        )}
+                      </span>
+                    ) : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {course.courseTypeName
+                      ? <Badge variant="outline">{course.courseTypeName}</Badge>
+                      : <span className="text-muted-foreground">—</span>}
+                    {course.splitMismatch?.length > 0 && (
+                      <div className="text-xs text-amber-700 mt-1" title={course.splitMismatch.join("، ")}>
+                        ⚠ توزيع مخالف لجدول 2
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">
                     {course.prerequisites?.length
@@ -461,6 +565,50 @@ export default function CoursesPage() {
               </div>
             </div>
 
+            {/* طبيعة المقرر — جدول 2 «مقررات دراسية توزيع الدرجات»: «المقرر النظري 40/60»،
+                «المقرر العملي 40/–/60»، «المقرر المشترك 40/40/20»، «مشروع التخرج 50/–/50».
+                القائمة تُدخَل في «لائحة المعهد» فتزيد عليها المعاهد ما شاءت. */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>طبيعة المقرر</Label>
+                <Select value={form.courseTypeCode || undefined} onValueChange={applyCourseType}>
+                  <SelectTrigger><SelectValue placeholder="غير محددة" /></SelectTrigger>
+                  <SelectContent>
+                    {courseTypes.map((t) => (
+                      <SelectItem key={t.code} value={t.code}>
+                        {t.nameAr} ({t.homework}/{t.written}/{t.practical})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedType && (
+                  <p className="text-xs text-muted-foreground">
+                    توزيع اللائحة: أعمال سنة {selectedType.homework} / تحريري {selectedType.written} / عملي {selectedType.practical} = {selectedType.total}
+                  </p>
+                )}
+              </div>
+              {/* «اسبوعيا : ساعة نظريا و(2-3) عملي او تطبيقي» — الساعات المعتمدة أعلاه تبقى هي
+                  المخزَّنة، وهذه ساعات الاتصال وما تُكافئه بمعامل اللائحة. */}
+              <div className="space-y-2">
+                <Label>ساعات الاتصال الأسبوعية</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">نظري</Label>
+                    <Input type="number" min={0} value={form.theoryContactHours} onChange={(e) => updateField("theoryContactHours", e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">عملي / تطبيقي</Label>
+                    <Input type="number" min={0} value={form.practicalContactHours} onChange={(e) => updateField("practicalContactHours", e.target.value)} />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {formDerivedCredit != null
+                    ? `تُكافئ ${formDerivedCredit} ساعة معتمدة (نظري ÷ ${contactRatio.theory}، عملي ÷ ${contactRatio.practical})`
+                    : `التحويل: ساعة نظري ÷ ${contactRatio.theory}، ساعة عملي ÷ ${contactRatio.practical}`}
+                </p>
+              </div>
+            </div>
+
             {/* الحد الأقصى لمكوّنات الدرجة */}
             <div className="space-y-2">
               <Label className="text-sm text-muted-foreground">الحد الأقصى لمكوّنات الدرجة</Label>
@@ -482,6 +630,11 @@ export default function CoursesPage() {
                   <Input type="number" value={form.midtermMax} onChange={(e) => updateField("midtermMax", e.target.value)} />
                 </div>
               </div>
+              {formSplitMismatch.length > 0 && (
+                <p className="text-xs text-amber-700">
+                  ⚠ التوزيع يخالف جدول 2 لطبيعة المقرر المختارة: {formSplitMismatch.join("، ")}
+                </p>
+              )}
             </div>
 
             {/* متطلبات سابقة — «متطلب سابق» عمود في كل جداول الخطة الدراسية باللائحة.

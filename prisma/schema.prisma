@@ -257,6 +257,69 @@ model CoursePrerequisite {
 // window, and the exam period, all of which the bylaw states («فصل التسجيل أسبوع واحد … الدراسة 12
 // أسبوعًا … أسبوعا امتحانات», «الفصل الصيفي 8 أسابيع»).
 //
+// Suspension of a student's enrolment («ايقاف قيد الطالب … فصلين متتاليين او 3 فصول منفصله، عند
+// انتهاء المده يطلب اعاده القيد باسبوعين علي الاقل»). A record rather than a flag, because the bylaw
+// counts terms and dates and the registrar has to see who is due back.
+model StudentEnrollmentSuspension {
+  id                String    @id @default(cuid())
+  studentId         String
+  universityId      String?
+  startAcademicYear String
+  startSemester     String
+  terms             Int
+  reason            String
+  approvedBy        String?
+  approvedAt        DateTime?
+  dueDate           DateTime?
+  status            String    @default("ACTIVE") // ACTIVE | COMPLETED | CANCELLED
+  // The registration state the suspension replaced. Without it, re-enrolling normalised every student
+  // to ACTIVE — a student who was on probation came back clean with no way to recover what he was.
+  // NULL reads as 'ACTIVE', i.e. exactly the behaviour before this column existed.
+  previousStatus    String?
+  reenrolledAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@index([universityId])
+  @@index([status])
+}
+
+// The summer/field training the bylaw makes pass-fail, excluded from the CGPA, held twice, and marked
+// 50 external / 25 report / 25 discussion.
+model StudentTraining {
+  id             String    @id @default(cuid())
+  universityId   String?
+  studentId      String
+  round          Int
+  academicYear   String?
+  providerName   String?
+  startDate      DateTime?
+  endDate        DateTime?
+  weeks          Int?
+  externalMark   Float?
+  reportMark     Float?
+  discussionMark Float?
+  totalMark      Float?
+  resultCode     String?
+  isPass         Boolean?
+  courseId       String?
+  signedById     String?
+  signedByName   String?
+  signedAt       DateTime?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, round])
+  @@index([studentId])
+  @@index([universityId])
+}
+
 model AcademicTerm {
   id           String  @id @default(cuid())
   universityId String?
@@ -883,6 +946,14 @@ model Student {
   // Two sources for one fact is the exact failure this schema has been cleaning up elsewhere.
   specializationId        String?
   specializationRef       Specialization?            @relation(fields: [specializationId], references: [id], onDelete: SetNull)
+  // الانتساب — «يلغي قيد الطالب ويتم ادراجه ضمن الانتساب» and the capped re-enrolment of a dismissed
+  // student. All-null/0 reads exactly as today: no affiliate history.
+  affiliateSince          DateTime?
+  affiliateTermsUsed      Int                        @default(0)
+  affiliateReason         String?
+
+  enrollmentSuspensions StudentEnrollmentSuspension[]
+  trainings             StudentTraining[]
 
   @@index([departmentId])
   @@index([studentCode])
@@ -892,49 +963,57 @@ model Student {
 }
 
 model Course {
-  id                  String                     @id @default(cuid())
-  code                String                     @unique
-  nameAr              String
-  nameEn              String?
+  id                    String                     @id @default(cuid())
+  code                  String                     @unique
+  nameAr                String
+  nameEn                String?
   // Which level the study plan places this course at. Nullable: a course may be shared across
   // levels, and the plan row is the authority when both exist. The bylaw needs it for level rules —
   // «طالب في مستوي وبيمتحن مادة من مستويات سابقة» — which nothing could express before.
-  level               Int?
-  creditHours         Int                        @default(3)
-  departmentId        String?
-  instructorId        String?
+  level                 Int?
+  // جدول 2 fixes the mark split BY COURSE NATURE (نظري 40/60 · عملي · مشترك 40/40/20 · مشروع 50/50),
+  // and the bylaw says «توزيع الدرجات يُحدَّد طبقاً لطبيعة المقرر» — with more natures than the four
+  // it tabulates. So the type is a CODE into an institute-typed list, not an enum fixed in code.
+  courseTypeCode        String?
+  // «تعريف الساعة المعتمدة: ساعة نظري أو 2-3 ساعات عملي» — weekly CONTACT hours, which convert to
+  // credit hours by a ratio the institute sets. creditHours stays the stored credit value.
+  theoryContactHours    Int?
+  practicalContactHours Int?
+  creditHours           Int                        @default(3)
+  departmentId          String?
+  instructorId          String?
   // registrar flags (client bylaw requirements)
-  countsInGpa         Boolean                    @default(true) // pass/fail subjects don't count toward CGPA
-  requirementType     String                     @default("mandatory") // mandatory | elective (إجباري/اختياري)
-  availableInSummer   Boolean                    @default(true)
+  countsInGpa           Boolean                    @default(true) // pass/fail subjects don't count toward CGPA
+  requirementType       String                     @default("mandatory") // mandatory | elective (إجباري/اختياري)
+  availableInSummer     Boolean                    @default(true)
   // grade-component caps that drive the per-subject breakdown in the UI
-  midtermMax          Int                        @default(50)
-  finalMax            Int                        @default(100)
-  practicalMax        Int                        @default(0)
-  homeworkMax         Int                        @default(20)
-  isGraduationProject Boolean                    @default(false) // مشروع التخرج — gates graduation eligibility
-  universityId        String?
-  facultyId           String?
-  createdAt           DateTime                   @default(now())
-  updatedAt           DateTime                   @updatedAt
-  department          Department?                @relation(fields: [departmentId], references: [id])
-  instructor          Instructor?                @relation(fields: [instructorId], references: [id])
-  enrollments         Enrollment[]
-  assignments         Assignment[]
-  examSessions        ExamSession[]
-  examQuestions       ExamQuestion[]
-  appeals             ExamAppeal[]
-  offerings           CourseOffering[]
-  equivalenceRequests CourseEquivalenceRequest[]
+  midtermMax            Int                        @default(50)
+  finalMax              Int                        @default(100)
+  practicalMax          Int                        @default(0)
+  homeworkMax           Int                        @default(20)
+  isGraduationProject   Boolean                    @default(false) // مشروع التخرج — gates graduation eligibility
+  universityId          String?
+  facultyId             String?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+  department            Department?                @relation(fields: [departmentId], references: [id])
+  instructor            Instructor?                @relation(fields: [instructorId], references: [id])
+  enrollments           Enrollment[]
+  assignments           Assignment[]
+  examSessions          ExamSession[]
+  examQuestions         ExamQuestion[]
+  appeals               ExamAppeal[]
+  offerings             CourseOffering[]
+  equivalenceRequests   CourseEquivalenceRequest[]
   // prerequisite self-relation (registration validation)
-  prerequisites       Course[]                   @relation("CoursePrereq")
-  prerequisiteFor     Course[]                   @relation("CoursePrereq")
-  studyPlanItems      StudyPlanItem[]
+  prerequisites         Course[]                   @relation("CoursePrereq")
+  prerequisiteFor       Course[]                   @relation("CoursePrereq")
+  studyPlanItems        StudyPlanItem[]
   // The graded prerequisite rules. Kept ALONGSIDE the implicit `prerequisites` M2M above rather than
   // replacing it: that relation holds real links in production and lib/registration.ts reads it, so
   // the switch is a two-phase migration — copy the pairs in, move the reader over, then drop the M2M.
-  prereqRules         CoursePrerequisite[]       @relation("CoursePrereqOf")
-  prereqRuleFor       CoursePrerequisite[]       @relation("CoursePrereqFor")
+  prereqRules           CoursePrerequisite[]       @relation("CoursePrereqOf")
+  prereqRuleFor         CoursePrerequisite[]       @relation("CoursePrereqFor")
 
   @@index([departmentId])
   @@index([instructorId])
@@ -2380,25 +2459,31 @@ model Scholarship {
 }
 
 model Program {
-  id               String            @id @default(cuid())
-  nameAr           String
-  nameEn           String?
-  departmentId     String?
-  degree           String? // بكالوريوس | دبلوم | ماجستير
-  years            Int               @default(4)
-  totalCreditHours Int               @default(0)
-  academicSystem   String            @default("CREDIT_HOURS") // CREDIT_HOURS | ANNUAL (dual-mode, per program)
-  description      String?
-  isActive         Boolean           @default(true)
-  universityId     String?
-  facultyId        String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  department       Department?       @relation(fields: [departmentId], references: [id])
-  students         Student[]
-  applications     Application[]
-  transferRequests TransferRequest[]
-  specializations  Specialization[]
+  id                    String            @id @default(cuid())
+  nameAr                String
+  nameEn                String?
+  departmentId          String?
+  degree                String? // بكالوريوس | دبلوم | ماجستير
+  years                 Int               @default(4)
+  totalCreditHours      Int               @default(0)
+  academicSystem        String            @default("CREDIT_HOURS") // CREDIT_HOURS | ANNUAL (dual-mode, per program)
+  // «متطلبات الالتحاق» typed by the institute per programme, as JSON (qualification type, minimum
+  // overall percent, per-subject minimums, interview/aptitude). The bylaw states them per department
+  // — «متطلبات الالتحاق بقسم الارشاد السياحي: … حصول علي تقدير جيد في اللغة الاجنيبيه الاولي» — and
+  // Application holds one grade with no per-subject detail, so none of it was expressible.
+  // NULL = no requirements typed, which reads exactly as the platform behaved before.
+  admissionRequirements String?
+  description           String?
+  isActive              Boolean           @default(true)
+  universityId          String?
+  facultyId             String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  department            Department?       @relation(fields: [departmentId], references: [id])
+  students              Student[]
+  applications          Application[]
+  transferRequests      TransferRequest[]
+  specializations       Specialization[]
 
   @@index([departmentId])
   @@index([universityId])

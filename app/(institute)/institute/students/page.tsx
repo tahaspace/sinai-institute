@@ -64,6 +64,18 @@ interface StudentRow {
   system: string
   creditHours: number
   status: string
+  // الحالة الأكاديمية التي توجبها اللائحة كعمود في بيانات الطالب: انتظام / وقف قيد / المراقبة
+  // الأكاديمية (مع تسميات القيد المنتهي: خريج/منسحب/مفصول/انتساب). يحسبها الخادم من حالة القيد.
+  academicStateLabel?: string
+}
+
+// ألوان الحالة الأكاديمية — نصوصها تصل من الخادم (lib/standing) فلا تُعاد كتابتها هنا.
+const ACADEMIC_STATE_BADGE: Record<string, string> = {
+  "انتظام": "bg-green-100 text-green-700",
+  "وقف قيد": "bg-amber-100 text-amber-700",
+  "المراقبة الأكاديمية": "bg-orange-100 text-orange-700",
+  "انتساب": "bg-purple-100 text-purple-700",
+  "مفصول": "bg-red-100 text-red-700",
 }
 
 export default function StudentsPage() {
@@ -258,6 +270,7 @@ export default function StudentsPage() {
                 <TableHead>الساعات</TableHead>
                 <TableHead>المعدل</TableHead>
                 <TableHead>الحالة</TableHead>
+                <TableHead>الحالة الأكاديمية</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
@@ -318,6 +331,11 @@ export default function StudentsPage() {
                     </span>
                   </TableCell>
                   <TableCell>{getStatusBadge(student.status)}</TableCell>
+                  <TableCell>
+                    <Badge className={ACADEMIC_STATE_BADGE[student.academicStateLabel ?? ""] ?? ""} variant={ACADEMIC_STATE_BADGE[student.academicStateLabel ?? ""] ? undefined : "secondary"}>
+                      {student.academicStateLabel ?? "—"}
+                    </Badge>
+                  </TableCell>
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>

@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
 import { tenantOrGlobalWhere } from '@/lib/tenant';
+import { getRegulations, courseTypeOf, courseSplitMismatch, creditHoursFromContact } from '@/lib/regulations';
 
 // GET /api/institute/courses?search=&departmentId= — course catalog.
 export async function GET(request: NextRequest) {
@@ -31,7 +32,14 @@ export async function GET(request: NextRequest) {
         _count: { select: { enrollments: true } },
         // The graded prerequisite rules (CoursePrerequisite). The legacy implicit M2M is returned
         // alongside so a course whose pairs have not been copied yet still shows its prerequisites.
-        prereqRules: { select: { prerequisiteId: true, minGradeCode: true, prerequisite: { select: { code: true, nameAr: true } } } },
+        // Tenant-scoped: a Course row may be SHARED, so an unfiltered include showed institute B's
+        // minGradeCode on institute A's screen — which then posted it back under A's id. Own rows OR
+        // untenanted ones; an untenanted caller sees the untenanted rows only (tenantOrGlobalWhere
+        // returns {} for a null tenant, i.e. every institute's rules).
+        prereqRules: {
+          where: guard.ctx.universityId ? { OR: [{ universityId: guard.ctx.universityId }, { universityId: null }] } : { universityId: null },
+          select: { prerequisiteId: true, minGradeCode: true, universityId: true, prerequisite: { select: { code: true, nameAr: true } } },
+        },
         prerequisites: { select: { id: true, code: true, nameAr: true } },
       },
       orderBy: { code: 'asc' },
@@ -51,10 +59,19 @@ export async function GET(request: NextRequest) {
       where: { AND: [{ programId: { not: null } }, tenantOrGlobalWhere(uid)] },
       select: { courseCode: true, programId: true, levelNo: true },
     });
+    // جدول 2 «طبيعة المقرر» + «تعريف الساعة المعتمدة» come from THIS institute's bylaw, never code.
+    const reg = await getRegulations(guard.ctx);
     const programSystems = new Map(
       (await prisma.program.findMany({ where: tenantOrGlobalWhere(uid), select: { id: true, academicSystem: true } }))
         .map((p) => [p.id, normalizeSystem(p.academicSystem)] as const),
     );
+    const gradeStatuses = await prisma.gradeStatus.findMany({
+      // Explicit no-tenant case: tenantOrGlobalWhere(null) is {} — UNFILTERED — which would offer
+      // every institute's letters. An untenanted caller sees the untenanted ladder only.
+      where: uid ? { OR: [{ universityId: uid }, { universityId: null }] } : { universityId: null },
+      select: { code: true, name: true, universityId: true },
+      orderBy: { code: 'asc' },
+    });
     const systemsByCourseCode = new Map<string, Set<string>>();
     // المستوى الدراسي — the bylaw organises every plan table by level («المستوي الاول … الرابع»).
     // It lives on the STUDY PLAN row (StudyPlanItem.levelNo), so the catalogue reports the earliest
@@ -91,6 +108,20 @@ export async function GET(request: NextRequest) {
         availableInSummer: c.availableInSummer,
         isGraduationProject: c.isGraduationProject,
         gradeSplit: { midterm: c.midtermMax, final: c.finalMax, practical: c.practicalMax, homework: c.homeworkMax },
+        // طبيعة المقرر (جدول 2). null = the institute never set one, so no split rule applies.
+        courseTypeCode: c.courseTypeCode ?? null,
+        courseTypeName: courseTypeOf(c.courseTypeCode, reg)?.nameAr ?? null,
+        // Reported, not enforced: a course typed before جدول 2 existed keeps its numbers and is
+        // merely flagged, so nothing an institute already saved stops working.
+        splitMismatch: courseSplitMismatch(
+          { homeworkMax: c.homeworkMax, finalMax: c.finalMax, practicalMax: c.practicalMax },
+          courseTypeOf(c.courseTypeCode, reg),
+        ),
+        // ساعات الاتصال الأسبوعية — «ساعة نظريا و(2-3) عملي او تطبيقي». creditHours above stays the
+        // stored credit value; this is what those contact hours CONVERT to, for comparison.
+        theoryContactHours: c.theoryContactHours ?? null,
+        practicalContactHours: c.practicalContactHours ?? null,
+        derivedCreditHours: creditHoursFromContact(c.theoryContactHours, c.practicalContactHours, reg),
         // The typed column wins; the study-plan derivation only fills in for a course whose level
         // the institute never set. null = neither, so no level rule applies to it.
         level: c.level ?? levelByCourseCode.get(c.code) ?? null,
@@ -98,15 +129,39 @@ export async function GET(request: NextRequest) {
         // dialog binds to THIS, so re-saving a course never freezes a derived plan level into the
         // column behind the registrar's back.
         courseLevel: c.level ?? null,
-        // متطلبات سابقة: the UNION of both sources keyed by prerequisite id — a partially migrated
-        // course keeps the legacy pairs that were not copied. The graded rule wins where both exist.
-        prerequisites: [
-          ...new Map([
-            ...c.prerequisites.map((p) => [p.id, { id: p.id, code: p.code, name: p.nameAr, minGradeCode: null as string | null }] as const),
-            ...c.prereqRules.map((r) => [r.prerequisiteId, { id: r.prerequisiteId, code: r.prerequisite.code, name: r.prerequisite.nameAr, minGradeCode: r.minGradeCode ?? null }] as const),
-          ]).values(),
-        ],
+        // متطلبات سابقة: the typed rules win PER COURSE. The legacy implicit M2M is a fallback for a
+        // course that has no visible CoursePrerequisite row at all (never migrated, never saved) —
+        // not a per-pair union, which made a removed pair re-appear from the M2M forever.
+        prerequisites: (() => {
+          const rules = [...c.prereqRules]
+            // the institute's OWN row is applied last and therefore wins over an untenanted legacy
+            // row for the same pair
+            .sort((a, b) => Number(a.universityId === uid) - Number(b.universityId === uid));
+          if (rules.length) {
+            return [
+              ...new Map(
+                rules.map((r) => [r.prerequisiteId, { id: r.prerequisiteId, code: r.prerequisite.code, name: r.prerequisite.nameAr, minGradeCode: r.minGradeCode ?? null }] as const),
+              ).values(),
+            ];
+          }
+          return c.prerequisites.map((p) => ({ id: p.id, code: p.code, name: p.nameAr, minGradeCode: null as string | null }));
+        })(),
       })),
+      // سلّم التقديرات as THIS institute sees it — same filter validatePrerequisites uses, so
+      // «أدنى تقدير» can be a picker instead of free text that only fails on save. The page is
+      // "use client" and must receive these from here; it may not import lib/regulations.ts.
+      gradeStatuses: [...new Map(
+        // own row last so it wins over an untenanted legacy row carrying the same code
+        [...gradeStatuses].sort((a, b) => Number(a.universityId === uid) - Number(b.universityId === uid))
+          .map((g) => [g.code, { code: g.code, name: g.name }] as const),
+      ).values()],
+      // The bylaw tables the screen needs to render — it is a client component and may not import
+      // lib/regulations.ts (Prisma in the browser breaks the production build).
+      courseTypes: reg.courseTypes,
+      contactHoursPerCredit: {
+        theory: reg.contactHoursPerCreditTheory,
+        practical: reg.contactHoursPerCreditPractical,
+      },
       stats: {
         total: courses.length,
         totalCreditHours: courses.reduce((s, c) => s + c.creditHours, 0),
@@ -165,7 +220,14 @@ async function validatePrerequisites(
   const codes = [...new Set(rows.map((r) => r.minGradeCode).filter((c): c is string => !!c))];
   if (codes.length) {
     const statuses = await prisma.gradeStatus.findMany({
-      where: { AND: [{ code: { in: codes } }, tenantOrGlobalWhere(universityId)] },
+      // Explicit no-tenant case: tenantOrGlobalWhere(null) is {} — UNFILTERED — so a legacy admin's
+      // code was validated against EVERY institute's ladder, i.e. not validated at all.
+      where: {
+        AND: [
+          { code: { in: codes } },
+          universityId ? { OR: [{ universityId }, { universityId: null }] } : { universityId: null },
+        ],
+      },
       select: { code: true },
     });
     const known = new Set(statuses.map((x) => x.code));
@@ -180,15 +242,59 @@ async function validatePrerequisites(
  * shared (Course.universityId is nullable and legacy rows are NULL), so an unscoped delete let one
  * institute wipe another institute's typed rules — with no undo.
  */
-function prereqOps(tx: typeof prisma, courseId: string, universityId: string | null, rows: PrereqRow[]) {
+function prereqOps(tx: typeof prisma, courseId: string, universityId: string | null, rows: PrereqRow[], ownsCourse: boolean) {
+  // WHICH ROWS MAY THIS INSTITUTE REMOVE: STRICTLY ITS OWN. The key is now
+  // @@unique([universityId, courseId, prerequisiteId]), so each institute holds its own rule for the
+  // same pair and the delete no longer has to "adopt" the untenanted row to avoid a collision.
+  // Deleting the null-tenant arm used to wipe — with no undo — exactly the legacy rows that
+  // lib/registration.ts serves to every OTHER institute's students.
+  //
+  // What a tenanted institute sees for an untenanted legacy rule: it READS it (GET and the engine
+  // both union own + untenanted rows) but never rewrites or deletes it. Saving the dialog copies
+  // the union it was shown into this institute's OWN rows, which then win per pair — so editing or
+  // dropping a legacy rule is expressed as this institute's own row, and the shared row stays
+  // intact for everyone else.
+  const scope = { courseId, universityId };
   return [
-    tx.coursePrerequisite.deleteMany({ where: { courseId, universityId } }),
+    tx.coursePrerequisite.deleteMany({ where: scope }),
     ...rows.map((r) =>
       tx.coursePrerequisite.create({
         data: { courseId, prerequisiteId: r.prerequisiteId, minGradeCode: r.minGradeCode, universityId },
       }),
     ),
+    // The LEGACY implicit M2M has no tenant column at all, so writing it is inherently global. It is
+    // mirrored ONLY when this caller owns the course outright (its own course, or an untenanted
+    // caller — the single-tenant legacy reality), never by one tenant on a shared course. Removal
+    // still works because the READER now falls back to the M2M only for a course with zero visible
+    // CoursePrerequisite rows (see GET and lib/registration.ts): a course becomes authoritative on
+    // its first save. Known gap: a tenanted institute clearing ALL prerequisites of a course it does
+    // not own leaves the shared M2M pairs in force for itself — dropping the M2M column entirely is
+    // the real fix (reported in schemaNeeds).
+    ...(ownsCourse
+      ? [tx.course.update({ where: { id: courseId }, data: { prerequisites: { set: rows.map((r) => ({ id: r.prerequisiteId })) } } })]
+      : []),
   ];
+}
+
+/**
+ * طبيعة المقرر — must match a code in THIS institute's جدول 2 (Regulations.courseTypes). '' / null
+ * clears it; undefined leaves it untouched (returned as undefined so the caller can skip the field).
+ */
+async function parseCourseType(v: unknown, tenant: { universityId?: string | null }): Promise<string | null | 'invalid' | undefined> {
+  if (typeof v === 'undefined') return undefined;
+  if (v === null || v === '') return null;
+  const code = String(v).trim().toUpperCase();
+  const reg = await getRegulations(tenant);
+  return courseTypeOf(code, reg) ? code : 'invalid';
+}
+
+/** ساعات اتصال أسبوعية — a non-negative number, or null to clear it. */
+function parseContactHours(v: unknown): number | null | 'invalid' | undefined {
+  if (typeof v === 'undefined') return undefined;
+  if (v === null || v === '') return null;
+  const n = parseInt(String(v), 10);
+  if (!Number.isFinite(n) || n < 0) return 'invalid';
+  return n;
 }
 
 /** المستوى — a positive plan level, or null to clear it. Anything else is rejected by the caller. */
@@ -221,6 +327,9 @@ export async function POST(request: NextRequest) {
       finalMax,
       practicalMax,
       homeworkMax,
+      courseTypeCode,
+      theoryContactHours,
+      practicalContactHours,
       level,
       prerequisites,
     } = body ?? {};
@@ -240,6 +349,14 @@ export async function POST(request: NextRequest) {
 
     const levelValue = parseLevel(level);
     if (levelValue === 'invalid') return NextResponse.json({ error: 'المستوى غير صالح' }, { status: 400 });
+
+    // طبيعة المقرر must be one of the rows the institute typed in جدول 2 — an unknown code would
+    // silently disable the split check instead of flagging it.
+    const typeCode = await parseCourseType(courseTypeCode, guard.ctx);
+    if (typeCode === 'invalid') return NextResponse.json({ error: 'طبيعة المقرر غير موجودة في جدول توزيع الدرجات' }, { status: 400 });
+    const theory = parseContactHours(theoryContactHours);
+    const practical = parseContactHours(practicalContactHours);
+    if (theory === 'invalid' || practical === 'invalid') return NextResponse.json({ error: 'ساعات الاتصال غير صالحة' }, { status: 400 });
 
     const uid = guard.ctx.universityId ?? null;
     const prereq = await validatePrerequisites(null, uid, prerequisites);
@@ -267,18 +384,21 @@ export async function POST(request: NextRequest) {
           // المستوى الدراسي — «المستوي الاول … الرابع» in the bylaw's plan tables. Typed by the
           // institute; the study-plan derivation in GET only fills in when this is null.
           level: levelValue,
+          // طبيعة المقرر + ساعات الاتصال. All nullable: a course that says nothing about them reads
+          // exactly as it did before these columns existed.
+          courseTypeCode: typeCode,
+          theoryContactHours: theory,
+          practicalContactHours: practical,
         },
       });
       if (prereq.rows) {
-        for (const op of prereqOps(tx as unknown as typeof prisma, created.id, uid, prereq.rows)) await op;
+        for (const op of prereqOps(tx as unknown as typeof prisma, created.id, uid, prereq.rows, true)) await op;
       }
       return created;
     });
     return NextResponse.json(course, { status: 201 });
   } catch (error) {
     console.error('Error creating course:', error);
-    // The unique key on CoursePrerequisite is (courseId, prerequisiteId) WITHOUT the tenant, so a
-    // rule another institute typed on a shared course collides here instead of coexisting.
     if ((error as { code?: string }).code === 'P2002') {
       return NextResponse.json({ error: 'تعذّر الحفظ: يوجد سجل مطابق بالفعل (الكود أو أحد المتطلبات السابقة)' }, { status: 409 });
     }
@@ -287,17 +407,50 @@ export async function POST(request: NextRequest) {
 }
 
 // PATCH /api/institute/courses — update by id.
+
+/**
+ * The ONLY course columns the edit dialog may write. A spread of the request body let any key
+ * through — including ownership columns and anything a future model adds — so the payload is
+ * whitelisted here instead of subtracted key by key.
+ */
+const EDITABLE_COURSE_FIELDS = [
+  'code', 'nameAr', 'nameEn', 'creditHours', 'departmentId', 'instructorId',
+  'countsInGpa', 'requirementType', 'availableInSummer', 'isGraduationProject',
+  'midtermMax', 'finalMax', 'practicalMax', 'homeworkMax',
+  'level', 'courseTypeCode', 'theoryContactHours', 'practicalContactHours',
+] as const;
+
 export async function PATCH(request: NextRequest) {
   try {
     const guard = await requirePermission('course.edit');
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
     const body = await request.json();
-    const { id, prerequisites, ...data } = body ?? {};
+    const id = body?.id;
+    const prerequisites = body?.prerequisites;
     if (!id) return NextResponse.json({ error: 'المعرف مطلوب' }, { status: 400 });
+    // universityId/facultyId are ownership columns and are simply not on the whitelist, so a body
+    // that carries them can neither move a course to another institute nor smuggle in a new column.
+    const data: Record<string, unknown> = {};
+    for (const k of EDITABLE_COURSE_FIELDS) if (k in (body ?? {})) data[k] = body[k];
 
-    if (typeof data.requirementType !== 'undefined' && !['mandatory', 'elective'].includes(data.requirementType)) {
+    if (typeof data.requirementType !== 'undefined' && !['mandatory', 'elective'].includes(data.requirementType as string)) {
       return NextResponse.json({ error: 'نوع المقرر غير صالح' }, { status: 400 });
+    }
+
+    // طبيعة المقرر + ساعات الاتصال — coerced separately from the caps below because null/'' means
+    // "clear it" here, while an empty cap means "don't touch".
+    if ('courseTypeCode' in data) {
+      const typeCode = await parseCourseType(data.courseTypeCode, guard.ctx);
+      if (typeCode === 'invalid') return NextResponse.json({ error: 'طبيعة المقرر غير موجودة في جدول توزيع الدرجات' }, { status: 400 });
+      data.courseTypeCode = typeCode;
+    }
+    for (const k of ['theoryContactHours', 'practicalContactHours']) {
+      if (k in data) {
+        const h = parseContactHours(data[k]);
+        if (h === 'invalid') return NextResponse.json({ error: 'ساعات الاتصال غير صالحة' }, { status: 400 });
+        data[k] = h;
+      }
     }
 
     // coerce numeric fields (credit hours + grade-component caps) to Int when present.
@@ -325,12 +478,24 @@ export async function PATCH(request: NextRequest) {
     // One transaction: rules were previously replaced BEFORE the course update, so a failing update
     // left the course unchanged with its prerequisite rules already rewritten and no rollback.
     const course = await prisma.$transaction(async (tx) => {
+      // Tenant-scoped pre-read: `where: { id }` alone let a course.edit holder at institute A write
+      // any course id belonging to institute B. A tenanted caller may edit its own rows and the
+      // shared untenanted ones; an untenanted caller keeps today's unrestricted reach (that is the
+      // legacy single-tenant admin, and narrowing it would hide every tenanted course from him).
+      const existing = await tx.course.findFirst({
+        where: { AND: [{ id }, uid ? { OR: [{ universityId: uid }, { universityId: null }] } : {}] },
+        select: { id: true, universityId: true },
+      });
+      if (!existing) return null;
       const updated = await tx.course.update({ where: { id }, data });
       if (prereq.rows) {
-        for (const op of prereqOps(tx as unknown as typeof prisma, id, uid, prereq.rows)) await op;
+        // The global M2M mirror is written only for a course this caller owns outright.
+        const ownsCourse = uid === null || existing.universityId === uid;
+        for (const op of prereqOps(tx as unknown as typeof prisma, id, uid, prereq.rows, ownsCourse)) await op;
       }
       return updated;
     });
+    if (!course) return NextResponse.json({ error: 'المقرر غير موجود' }, { status: 404 });
     return NextResponse.json(course);
   } catch (error) {
     console.error('Error updating course:', error);

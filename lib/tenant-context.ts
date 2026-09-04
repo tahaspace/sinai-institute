@@ -36,6 +36,10 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   'Trainee', 'Trainer', 'Activity', 'Certificate', 'MarketingCampaign', 'Message',
   'Payroll', 'BankAccount', 'Book', 'Reward', 'Badge', 'LMSContent', 'ForumCategory',
   'VirtualClass', 'CourseEquivalenceRequest', 'TransferRequest', 'GradeStatus',
+  'StudentEnrollmentSuspension', 'StudentTraining', 'AcademicTerm', 'CoursePrerequisite',
+  // NOTE: `Specialization` is deliberately NOT here — it has no universityId column and is scoped
+  // through its programme instead. Listing it would make the extension inject a field that does not
+  // exist and break every query against it.
   // NOTE: `Setting` is intentionally excluded — it allows platform-global rows
   // (universityId = null) and is handled explicitly via findFirst-by-key.
 ]);

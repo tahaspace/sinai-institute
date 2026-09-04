@@ -50,6 +50,8 @@ export type ColumnSchema = {
   min?: number;
   max?: number;
   step?: number;
+  /** A cell that may legitimately be left blank (stored as null) — e.g. a training round tied to no level. */
+  optional?: boolean;
 };
 
 export type FieldSchema = {
@@ -107,6 +109,7 @@ export const GROUPS: GroupSchema[] = [
   { id: 'exams', title: 'الامتحانات ورصد النتائج', description: 'الحدود الدنيا للدرجات، وشروط «غير مكتمل»، والاستكمال، واعتماد النتيجة' },
   { id: 'probation', title: 'الإنذار والمراقبة والفصل', description: 'حدود الإنذار الأكاديمي وعدد الفصول التي تؤدي إلى الفصل أو الانتساب' },
   { id: 'annual', title: 'النظام السنوي', description: 'قواعد النتيجة السنوية — تُطبَّق على البرامج ذات النظام السنوي فقط (لا تؤثر على الساعات المعتمدة)' },
+  { id: 'training', title: 'التدريب الصيفي / الميداني', description: 'جولات التدريب ومدته وتوزيع درجته وحالتا الاجتياز وعدم الاجتياز' },
   { id: 'other', title: 'بنود إضافية في اللائحة', description: 'بنود موجودة في اللائحة ولم يُكتب لها وصف عربي بعد — قابلة للتعديل، راجِعها قبل الحفظ' },
 ];
 
@@ -165,6 +168,66 @@ const META: Partial<Record<keyof Regulations, Meta>> = {
   },
 
   // ── العبء الدراسي والتسجيل ───────────────────────────────────────
+  planLevelCount: {
+    group: 'hours',
+    label: 'عدد المستويات في اللائحة',
+    unit: 'مستوى',
+    hint: 'أعلى رقم مستوى تقبله خطة الدراسة عند إدخالها. اضبطه على عدد المستويات إن كانت لائحتك ترقّم بالمستوى، أو على عدد الفصول إن كانت ترقّم بالفصل. القيمة صفر تعني بلا سقف.',
+    bylaw: '«شروط تخرج الطلاب اجتياز عدد ساعات 130 ساعة مقمسمه علي 8 فصول» — و«يجوز له اختيار التخصص الفرعي الثاني … ويكون في المستوي الخامس» في برنامج مدته أربع سنوات.',
+    min: 0,
+    max: 20,
+    step: 1,
+    integer: true,
+  },
+
+  overloadMinCgpa: {
+    group: 'load',
+    label: 'المعدل التراكمي المؤهل لتجاوز الحد الأقصى للساعات',
+    hint: 'من بلغ هذا المعدل التراكمي يجوز له التسجيل فوق الحد الأقصى العادي حتى «الحد الأقصى الاستثنائي» أدناه. صفر يعطّل الاستثناء.',
+    bylaw: '«العبء الدراسي يجوز زياده عن 21 ساعه ادا كان للطالب معدل تراكميا عاليا من 3 نقاط فاكثر او في حالات التخرج».',
+    ...GPA,
+  },
+  overloadMaxHours: {
+    group: 'load',
+    label: 'الحد الأقصى الاستثنائي لساعات الفصل',
+    hint: 'سقف الساعات الذي يحلّ محل الحد الأقصى العادي عند انطباق الاستثناء. لا يرفع سقف الطالب تحت الملاحظة الأكاديمية.',
+    bylaw: '«يجوز زياده عن 21 ساعه ادا كان للطالب معدل تراكميا عاليا من 3 نقاط فاكثر او في حالات التخرج».',
+    ...HOURS_TERM,
+  },
+  overloadForGraduating: {
+    group: 'load',
+    label: 'منح الاستثناء لحالات التخرج',
+    hint: 'مُفعَّل: الطالب في مستواه الأخير الذي يسجّل ما تبقّى له يحصل على الحد الأقصى الاستثنائي مهما كان معدله.',
+    bylaw: '«… او في حالات التخرج».',
+  },
+  repeatHoursCap: {
+    group: 'load',
+    label: 'سقف ساعات الإعادة',
+    hint: 'إجمالي — لا فصلي — لعدد الساعات المعتمدة التي يجوز للطالب إعادتها لرفع معدله. صفر يعطّل السقف.',
+    bylaw: '«… بشرط الا تتجاوز عدد ساعات معتمدة في الاعادة 17 ساعة معتمدة عشان يحصل علي تقدير كامل بعد الاعادة».',
+    // min 0, unlike HOURS_TOTAL: zero is the documented "no cap" value here, not a data-entry slip.
+    min: 0, max: 600, step: 1, integer: true, unit: 'ساعة',
+  },
+  repeatHoursCapCgpa: {
+    group: 'load',
+    label: 'المعدل التراكمي الذي ينطبق دونه سقف الإعادة',
+    hint: 'سقف ساعات الإعادة يُطبَّق على الطالب الذي يقل معدله التراكمي عن هذه القيمة.',
+    bylaw: '«طلاب اللي عندهم تقدير اقل من 2 بتقدير مقبول علي الاقل يجوز لهم اعادة المواد الحاصلين فيهم علي تقدير راسب او مقبول».',
+    ...GPA,
+  },
+  repeatMaxGradeCode: {
+    group: 'load',
+    label: 'أعلى تقدير يُمنع بعده إعادة المقرر',
+    hint: 'المقرر الذي حصل فيه الطالب على هذا التقدير أو أعلى لا يجوز إعادته. اتركه فارغاً لتعطيل هذا المنع. يجب أن يطابق كوداً في جدول حالات النتائج.',
+    bylaw: '«لا يجوز للطالب حصل علي تقدير C او اكثر اعاده دراسة المقرر».',
+    optionsFrom: 'gradeStatusCode',
+  },
+  blockedRegistrationStatuses: {
+    group: 'load',
+    label: 'حالات الطالب الممنوعة من التسجيل',
+    hint: 'قائمة مفصولة بفواصل من حالات قيد الطالب التي لا يُقبل معها التسجيل — من WITHDRAWN وDISMISSED وSUSPENDED وDEFERRED وGRADUATED. اتركها فارغة لإلغاء المنع.',
+    bylaw: 'اللائحة تنص على «ايقاف قيد الطالب» والفصل الأكاديمي كحالات لا يُتاح معها التسجيل.',
+  },
   minRegHours: {
     group: 'load',
     label: 'الحد الأدنى لساعات الفصل العادي',
@@ -247,6 +310,101 @@ const META: Partial<Record<keyof Regulations, Meta>> = {
       { key: 'minCgpa', label: 'أقل معدل تراكمي', kind: 'number', unit: 'نقطة', min: 0, max: GPA_MAX, step: 0.01 },
       { key: 'nameAr', label: 'اسم التقدير', kind: 'text' },
     ],
+  },
+
+  // ── طبيعة المقرر وتوزيع الدرجات (جدول 2) ─────────────────────────
+  courseTypes: {
+    group: 'exams',
+    label: 'طبيعة المقرر وتوزيع الدرجات (جدول 2)',
+    hint: 'قائمة طبائع المقررات التي يختار منها المقرر توزيع درجاته. المقرر الذي يخالف صفه يُنبَّه عليه في شاشة المقررات ولا يُمنع. أضف أو احذف صفوفاً حسب لائحتك.',
+    bylaw: 'جدول 2: «المقرر النظري 40 | 60 |  | 100» · «المقرر العملي 40 |  | 60 | 100» · «المقرر المشترك 40 | 40 | 20 | 100» · «مشروع التخرج 50 |  | 50 | 100» — «تحدد طبقا لطبيعة المقرر».',
+    columns: [
+      { key: 'code', label: 'الرمز', kind: 'text' },
+      { key: 'nameAr', label: 'طبيعة المقرر', kind: 'text' },
+      { key: 'homework', label: 'أعمال السنة', kind: 'number', min: 0, max: 200, step: 1 },
+      { key: 'written', label: 'التحريري', kind: 'number', min: 0, max: 200, step: 1 },
+      { key: 'practical', label: 'الشفوي/التطبيقي/العملي', kind: 'number', min: 0, max: 200, step: 1 },
+      { key: 'total', label: 'الإجمالي', kind: 'number', min: 1, max: 400, step: 1 },
+    ],
+  },
+
+  // ── تعريف الساعة المعتمدة ────────────────────────────────────────
+  contactHoursPerCreditTheory: {
+    group: 'hours',
+    label: 'ساعات الاتصال النظرية للساعة المعتمدة',
+    hint: 'كم ساعة نظرية أسبوعياً تعادل ساعة معتمدة واحدة. تُستخدم لاشتقاق/مراجعة ساعات المقرر فقط، والساعات المخزَّنة للمقرر تبقى هي المعتمدة.',
+    bylaw: '«اسبوعيا : ساعة نظريا و(2-3 ) عملي او تطبيقي».',
+    min: 1, max: 10, step: 1, integer: true, unit: 'ساعة',
+  },
+  contactHoursPerCreditPractical: {
+    group: 'hours',
+    label: 'ساعات الاتصال العملية للساعة المعتمدة',
+    hint: 'كم ساعة عملية/تطبيقية أسبوعياً تعادل ساعة معتمدة واحدة. اللائحة تعطي مدى 2–3، والمعهد يختار قيمته داخله.',
+    bylaw: '«اسبوعيا : ساعة نظريا و(2-3 ) عملي او تطبيقي».',
+    min: 1, max: 10, step: 1, integer: true, unit: 'ساعة',
+  },
+  lectureMinutes: {
+    group: 'hours',
+    label: 'مدة المحاضرة الواحدة',
+    hint: 'الحد الأدنى لزمن المحاضرة المسجَّلة، للاستخدام في الجداول وحساب ساعات الاتصال.',
+    bylaw: '«حيث يتم تسجيل المحاضرة الواحده خمسون دقيقة علي الاقل».',
+    min: 1, max: 300, step: 5, integer: true, unit: 'دقيقة',
+  },
+
+  // ── التدريب الصيفي / الميداني ────────────────────────────────────
+  trainingWeeks: {
+    group: 'training',
+    label: 'مدة التدريب',
+    hint: 'المدة الافتراضية التي تُملأ في سجل التدريب، ويمكن تعديلها في السجل نفسه.',
+    bylaw: '«ويكون التدريب عبارة عن 4 اسابيع لمدة شهر».',
+    ...WEEKS,
+  },
+  trainingExternalPercent: {
+    group: 'training',
+    label: 'نصيب جهة التدريب من الدرجة',
+    hint: 'سقف الدرجة التي ترصدها جهة/موقع التدريب. مجموع الأنصبة الثلاثة هو الدرجة النهائية للتدريب.',
+    bylaw: '«50% لجه التدريب موقع تدريب».',
+    ...PCT,
+  },
+  trainingReportPercent: {
+    group: 'training',
+    label: 'نصيب تقرير الطالب',
+    hint: 'سقف درجة التقرير الذي يقدّمه الطالب عن تدريبه.',
+    bylaw: '«25% للتقرير الذي يقدمه الطالب».',
+    ...PCT,
+  },
+  trainingDiscussionPercent: {
+    group: 'training',
+    label: 'نصيب المناقشة وتبادل الخبرات',
+    hint: 'سقف درجة المناقشة داخل المعهد.',
+    bylaw: '«25% للمناقشه وتبادل الخبرات».',
+    ...PCT,
+  },
+  trainingRounds: {
+    group: 'training',
+    label: 'جولات التدريب',
+    hint: 'جولات التدريب التي يُرصد عليها الطلاب. «بعد المستوى» و«بعد الفصل رقم» اختياريان — اتركهما فارغَين لجولة غير مرتبطة بمستوى بعينه.',
+    bylaw: '«ويكون بعد المستوي الثاني بعد الفصل الدراسي الرابع وتدريب اخر بعد المستوي الثالث بعد الفصل الدراسي السادس».',
+    columns: [
+      { key: 'round', label: 'رقم الجولة', kind: 'number', min: 1, max: 20, step: 1 },
+      { key: 'nameAr', label: 'اسم الجولة', kind: 'text' },
+      { key: 'afterLevel', label: 'بعد المستوى', kind: 'number', min: 1, max: 12, step: 1, optional: true },
+      { key: 'afterTermNo', label: 'بعد الفصل رقم', kind: 'number', min: 1, max: 40, step: 1, optional: true },
+    ],
+  },
+  trainingPassStatusCode: {
+    group: 'training',
+    label: 'حالة النتيجة عند اجتياز التدريب',
+    hint: 'رمز الحالة التي تُرصد للتدريب الناجح. يجب أن يطابق كوداً موجوداً في جدول حالات النتائج.',
+    bylaw: '«يعتبر التدريب الميداني ماده نجاح او رسوب ولكن لا تضاف الي التقدير التراكمي» — جدول 3 «مواد الاجتياز وعدم الاجتياز».',
+    optionsFrom: 'gradeStatusCode',
+  },
+  trainingFailStatusCode: {
+    group: 'training',
+    label: 'حالة النتيجة عند عدم اجتياز التدريب',
+    hint: 'رمز الحالة التي تُرصد للتدريب الراسب. يجب أن يطابق كوداً موجوداً في جدول حالات النتائج.',
+    bylaw: '«يعتبر التدريب الميداني ماده نجاح او رسوب ولكن لا تضاف الي التقدير التراكمي».',
+    optionsFrom: 'gradeStatusCode',
   },
 
   // ── الحضور والحرمان ──────────────────────────────────────────────
@@ -624,6 +782,8 @@ function validateField(f: FieldSchema, value: unknown): string | null {
         for (const col of f.columns ?? []) {
           const cell = row[col.key];
           if (col.kind === 'number') {
+            // خانة اختيارية فارغة تعني «غير محدد» — رفضها كان يمنع حفظ صف تسمح به اللائحة أصلاً.
+            if (col.optional && (cell == null || cell === '' || (typeof cell === 'number' && Number.isNaN(cell)))) continue;
             const n = num(cell);
             if (n === null) return `«${f.label}» — الصف ${i + 1}: «${col.label}» يجب أن يكون رقماً.`;
             if (col.min != null && n < col.min) return `«${f.label}» — الصف ${i + 1}: «${col.label}» يجب ألا يقل عن ${col.min}.`;
@@ -831,7 +991,11 @@ function coerce(f: FieldSchema, raw: unknown): unknown {
         const out: Record<string, unknown> = { ...row };
         for (const col of f.columns ?? []) {
           if (col.kind === 'number') {
-            const n = num(row[col.key]);
+            const cell = row[col.key];
+            const blank = cell == null || (typeof cell === 'string' && cell.trim() === '');
+            // خانة اختيارية فارغة تُخزَّن null («غير محدد») بدل NaN الذي يسقط في التحقق.
+            if (col.optional && blank) { out[col.key] = null; continue; }
+            const n = num(cell);
             out[col.key] = n === null ? NaN : n;
           } else {
             out[col.key] = typeof row[col.key] === 'string' ? (row[col.key] as string).trim() : row[col.key];

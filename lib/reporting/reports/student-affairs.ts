@@ -3,6 +3,7 @@ import type { ReportDef, TableResult } from '@/lib/reporting/types';
 import { studentWhere, termWhere, academicSystemWhere } from '@/lib/reporting/filters';
 import { studentSystemWhere } from '@/lib/academic-system';
 import { computeStandingForStudents } from '@/lib/standing';
+import { getRegulations } from '@/lib/regulations';
 
 /**
  * Student-affairs rosters (ClientR3 — R1). Most reuse the Student model + the standing engine.
@@ -221,6 +222,60 @@ export const studentAffairsReports: ReportDef[] = [
         columns: [{ key: 'studentCode', label: 'الرقم الجامعي' }, { key: 'student', label: 'الطالب' }, { key: 'guardian', label: 'ولي الأمر' }, { key: 'relation', label: 'الصلة', align: 'center' }, { key: 'phone', label: 'الهاتف', align: 'center' }, { key: 'bankAccount', label: 'الحساب البنكي', align: 'center' }],
         rows,
         totals: { studentCode: 'الإجمالي', student: `${rows.length}` },
+      };
+    },
+  },
+  {
+    // «مرتبه الشرف علي حسب شروط لائحة بعمل بيها تقرير وسيستم بيرتبلي الطلاب اللي حصلوا علي شروط دي
+    //  اللي موضحة في اللائحة» — the ranked institute-wide honour list the bylaw asks the system to
+    // produce. The four conditions themselves live in lib/standing.ts (ANDed there, with the
+    // thresholds read from Regulations); this report only selects and ranks, so the list can never
+    // drift from the standing screen's verdict.
+    id: 'honor-roll', category: 'academic', nameAr: 'قائمة مرتبة الشرف (مرتَّبة)',
+    description: 'الطلاب المستوفون لشروط مرتبة الشرف مرتَّبين بالمعدل التراكمي',
+    permission: VIEW, filters: ['academicYear', 'departmentId', 'programId', 'level'],
+    run: async (f, ctx) => {
+      // مرتبة الشرف is a GPA/CGPA verdict, so it exists only under نظام الساعات المعتمدة — scoped
+      // like كشف الخريجين, and therefore NOT declared systemAware: the pick would not narrow, it
+      // would only be able to empty the sheet.
+      const reg = await getRegulations();
+      const students = await prisma.student.findMany({
+        where: { ...studentWhere(f, ctx.universityId), status: { notIn: ['WITHDRAWN', 'DISMISSED'] }, ...academicSystemWhere('CREDIT_HOURS') },
+        select: { id: true, studentCode: true, nameAr: true, level: true, department: { select: { nameAr: true } }, program: { select: { nameAr: true } } },
+        orderBy: { studentCode: 'asc' },
+      });
+      const standings = await computeStandingForStudents(students.map((s) => s.id));
+      const rows = students
+        .map((s) => ({ s, st: standings.get(s.id) }))
+        .filter(({ st }) => st?.honorRoll)
+        // «وسيستم بيرتبلي الطلاب» — the ranking IS the deliverable. Ties keep the student-code order
+        // the query already imposed, so a re-run of the same term prints the same sheet.
+        .sort((a, b) => (b.st!.cgpa - a.st!.cgpa))
+        .map(({ s, st }, i) => ({
+          rank: i + 1,
+          studentCode: s.studentCode,
+          name: s.nameAr,
+          department: s.department?.nameAr ?? '—',
+          program: s.program?.nameAr ?? '—',
+          level: s.level,
+          cgpa: st!.cgpa.toFixed(2),
+          earnedHours: st!.earnedHours,
+        }));
+      return {
+        kind: 'table',
+        columns: [
+          { key: 'rank', label: 'الترتيب', align: 'center', numeric: true },
+          { key: 'studentCode', label: 'الرقم الجامعي' }, { key: 'name', label: 'الاسم' },
+          { key: 'department', label: 'القسم' }, { key: 'program', label: 'البرنامج' },
+          { key: 'level', label: 'المستوى', align: 'center', numeric: true },
+          { key: 'cgpa', label: 'المعدل التراكمي', align: 'center', numeric: true },
+          { key: 'earnedHours', label: 'الساعات المكتسبة', align: 'center', numeric: true },
+        ],
+        rows,
+        // The thresholds are quoted from the institute's own bylaw settings, never from a literal,
+        // so a sheet printed today says which rule produced it.
+        totals: { rank: 'الإجمالي', name: `${rows.length} طالب`, cgpa: `الشروط: تراكمي ≥ ${reg.honorCgpa} · كل فصل ≥ ${reg.honorTermGpa} · بدون رسوب` },
+        meta: { count: rows.length },
       };
     },
   },

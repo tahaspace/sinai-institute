@@ -3,11 +3,17 @@ import prisma from '@/lib/prisma';
 import { tenantOrGlobalWhere } from '@/lib/tenant';
 import { normalizeSystem } from '@/lib/academic-system';
 import { requirePermission } from '@/lib/authz';
+import { ACADEMIC_STATE_LABELS, academicStateOf, monitoringGpaFloor } from '@/lib/standing';
+import { getRegulations } from '@/lib/regulations';
 
 const LEVELS = ['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة'];
 const levelLabel = (n: number) => LEVELS[n] ?? String(n);
 const statusLabel = (s: string) =>
-  ({ ACTIVE: 'منتظم', WARNING1: 'إنذار أول', WARNING2: 'إنذار ثاني', GRADUATED: 'خريج', SUSPENDED: 'موقوف' } as Record<string, string>)[s] ?? s;
+  ({
+    ACTIVE: 'منتظم', WARNING1: 'إنذار أول', WARNING2: 'إنذار ثاني', GRADUATED: 'خريج', SUSPENDED: 'موقوف',
+    // Present so the two states the enrolment-state desk writes do not print as raw English codes.
+    WITHDRAWN: 'منسحب', DISMISSED: 'مفصول', AFFILIATE: 'منتسب',
+  } as Record<string, string>)[s] ?? s;
 
 // GET /api/institute/students?search=&departmentId=&level=
 export async function GET(request: NextRequest) {
@@ -31,6 +37,12 @@ export async function GET(request: NextRequest) {
       ];
     }
 
+    // «حاله الاكاديمية للطالب … ثلاث انواع ( انتظام ، وقف قيد ، المراقبة الاكاديمية )» — the third
+    // value has to be reachable in this column. It is a CGPA question and Student.gpa is already the
+    // stored answer, so the floor is read from the institute's own bylaw and no engine is run.
+    const reg = await getRegulations(guard.ctx);
+    const monitoringFloor = monitoringGpaFloor(reg);
+
     const students = await prisma.student.findMany({
       where,
       include: {
@@ -39,6 +51,13 @@ export async function GET(request: NextRequest) {
         enrollments: { where: { status: 'COMPLETED' }, include: { course: true } },
       },
       orderBy: { studentCode: 'asc' },
+    });
+
+    const monitoringOf = (s: { gpa: number; program: { academicSystem: string | null } | null }) => ({
+      onProbation:
+        normalizeSystem(s.program?.academicSystem) === 'CREDIT_HOURS' &&
+        s.gpa > 0 &&
+        s.gpa < monitoringFloor,
     });
 
     const rows = students.map((s) => ({
@@ -58,6 +77,15 @@ export async function GET(request: NextRequest) {
       creditHours: s.enrollments.reduce((sum, e) => sum + (e.course?.creditHours ?? 0), 0),
       status: statusLabel(s.status),
       statusCode: s.status,
+      // الحالة الأكاديمية — «حاله الاكاديمية للطالب ولابد من ادراجها في عمود بيانات الطالب : وتكون
+      // ثلاث انواع ( انتظام ، وقف قيد ، المراقبة الاكاديمية )». Derived from Student.status here;
+      // standing is not computed for a whole-institute list, so a non-suspended record reads
+      // «انتظام» rather than a guessed «مراقبة» — the enrolment-state screen shows the monitoring
+      // counts, and the standing screens show the probation flag.
+      // ANNUAL programmes carry no CGPA at all (lib/gpa.ts stores raw marks for them), so their
+      // stored 0 must never be read as المراقبة — they simply keep their registration state.
+      academicState: academicStateOf(s.status, monitoringOf(s)),
+      academicStateLabel: ACADEMIC_STATE_LABELS[academicStateOf(s.status, monitoringOf(s))],
     }));
 
     // Annual-system students have no CGPA at all (lib/gpa.ts stores raw marks only for them), so

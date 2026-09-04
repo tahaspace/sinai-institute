@@ -1,7 +1,8 @@
 import prisma from '@/lib/prisma';
 import type { ReportDef, ReportColumn, ReportRow } from '@/lib/reporting/types';
 import { SEMESTERS, studentWhere, academicSystemWhere } from '@/lib/reporting/filters';
-import { computeStandingForStudents } from '@/lib/standing';
+import { computeStandingForStudents, academicStateOf, ACADEMIC_STATE_LABELS } from '@/lib/standing';
+import { resolveApplicableComponents } from '@/lib/grade-components';
 import { getRegulations, cgpaGrade, NO_CGPA_GRADE } from '@/lib/regulations';
 import { classify } from '@/lib/reports';
 import { buildMinistryMatrix, rankByDesc, courseComponents, MARK_COMPONENTS, type MinistryScaleRow, type MinistryComponent } from '@/lib/reporting/ministry-matrix';
@@ -17,7 +18,9 @@ import { buildMinistryMatrix, rankByDesc, courseComponents, MARK_COMPONENTS, typ
 const VIEW = 'reports.transcripts.view';
 const INSTITUTE_FALLBACK = 'معهد سيناء العالي للدراسات النوعية';
 const SEM_ORDER: Record<string, number> = { first: 1, second: 2, summer: 3 };
-const STATUS_AR: Record<string, string> = { ACTIVE: 'مقيّد', GRADUATED: 'خرّيج', WITHDRAWN: 'منسحب', DISMISSED: 'مفصول', SUSPENDED: 'موقوف' };
+// NOTE: the academic-state vocabulary is NOT defined here. The bylaw names it exactly
+// («انتظام ، وقف قيد ، المراقبة الاكاديمية»), and lib/standing.ts owns those labels — one field,
+// one vocabulary, so the official statement can never print «موقوف» where the bylaw says «وقف قيد».
 // Signature/approval roles printed on the official ministry export sheet.
 const MINISTRY_SIGNATURES = ['رئيس الكنترول', 'وكيل المعهد لشؤون التعليم والطلاب', 'عميد المعهد'];
 
@@ -98,9 +101,18 @@ export const transcriptsReports: ReportDef[] = [
         return { kind: 'table', columns: [{ key: 'm', label: '' }], rows: [], totals: { m: 'هذا الطالب بالنظام السنوي — استخدم «كشف الطالب السنوي» ضمن فئة «النتائج السنوية»' } };
       }
 
-      const [enrollments, statuses] = await Promise.all([
-        prisma.enrollment.findMany({ where: { studentId: student.id }, include: { course: { select: { code: true, nameAr: true, creditHours: true, countsInGpa: true } } } }),
+      const [enrollments, statuses, standings, reg] = await Promise.all([
+        // midterm/final/practical/homework maxes come along so the bylaw's «النسبه المئويه التراكمية»
+        // can be computed from the marks actually recorded, rather than converted out of the GPA
+        // (جدول 3 and جدول 4 disagree on that conversion, so deriving it would print a contested number).
+        prisma.enrollment.findMany({ where: { studentId: student.id }, include: { course: { select: { code: true, nameAr: true, creditHours: true, countsInGpa: true, midtermMax: true, finalMax: true, practicalMax: true, homeworkMax: true } } } }),
         prisma.gradeStatus.findMany({ where: ctx.universityId ? { universityId: ctx.universityId } : {} }),
+        // «الحاله االاكاديمه ( انتظام ، مراقبه ، وقف قيد )» — المراقبة الأكاديمية is not a Student.status
+        // value, it is derived by the standing engine, so the official statement has to ask it.
+        computeStandingForStudents([student.id]),
+        // «مقررات معفى من مكوّناتها» — the bylaw's repeat exemption, needed so the percentage
+        // denominator is the one this enrolment could actually score against.
+        getRegulations(ctx.universityId),
       ]);
       const byCode = new Map(statuses.map((s) => [s.code, s]));
       const groups = new Map<string, typeof enrollments>();
@@ -118,6 +130,8 @@ export const transcriptsReports: ReportDef[] = [
       type TermBlock = { label: string; courses: ReportRow[]; footer: Record<string, string | number> };
       const terms: TermBlock[] = [];
       let cumQuality = 0, cumGpaHours = 0, cumEarned = 0;
+      // Cumulative percentage accumulators + the two bylaw hour groupings (داخل/خارج المعدل).
+      let pctWeighted = 0, pctHours = 0, inGpaHours = 0, outGpaHours = 0;
       for (const tk of orderedTerms) {
         const [ay, sem] = tk.split('|');
         const label = termLabelOf(ay, sem);
@@ -126,14 +140,49 @@ export const transcriptsReports: ReportDef[] = [
         for (const e of groups.get(tk)!) {
           const st = e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : null;
           const ch = e.course.creditHours;
+          // «الدرجة» stays the raw recorded total — what the control desk actually entered.
           const comps = [e.midterm, e.final, e.practical, e.homework].filter((v): v is number => v != null);
-          const score = comps.length ? comps.reduce((s, v) => s + v, 0).toFixed(0) : '—';
+          const total = comps.length ? comps.reduce((s, v) => s + v, 0) : null;
+          const score = total != null ? total.toFixed(0) : '—';
           const grade = e.letterGrade ?? e.gradeStatusCode ?? '—';
           const pts = e.points;
           regHours += ch;
           if (st?.isPass) earnedHours += ch;
-          if (st?.affectsGpa && e.course.countsInGpa && pts != null) { quality += pts * ch; termPoints += pts; gpaHours += ch; }
-          const row = { code: e.course.code, name: e.course.nameAr, hours: ch, score, points: pts != null ? pts.toFixed(2) : '—', grade };
+          // «مقررات يدخل تقدير في حساب التقدير التراكمي ، مقررات لايدخل تقديرها» — the bylaw makes this
+          // split a required grouping on the statement. It was already computed here and never shown.
+          const inGpa = !!st?.affectsGpa && e.course.countsInGpa && pts != null;
+          if (inGpa) { quality += pts! * ch; termPoints += pts!; gpaHours += ch; }
+          // «النسبه المئويه التراكمية» — weighted by credit hours over the courses that carry the
+          // cumulative average. Numerator and denominator MUST come from the same component set:
+          // summing every recorded mark over a denominator that drops zero-max (or bylaw-exempt)
+          // components could print above 100% on an official بيان حالة — a stray `practical` on a
+          // نظري course was enough. resolveApplicableComponents is the platform-wide rule, so a
+          // student exempt from a component is measured against the denominator he could score.
+          const applicability = resolveApplicableComponents(
+            { excludedComponents: e.excludedComponents, attemptNo: e.attemptNo, academicSystem: student.program?.academicSystem },
+            e.course,
+            reg,
+          );
+          const applicableMarks = applicability.applicableKeys
+            .map((k) => (e as unknown as Record<string, number | null>)[k])
+            .filter((v): v is number => v != null);
+          // A half-recorded course contributes NOTHING rather than a depressed percentage: a missing
+          // component is "not marked yet", not a zero.
+          const percent =
+            applicability.maxTotal > 0 && applicableMarks.length === applicability.applicableKeys.length && applicableMarks.length > 0
+              ? (applicableMarks.reduce((a, v) => a + v, 0) / applicability.maxTotal) * 100
+              : null;
+          if (inGpa && percent != null) { pctWeighted += percent * ch; pctHours += ch; }
+          // Only a course with a RECORDED result is placed in one of the bylaw's two groups. An
+          // un-graded registration belongs to neither: filing it under «لا يدخل تقديرها» would
+          // assert an exclusion nobody decided.
+          if (st) { if (inGpa) inGpaHours += ch; else outGpaHours += ch; }
+          const row = {
+            code: e.course.code, name: e.course.nameAr, hours: ch, score,
+            percent: percent != null ? `${percent.toFixed(1)}%` : '—',
+            points: pts != null ? pts.toFixed(2) : '—', grade,
+            inGpa: inGpa ? 'نعم' : 'لا',
+          };
           courses.push(row);
           rows.push({ term: label, ...row });
         }
@@ -141,12 +190,20 @@ export const transcriptsReports: ReportDef[] = [
         const termGpa = gpaHours ? quality / gpaHours : 0;
         const cumGpa = cumGpaHours ? cumQuality / cumGpaHours : 0;
         terms.push({ label, courses, footer: { termGpa: termGpa.toFixed(2), cumulativeGpa: cumGpa.toFixed(2), registeredHours: regHours, earnedHours, qualityPoints: quality.toFixed(2), termPoints: termPoints.toFixed(2) } });
-        rows.push({ term: label, code: '', name: '— معدل الفصل —', hours: regHours, score: '', points: termGpa.toFixed(2), grade: '' });
+        rows.push({ term: label, code: '', name: '— معدل الفصل —', hours: regHours, score: '', percent: '', points: termGpa.toFixed(2), grade: '', inGpa: '' });
       }
       const cgpa = cumGpaHours ? cumQuality / cumGpaHours : 0;
+      // null (printed «—») when no course on the file carries recorded marks over a configured
+      // maximum — an unmeasured percentage must not read as 0%.
+      const cumPercent = pctHours > 0 ? pctWeighted / pctHours : null;
+      const cumPercentLabel = cumPercent != null ? `${cumPercent.toFixed(2)}%` : '—';
+      const standing = standings.get(student.id);
 
       // بيان حالة bio block (matches the client's screen photo) — only shows fields that are set.
       const bio: Record<string, string> = {};
+      // «اسم ، جنسيه ، تاريخ الميلاد ، المعهد ، القسم ، المستوي الاكاديمي» — nationality is on the
+      // Student row and was simply never printed on the document that names it.
+      if (student.nationality) bio['الجنسية'] = student.nationality;
       if (student.birthPlace) bio['محل الميلاد'] = student.birthPlace;
       if (student.birthDate) bio['تاريخ الميلاد'] = student.birthDate.toISOString().slice(0, 10);
       if (student.address) bio['العنوان'] = student.address;
@@ -166,18 +223,39 @@ export const transcriptsReports: ReportDef[] = [
           البرنامج: student.program?.nameAr ?? '—',
           القسم: student.department?.nameAr ?? '—',
           المستوى: String(student.level),
-          الحالة: STATUS_AR[student.status] ?? student.status,
+          // The bylaw's own three-valued academic state. المراقبة الأكاديمية is derived, not stored, so
+          // it is appended to the registration status instead of replacing it — a student can be
+          // مقيّد AND under المراقبة at once, and the document must not hide either half.
+          // The bylaw names the three states exactly — «انتظام ، وقف قيد ، المراقبة الاكاديمية» — so
+          // the official document uses that vocabulary, not this file's «مقيّد»/«موقوف». Both halves
+          // are sourced from ACADEMIC_STATE_LABELS: a مقيّد student on probation is «انتظام —
+          // المراقبة الأكاديمية», and a وقف قيد is never printed as «موقوف».
+          الحالة: (() => {
+            const state = academicStateOf(student.status, standing);
+            const label = ACADEMIC_STATE_LABELS[state];
+            return state !== 'MONITORING' && standing?.onProbation
+              ? `${label} — ${ACADEMIC_STATE_LABELS.MONITORING}`
+              : label;
+          })(),
           ...bio,
+          'نظام الدراسة': 'نظام الساعات المعتمدة',
+          'متوسط التقدير (المعدل التراكمي)': cgpa.toFixed(2),
+          'النسبة المئوية التراكمية': cumPercentLabel,
+          التقدير: cgpaToGrade(cgpa),
+          'ساعات تدخل في المعدل': String(inGpaHours),
+          'ساعات لا تدخل في المعدل': String(outGpaHours),
         },
         footer: await gradeScaleFooter(ctx.universityId),
-        meta: { transcript: { terms, summary: { cgpa: cgpa.toFixed(2), earnedHours: cumEarned, grade: cgpaToGrade(cgpa) } } },
+        meta: { transcript: { terms, summary: { cgpa: cgpa.toFixed(2), earnedHours: cumEarned, grade: cgpaToGrade(cgpa), cumulativePercent: cumPercentLabel, inGpaHours, outGpaHours } } },
         columns: [
           { key: 'term', label: 'الفصل' }, { key: 'code', label: 'كود المقرر' }, { key: 'name', label: 'اسم المقرر' },
           { key: 'hours', label: 'س.م', align: 'center', numeric: true }, { key: 'score', label: 'الدرجة', align: 'center' },
+          { key: 'percent', label: 'النسبة', align: 'center' },
           { key: 'points', label: 'النقاط', align: 'center' }, { key: 'grade', label: 'التقدير', align: 'center' },
+          { key: 'inGpa', label: 'يدخل في المعدل', align: 'center' },
         ],
         rows,
-        totals: { term: 'الإجمالي', name: `المعدل التراكمي: ${cgpa.toFixed(2)}`, hours: cumEarned, points: cgpa.toFixed(2), grade: cgpaToGrade(cgpa) },
+        totals: { term: 'الإجمالي', name: `المعدل التراكمي: ${cgpa.toFixed(2)}`, hours: cumEarned, percent: cumPercentLabel, points: cgpa.toFixed(2), grade: cgpaToGrade(cgpa), inGpa: `${inGpaHours} / ${outGpaHours}` },
       };
     },
   },

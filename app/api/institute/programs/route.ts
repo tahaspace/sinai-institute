@@ -2,6 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requirePermission } from '@/lib/authz';
 import { normalizeSystem, normalizeSystemFilter, programSystemWhere } from '@/lib/academic-system';
+import { parseAdmissionRequirements, serializeAdmissionRequirements } from '@/lib/admission-requirements';
+import type { AuthContext } from '@/lib/authz';
+
+/**
+ * Tenant scope for Program, whose `universityId` is nullable and legacy-NULL on every existing row.
+ *
+ * NOT `tenantOrGlobalWhere()`: that returns `{}` — completely unfiltered — for a caller with no
+ * universityId, which is most callers. The three cases are explicit:
+ *   · platform admin → everything · has a tenant → own OR untenanted · neither → untenanted only.
+ * On a single-tenant deployment every row is untenanted, so this returns today's result set.
+ */
+function programScope(ctx: Pick<AuthContext, 'universityId' | 'isPlatformAdmin'>): Record<string, unknown> {
+  if (ctx.isPlatformAdmin) return {};
+  if (ctx.universityId) return { OR: [{ universityId: ctx.universityId }, { universityId: null }] };
+  return { universityId: null };
+}
 
 // GET /api/institute/programs?search=&departmentId=&system=
 export async function GET(request: NextRequest) {
@@ -19,9 +35,13 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = { ...programSystemWhere(system) };
     if (departmentId && departmentId !== 'all') where.departmentId = departmentId;
     if (search) where.nameAr = { contains: search, mode: 'insensitive' };
+    // Tenant scope composed under AND: `where` never carries an OR today, but programScope() does,
+    // and spreading one OR over another would silently drop the narrower filter.
+    const scope = programScope(guard.ctx);
+    const scopedWhere = Object.keys(scope).length ? { AND: [where, scope] } : where;
 
     const programs = await prisma.program.findMany({
-      where,
+      where: scopedWhere,
       include: { department: true, _count: { select: { students: true } } },
       orderBy: { nameAr: 'asc' },
     });
@@ -39,6 +59,10 @@ export async function GET(request: NextRequest) {
         description: p.description ?? '',
         isActive: p.isActive,
         academicSystem: normalizeSystem(p.academicSystem),
+        // متطلبات الالتحاق بالبرنامج — always the canonical shape, so a programme that never typed
+        // any (NULL column) reads as an empty requirement set instead of forcing every caller to
+        // handle null. See lib/admission-requirements.ts for the bylaw the shape comes from.
+        admissionRequirements: parseAdmissionRequirements(p.admissionRequirements),
         students: p._count.students,
       })),
       stats: { total: programs.length },
@@ -56,7 +80,7 @@ export async function POST(request: NextRequest) {
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
     const body = await request.json();
-    const { nameAr, nameEn, departmentId, degree, years, totalCreditHours, description, academicSystem } = body ?? {};
+    const { nameAr, nameEn, departmentId, degree, years, totalCreditHours, description, academicSystem, admissionRequirements } = body ?? {};
     if (!nameAr) return NextResponse.json({ error: 'اسم البرنامج مطلوب' }, { status: 400 });
     // Required, never defaulted: the programme IS where a student's academic system comes from, so an
     // omitted value would silently create a credit-hours programme — and every student later admitted
@@ -79,6 +103,8 @@ export async function POST(request: NextRequest) {
         totalCreditHours: totalCreditHours ? parseInt(String(totalCreditHours), 10) : 0,
         description: description || null,
         academicSystem,
+        // Optional: omitted ⇒ NULL ⇒ "no requirements typed", the pre-existing behaviour.
+        admissionRequirements: serializeAdmissionRequirements(admissionRequirements),
       },
     });
     return NextResponse.json(program, { status: 201 });
@@ -100,6 +126,16 @@ export async function PATCH(request: NextRequest) {
     if (typeof data.years !== 'undefined') data.years = parseInt(String(data.years), 10);
     if (typeof data.totalCreditHours !== 'undefined') data.totalCreditHours = parseInt(String(data.totalCreditHours), 10);
     if ('academicSystem' in data) data.academicSystem = normalizeSystem(data.academicSystem);
+    // Normalize on the way in so the column can only ever hold the canonical shape (or NULL when the
+    // reviewer cleared every condition). Absent key ⇒ untouched, so a partial PATCH from another
+    // screen can never blank a programme's typed requirements.
+    if ('admissionRequirements' in data) data.admissionRequirements = serializeAdmissionRequirements(data.admissionRequirements);
+
+    // Scope-check FIRST. `update({ where: { id } })` accepted a bare id from any `program.edit`
+    // holder, so two clicks in the admissions requirements editor could overwrite another
+    // institute's «متطلبات الالتحاق». Out of scope reads as 404 (the id is not confirmed to exist).
+    const existing = await prisma.program.findFirst({ where: { id, ...programScope(guard.ctx) }, select: { id: true } });
+    if (!existing) return NextResponse.json({ error: 'البرنامج غير موجود' }, { status: 404 });
 
     const program = await prisma.program.update({ where: { id }, data });
     return NextResponse.json(program);

@@ -10,6 +10,18 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  admissionRequirementLines,
+  checkOverallPercent,
+  priorCertificatePercent,
+  isEmptyAdmissionRequirements,
+  parseAdmissionRequirements,
+  EMPTY_ADMISSION_REQUIREMENTS,
+  type AdmissionRequirements,
+  type AdmissionSubjectRule,
+} from "@/lib/admission-requirements"
 import {
   Dialog,
   DialogContent,
@@ -58,6 +70,10 @@ interface ApplicationRow {
   email: string
   phone: string
   highSchoolGrade: number
+  // The prior certificate the bylaw's first admission condition speaks about, plus the file check.
+  qualificationType: string | null
+  highSchoolYear: number
+  documentsComplete: boolean
   firstChoice: string
   // The applicant's programme, resolved server-side. null ⇒ still unlinked (free-text choice only),
   // so the row belongs to neither academic system and is labelled "—".
@@ -72,6 +88,9 @@ interface ProgramOption {
   nameAr: string
   nameEn: string
   academicSystem: AcademicSystem
+  // «متطلبات الالتحاق بقسم …» as the institute typed them. Always present (an empty set when
+  // nothing was typed) — the server normalizes before sending.
+  admissionRequirements: AdmissionRequirements
 }
 interface AdmissionStats {
   total: number
@@ -85,7 +104,32 @@ interface AdmissionStats {
 interface AdmissionsResponse {
   applications: ApplicationRow[]
   programs: ProgramOption[]
+  // Whether this reviewer may SAVE requirements (they live on Program ⇒ `program.edit`). Optional so
+  // an older/cached response simply reads as "may not", which only ever hides a button.
+  canEditPrograms?: boolean
+  // «مجموع الثانوية العامة (من …)» — the prior certificate's own maximum as configured in the bylaw
+  // settings. null = not configured ⇒ no percentage may be computed or printed.
+  priorCertificateMaxTotal?: number | null
   stats: AdmissionStats
+}
+
+/**
+ * The applicant's total, printed the ONLY way it may be printed: as the raw mark over its own
+ * maximum, with the percentage in brackets. `Application.highSchoolGrade` is a raw ثانوية عامة total
+ * (the public form asks for «مجموع الثانوية العامة (من 410)»), so a bare `380%` was both wrong and
+ * the reason the overall-minimum check passed everybody. With no configured maximum only the raw
+ * total is shown — never an invented percentage.
+ */
+function GradeTotal({ grade, maxTotal }: { grade: number | null | undefined; maxTotal: number | null }) {
+  if (grade == null) return <>—</>
+  const pct = priorCertificatePercent(grade, maxTotal)
+  return (
+    <>
+      {grade}
+      {maxTotal ? ` / ${maxTotal}` : ""}
+      {pct != null ? ` (${pct.toFixed(1)}%)` : ""}
+    </>
+  )
 }
 
 // Tab value (lowercase) → API status code (uppercase). "all" means no filter.
@@ -106,6 +150,181 @@ function buildUrl(tab: string, system: string) {
   if (system !== ACADEMIC_SYSTEM_ALL) params.set("system", system)
   const qs = params.toString()
   return qs ? `/api/institute/admissions?${qs}` : `/api/institute/admissions`
+}
+
+
+/**
+ * متطلبات الالتحاق بالبرنامج، مطبوعة بجوار بيانات المتقدم.
+ * The bylaw states them per department — «متطلبات الالتحاق بقسم الارشاد السياحي : 1-ان يكون طالب
+ * حصل علي ثانويه عامه . 2-حصول علي تقدير جيد في اللغة الاجنيبيه الاولي المتخصصه 3-، ناجحا في اللغه
+ * الاجنبيه الثانيه وتاريخ مصر القديمه واثارها . 4-اجتياز امتحان القدرات …» — and an Application
+ * carries none of the per-subject data those conditions speak about. Only the overall percentage can
+ * be decided from stored data; every other line is shown as «يُراجَع يدوياً» rather than ticked on a
+ * guess.
+ */
+function RequirementsPanel({
+  req,
+  app,
+  maxTotal,
+}: {
+  req: AdmissionRequirements
+  app: ApplicationRow | null
+  // The prior certificate's configured maximum; null ⇒ the overall condition cannot be decided.
+  maxTotal: number | null
+}) {
+  if (isEmptyAdmissionRequirements(req)) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        لم تُسجَّل متطلبات التحاق لهذا البرنامج بعد — أضِفها من «متطلبات الالتحاق» ليراها المراجع مع كل طلب.
+      </p>
+    )
+  }
+  // The RAW total goes in; checkOverallPercent does the one and only conversion (see
+  // lib/admission-requirements.ts). Nothing on this screen divides by the maximum itself.
+  const overall = checkOverallPercent(req, app?.highSchoolGrade ?? null, maxTotal)
+  return (
+    <div className="rounded-md border p-3 space-y-2">
+      <p className="text-xs font-semibold">متطلبات الالتحاق بالبرنامج</p>
+      <ul className="space-y-1 text-xs">
+        {admissionRequirementLines(req).map((line, i) => (
+          <li key={i} className="flex items-start gap-2">
+            <span className="mt-[2px] text-muted-foreground">•</span>
+            <span>{line}</span>
+          </li>
+        ))}
+      </ul>
+      {req.minOverallPercent != null && app && overall !== null && (
+        <p className={overall === false ? "text-xs text-red-600" : "text-xs text-institute-blue"}>
+          مجموع المتقدم <GradeTotal grade={app.highSchoolGrade} maxTotal={maxTotal} /> مقابل حد أدنى{" "}
+          {req.minOverallPercent}% — {overall === false ? "غير مستوفٍ" : "مستوفٍ"}
+        </p>
+      )}
+      {req.minOverallPercent != null && app && overall === null && (
+        /* No configured «مجموع الشهادة الكلي» ⇒ the raw total cannot be turned into a percentage.
+           Saying so is the only safe answer: comparing the raw total to the minimum would tick
+           «مستوفٍ» for every applicant. */
+        <p className="text-xs text-amber-600">
+          مجموع المتقدم <GradeTotal grade={app.highSchoolGrade} maxTotal={maxTotal} /> — يُراجَع يدوياً:
+          لم يُضبط «مجموع الشهادة الكلي» في إعدادات اللائحة، فلا يمكن حساب النسبة المئوية.
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        بقية الشروط (المواد والقدرات والمقابلة) تُراجَع على ملف المتقدم الورقي — لا يحتفظ الطلب بدرجات المواد.
+      </p>
+    </div>
+  )
+}
+
+/** The typed form behind those requirements — one programme at a time. */
+function RequirementsEditor({
+  value,
+  onChange,
+}: {
+  value: AdmissionRequirements
+  onChange: (next: AdmissionRequirements) => void
+}) {
+  const set = (patch: Partial<AdmissionRequirements>) => onChange({ ...value, ...patch })
+  const setSubject = (i: number, patch: Partial<AdmissionSubjectRule>) =>
+    set({ subjects: value.subjects.map((s, k) => (k === i ? { ...s, ...patch } : s)) })
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>المؤهلات المقبولة</Label>
+        <Input
+          value={value.qualifications.join("، ")}
+          placeholder="ثانوية عامة، شهادة معادلة"
+          onChange={(e) =>
+            set({ qualifications: e.target.value.split(/[،,]/).map((x) => x.trim()).filter(Boolean) })
+          }
+        />
+        <p className="text-xs text-muted-foreground">افصل بين المؤهلات بفاصلة. اتركه فارغاً لقبول أي مؤهل.</p>
+      </div>
+      <div className="space-y-2">
+        <Label>الحد الأدنى للمجموع (%)</Label>
+        <Input
+          type="number"
+          value={value.minOverallPercent ?? ""}
+          placeholder="بدون حد أدنى"
+          onChange={(e) => set({ minOverallPercent: e.target.value === "" ? null : Number(e.target.value) })}
+        />
+      </div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label>شروط المواد</Label>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => set({ subjects: [...value.subjects, { subject: "", requirement: "pass" }] })}
+          >
+            <Plus className="w-3 h-3 ml-1" /> إضافة مادة
+          </Button>
+        </div>
+        {value.subjects.length === 0 && (
+          <p className="text-xs text-muted-foreground">لا توجد شروط مواد — مثال اللائحة: «النجاح في تاريخ مصر القديمة وآثارها».</p>
+        )}
+        {value.subjects.map((s, i) => (
+          <div key={i} className="flex flex-wrap items-center gap-2">
+            <Input
+              className="flex-1 min-w-[180px]"
+              value={s.subject}
+              placeholder="اسم المادة"
+              onChange={(e) => setSubject(i, { subject: e.target.value })}
+            />
+            <Select value={s.requirement} onValueChange={(v) => setSubject(i, { requirement: v as AdmissionSubjectRule["requirement"] })}>
+              <SelectTrigger className="w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pass">النجاح فقط</SelectItem>
+                <SelectItem value="grade">تقدير محدد</SelectItem>
+                <SelectItem value="percent">نسبة مئوية</SelectItem>
+              </SelectContent>
+            </Select>
+            {s.requirement === "grade" && (
+              <Input
+                className="w-[120px]"
+                value={s.minGrade ?? ""}
+                placeholder="جيد"
+                onChange={(e) => setSubject(i, { minGrade: e.target.value })}
+              />
+            )}
+            {s.requirement === "percent" && (
+              <Input
+                className="w-[110px]"
+                type="number"
+                value={s.minPercent ?? ""}
+                placeholder="60"
+                onChange={(e) => setSubject(i, { minPercent: e.target.value === "" ? undefined : Number(e.target.value) })}
+              />
+            )}
+            <Button type="button" variant="ghost" size="icon" onClick={() => set({ subjects: value.subjects.filter((_, k) => k !== i) })}>
+              <XCircle className="w-4 h-4 text-red-600" />
+            </Button>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-6">
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={value.aptitudeTest} onCheckedChange={(c) => set({ aptitudeTest: c === true })} />
+          اجتياز امتحان القدرات
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={value.interview} onCheckedChange={(c) => set({ interview: c === true })} />
+          مقابلة شخصية
+        </label>
+      </div>
+      <div className="space-y-2">
+        <Label>ملاحظات إضافية</Label>
+        <Textarea
+          rows={3}
+          value={value.notes}
+          placeholder="أي شرط آخر تنص عليه اللائحة بنصّه"
+          onChange={(e) => set({ notes: e.target.value })}
+        />
+      </div>
+    </div>
+  )
 }
 
 export default function AdmissionPage() {
@@ -129,6 +348,73 @@ export default function AdmissionPage() {
   // had to clear the page banner (erasing a real "فشل في جلب طلبات الالتحاق"), and any fetch failure
   // leaked into the modal as if it were this enrolment's reason.
   const [enrollError, setEnrollError] = useState<string | null>(null)
+  // Review dialog: the applicant being looked at (Eye), shown beside the admission requirements of
+  // the programme they applied to — the bylaw's conditions the reviewer has to check the file against.
+  const [reviewApp, setReviewApp] = useState<ApplicationRow | null>(null)
+  // Requirements editor: which programme is being typed, its draft, and its own failure line.
+  const [reqProgramId, setReqProgramId] = useState("")
+  const [reqDraft, setReqDraft] = useState<AdmissionRequirements>(EMPTY_ADMISSION_REQUIREMENTS)
+  const [reqOpen, setReqOpen] = useState(false)
+  const [reqSaving, setReqSaving] = useState(false)
+  const [reqError, setReqError] = useState<string | null>(null)
+  const [reqSaved, setReqSaved] = useState(false)
+  // Saving requirements writes Program.admissionRequirements, which needs `program.edit` — a
+  // permission the ADMISSIONS role does not hold. The server says whether this user has it, so the
+  // editor can be shown read-only instead of offering a save that can only 403 with the draft lost.
+  const [canEditPrograms, setCanEditPrograms] = useState(false)
+  // The prior certificate's configured maximum, from the bylaw settings via the API.
+  const [maxTotal, setMaxTotal] = useState<number | null>(null)
+
+  // The requirements of a given programme id — an empty set for "no programme resolved yet" and for
+  // a catalogue the reviewer was not sent (view-only), so the panel degrades to a plain notice.
+  const requirementsOf = (programId: string | null | undefined): AdmissionRequirements =>
+    programs.find((p) => p.id === programId)?.admissionRequirements ?? EMPTY_ADMISSION_REQUIREMENTS
+
+  // Opening the dialog from the toolbar must not inherit the previous visit's outcome: a stale
+  // «تم حفظ متطلبات الالتحاق.» (or a stale red error) against a programme not yet chosen reads as a
+  // save that just happened.
+  function openRequirementsDialog() {
+    setReqProgramId("")
+    setReqDraft(EMPTY_ADMISSION_REQUIREMENTS)
+    setReqError(null)
+    setReqSaved(false)
+    setReqOpen(true)
+  }
+
+  function openRequirements(programId: string) {
+    setReqProgramId(programId)
+    setReqDraft(parseAdmissionRequirements(requirementsOf(programId)))
+    setReqError(null)
+    setReqSaved(false)
+    setReqOpen(true)
+  }
+
+  // Requirements live on the Program, so saving them needs `program.edit`. A reviewer who only holds
+  // the admissions permissions gets the API's own 403 message rather than a silent no-op.
+  async function saveRequirements() {
+    if (!reqProgramId) return
+    setReqSaving(true)
+    setReqError(null)
+    try {
+      const res = await fetch("/api/institute/programs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: reqProgramId, admissionRequirements: reqDraft }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error || "فشل في حفظ متطلبات الالتحاق")
+      }
+      // Reflect the save locally: the admissions GET is the only source of this catalogue, and it is
+      // refetched on the next filter change anyway.
+      setPrograms((prev) => prev.map((p) => (p.id === reqProgramId ? { ...p, admissionRequirements: reqDraft } : p)))
+      setReqSaved(true)
+    } catch (e) {
+      setReqError((e as Error).message)
+    } finally {
+      setReqSaving(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -143,6 +429,8 @@ export default function AdmissionPage() {
           setApplications(json.applications)
           setPrograms(json.programs ?? [])
           setProgramsLoaded(true)
+          setCanEditPrograms(json.canEditPrograms === true)
+          setMaxTotal(json.priorCertificateMaxTotal ?? null)
           setApiStats(json.stats)
         }
       } catch (e) {
@@ -168,6 +456,8 @@ export default function AdmissionPage() {
       setApplications(json.applications)
       setPrograms(json.programs ?? [])
       setProgramsLoaded(true)
+      setCanEditPrograms(json.canEditPrograms === true)
+      setMaxTotal(json.priorCertificateMaxTotal ?? null)
       setApiStats(json.stats)
     } catch (e) {
       setError((e as Error).message)
@@ -277,10 +567,20 @@ export default function AdmissionPage() {
             إدارة طلبات القبول وتسجيل الطلاب الجدد
           </p>
         </div>
-        <Button>
-          <Plus className="w-4 h-4 ml-2" />
-          طلب قبول جديد
-        </Button>
+        <div className="flex gap-2">
+          {/* Typing the bylaw's admission conditions needs the programme catalogue; a reviewer who was
+              not sent one (view-only) has nothing to edit, so the entry point simply is not offered. */}
+          {programs.length > 0 && (
+            <Button variant="outline" onClick={openRequirementsDialog}>
+              <FileText className="w-4 h-4 ml-2" />
+              {canEditPrograms ? "متطلبات الالتحاق" : "عرض متطلبات الالتحاق"}
+            </Button>
+          )}
+          <Button>
+            <Plus className="w-4 h-4 ml-2" />
+            طلب قبول جديد
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -434,7 +734,7 @@ export default function AdmissionPage() {
                     <TableCell className="font-mono text-sm">{app.nationalId || "—"}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="font-bold">
-                        {app.highSchoolGrade}%
+                        <GradeTotal grade={app.highSchoolGrade} maxTotal={maxTotal} />
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -455,7 +755,7 @@ export default function AdmissionPage() {
                     <TableCell>{getStatusBadge(app)}</TableCell>
                     <TableCell>
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" onClick={() => setReviewApp(app)}>
                           <Eye className="w-4 h-4" />
                         </Button>
                         {app.status === "PENDING" && (
@@ -570,6 +870,13 @@ export default function AdmissionPage() {
                 النظام السنوي)، ولا يمكن إتمام التسجيل بدونه.
               </p>
             )}
+            {/* The bylaw's own admission conditions for the chosen programme, beside the applicant —
+                so the decision is taken against the rule rather than from memory. */}
+            {enrollProgram && (
+              /* Through the same null-safe accessor as every other call site, so a payload without
+                 the key can never blow up mid-decision. */
+              <RequirementsPanel req={requirementsOf(enrollProgram.id)} app={enrollApp} maxTotal={maxTotal} />
+            )}
           </div>
 
           {/* The page-level error card sits behind the modal overlay, and the dialog now stays open
@@ -584,6 +891,100 @@ export default function AdmissionPage() {
             <Button onClick={confirmEnroll} disabled={!enrollProgramId || actioning === enrollApp?.id}>
               تأكيد القبول والتسجيل
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* مراجعة الطلب — the applicant's file beside what the bylaw demands of the programme they
+          applied to. Read-only: no field here decides anything, it is the reviewer's checklist. */}
+      <Dialog open={!!reviewApp} onOpenChange={(open) => { if (!open) setReviewApp(null) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>مراجعة طلب الالتحاق</DialogTitle>
+            <DialogDescription>بيانات المتقدم ومتطلبات الالتحاق بالبرنامج المطلوب.</DialogDescription>
+          </DialogHeader>
+          {reviewApp && (
+            <div className="space-y-3 py-1 text-sm">
+              <div className="grid grid-cols-2 gap-2">
+                <div><span className="text-muted-foreground">الاسم: </span>{reviewApp.fullName}</div>
+                <div><span className="text-muted-foreground">الرقم القومي: </span>{reviewApp.nationalId || "—"}</div>
+                <div><span className="text-muted-foreground">المؤهل: </span>{reviewApp.qualificationType || "—"}</div>
+                <div><span className="text-muted-foreground">سنة المؤهل: </span>{reviewApp.highSchoolYear || "—"}</div>
+                <div><span className="text-muted-foreground">المجموع: </span><GradeTotal grade={reviewApp.highSchoolGrade} maxTotal={maxTotal} /></div>
+                <div><span className="text-muted-foreground">الأوراق: </span>{reviewApp.documentsComplete ? "مكتملة" : "غير مكتملة"}</div>
+                <div className="col-span-2"><span className="text-muted-foreground">الرغبة: </span>{reviewApp.firstChoice || "—"}</div>
+              </div>
+              {reviewApp.programId ? (
+                <RequirementsPanel req={requirementsOf(reviewApp.programId)} app={reviewApp} maxTotal={maxTotal} />
+              ) : (
+                /* No resolved programme ⇒ no requirements to check against; say which, rather than
+                   showing an empty checklist that reads as «لا شروط». */
+                <p className="text-xs text-amber-600">
+                  الطلب غير مرتبط ببرنامج بعد — لا يمكن عرض متطلبات الالتحاق حتى يُحدَّد البرنامج.
+                </p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReviewApp(null)}>إغلاق</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* متطلبات الالتحاق — typed per programme, because the bylaw states them per department and no
+          two departments share them. Stored on Program, so saving needs صلاحية تعديل البرامج. */}
+      <Dialog
+        open={reqOpen}
+        onOpenChange={(open) => {
+          // Closing clears the outcome lines too, so nothing survives to the next visit.
+          if (!open) { setReqError(null); setReqSaved(false) }
+          setReqOpen(open)
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>متطلبات الالتحاق بالبرنامج</DialogTitle>
+            <DialogDescription>
+              {canEditPrograms
+                ? "اكتب شروط اللائحة كما وردت — تظهر للمراجع مع كل طلب على هذا البرنامج."
+                : "عرض فقط — حفظ المتطلبات يحتاج صلاحية «تعديل البرامج»؛ اطلب من إدارة المعهد إضافتها أو تعديل المتطلبات."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>البرنامج</Label>
+            <Select value={reqProgramId} onValueChange={openRequirements}>
+              <SelectTrigger>
+                <SelectValue placeholder="اختر البرنامج" />
+              </SelectTrigger>
+              <SelectContent>
+                {programs.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.nameAr}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {reqProgramId ? (
+            <div className="pt-2">
+              {canEditPrograms ? (
+                <RequirementsEditor value={reqDraft} onChange={(v) => { setReqDraft(v); setReqSaved(false) }} />
+              ) : (
+                /* No `program.edit` ⇒ no editable form. Showing the typed conditions read-only is
+                   honest; showing inputs and a save button that can only 403 is not. */
+                <RequirementsPanel req={reqDraft} app={null} maxTotal={maxTotal} />
+              )}
+            </div>
+          ) : (
+            <p className="pt-2 text-xs text-muted-foreground">اختر برنامجاً لتحرير متطلبات الالتحاق به.</p>
+          )}
+          {reqError && <p className="text-sm text-red-600">{reqError}</p>}
+          {reqSaved && !reqError && <p className="text-sm text-institute-blue">تم حفظ متطلبات الالتحاق.</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setReqError(null); setReqSaved(false); setReqOpen(false) }}>إغلاق</Button>
+            {canEditPrograms && (
+              <Button onClick={saveRequirements} disabled={!reqProgramId || reqSaving}>
+                {reqSaving ? "جارٍ الحفظ…" : "حفظ المتطلبات"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

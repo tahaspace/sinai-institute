@@ -39,14 +39,13 @@ const REQ_VALUES = REQUIREMENT_TYPES.map((r) => r.value) as string[];
  * express: «يجوز له اختيار التخصص الفرعي الثاني بناءعلي عب ء دراسي اضافي ويكون في المستوي الخامس»
  * (years = 4), and an institute that numbers per term needs 1..8 («130 ساعة مقمسمه علي 8 فصول»).
  *
- * Unconfigured means NO ceiling: an institute that typed nothing must not be refused its own plan.
- * `planLevelCount` is an optional Regulations key (عدد المستويات) — read loosely because it is not
- * yet part of the DEFAULT_REGULATIONS shape.
+ * Unconfigured means NO ceiling: an institute that typed nothing (or typed 0) must not be refused
+ * its own plan. `planLevelCount` is a typed Regulations key now — «عدد المستويات في اللائحة» on the
+ * bylaw screen — so it is read directly instead of through a cast.
  */
 export async function planLevelCeiling(universityId: string | null): Promise<number | null> {
-  const reg = (await getRegulations(universityId)) as unknown as Record<string, unknown>;
-  const raw = reg.planLevelCount;
-  const n = typeof raw === 'number' ? raw : parseInt(String(raw ?? ''), 10);
+  const reg = await getRegulations(universityId);
+  const n = Number(reg.planLevelCount);
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 

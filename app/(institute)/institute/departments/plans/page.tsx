@@ -140,7 +140,10 @@ export default function PlansPage() {
   const target = program?.totalCreditHours ?? 0
   // Only a specialisation-level footing can be compared against the programme total; with no تخصص
   // selected the figure mixes specialisations, so the banner would be noise, not a signal.
-  const mismatch = !!totalsSpecId && target > 0 && planTotal + legacyTotal !== target
+  // جدول 1 foots ONE specialisation's own hours to the programme total. Legacy rows (levelNo NULL)
+  // belong to no specialisation, so adding them to every footing made the comparison wrong for all
+  // of them; they are surfaced as their own badge instead.
+  const mismatch = !!totalsSpecId && target > 0 && planTotal !== target
 
   // Per-specialisation footing shown when none is selected — each line is one جدول 1 row.
   const perSpecTotals = useMemo(() => {
@@ -149,16 +152,19 @@ export default function PlansPage() {
     return programSpecs.map((sp) => ({
       id: sp.id,
       nameAr: sp.nameAr,
-      total: shared + legacyTotal + structured.filter((i) => i.specializationId === sp.id).reduce((a, i) => a + i.hours, 0),
+      total: shared + structured.filter((i) => i.specializationId === sp.id).reduce((a, i) => a + i.hours, 0),
     }))
-  }, [structured, programSpecs, totalsSpecId, legacyTotal])
+  }, [structured, programSpecs, totalsSpecId])
 
   // The level picker must reach the bylaw's own «المستوي الخامس», which Program.years (a YEAR
   // count) cannot express. Prefer the institute's typed عدد المستويات; never offer fewer levels
   // than the plan already has rows for.
+  // Program.years counts YEARS and can never offer «المستوي الخامس» on a four-year programme
+  // («يجوز له اختيار التخصص الفرعي الثاني … ويكون في المستوي الخامس»). The fallback is therefore
+  // TWO levels per year — the bylaw's own «130 ساعة مقمسمه علي 8 فصول» for a 4-year programme —
+  // and the institute's typed عدد المستويات (meta.maxLevel) still wins when it is set.
   const maxLevel = Math.max(
-    meta.maxLevel ?? 0,
-    program?.years ?? 4,
+    meta.maxLevel ?? (program?.years ?? 4) * 2,
     ...structured.map((i) => i.levelNo ?? 0),
     1,
   )
@@ -262,7 +268,7 @@ export default function PlansPage() {
               <CardDescription>
                 مجموع المستوى الحالي: {levelTotal} ساعة —{" "}
                 {totalsSpecId
-                  ? `إجمالي ساعات التخصص المحدد: ${planTotal + legacyTotal} ساعة`
+                  ? `إجمالي ساعات التخصص المحدد: ${planTotal} ساعة${legacyTotal ? ` — وساعات غير مُهيكلة: ${legacyTotal} (غير محتسبة في المطابقة)` : ""}`
                   : "اختر تخصصًا لمطابقة إجمالي ساعاته مع إجمالي البرنامج (اللائحة توزّع الساعات لكل تخصص على حدة)"}
               </CardDescription>
             </CardHeader>
@@ -292,7 +298,7 @@ export default function PlansPage() {
                 <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-800 text-sm">
                   <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                   <span>
-                    مجموع ساعات هذا التخصص ({planTotal + legacyTotal}) لا يساوي إجمالي الساعات المعتمدة للبرنامج ({target}).
+                    مجموع ساعات هذا التخصص ({planTotal}) لا يساوي إجمالي الساعات المعتمدة للبرنامج ({target}).
                     راجع توزيع الساعات على المستويات قبل اعتماد الخطة.
                   </span>
                 </div>

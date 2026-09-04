@@ -254,7 +254,16 @@ export async function validateRegistration(
   sectionIds: string[],
   opts: ValidateOptions = {},
 ): Promise<RegistrationValidation> {
-  const reg = await getRegulations();
+  // The bylaw is per-tenant (findRegulationsRow), so the student's own institute must be resolved
+  // BEFORE it is read: getRegulations() with no tenant falls back to the ambient context, which is
+  // absent on the student portal and in scripts — the hard rules below would then be read off
+  // another institute's row.
+  const student = await prisma.student.findUnique({
+    where: { id: studentId },
+    select: { status: true, universityId: true },
+  });
+  const uid = student?.universityId ?? null;
+  const reg = await getRegulations(uid);
   const issues: ValidationIssue[] = [];
   const isSummer = semester === 'summer';
   const now = opts.at ?? new Date();
@@ -271,12 +280,13 @@ export async function validateRegistration(
   // prior enrollments (prerequisites, repeats, repeated failure), the student's own record,
   // the letter ladder, and the graded prerequisite rules for exactly the courses being taken.
   const courseIds = [...new Set(sections.map((x) => x.offering.course.id))];
-  const student = await prisma.student.findUnique({
-    where: { id: studentId },
-    select: { status: true, universityId: true },
-  });
-  const uid = student?.universityId ?? null;
   const [priorEnrollments, statuses, prereqRules] = await Promise.all([
+    // The student's FULL history, the term under validation included. Excluding that term from the
+    // whole query also dropped it from attemptedCourseIds / passedCourseIds / bestStatus / the fail
+    // streak, so during add/drop a course already enrolled this term looked brand new and its hours
+    // fell out of the repeat budget. The exclusion belongs to the BUDGET alone and is applied in the
+    // scan below: a row for this same term is not charged against the 17-hour allowance (the basket
+    // already charges it) and does not extend a consecutive-failure run that has not been graded.
     prisma.enrollment.findMany({
       where: { studentId },
       select: {
@@ -287,12 +297,23 @@ export async function validateRegistration(
     // GradeStatus is per-tenant (@@unique([universityId, code])): loading every institute's ladder
     // and keying it on the bare code let another institute's 'B' decide whether this student is
     // blocked. Own rows OR untenanted ones, with the tenant's row preferred below.
-    prisma.gradeStatus.findMany({ where: tenantOrGlobalWhere(uid) }),
+    // tenantOrGlobalWhere(uid) returns {} for a null tenant — UNFILTERED — so every legacy student
+    // was judged against every institute's ladder. Spell the no-tenant case out, exactly as
+    // getTermCalendar does: an untenanted student sees the untenanted ladder only.
+    prisma.gradeStatus.findMany({ where: uid ? { OR: [{ universityId: uid }, { universityId: null }] } : { universityId: null } }),
     // Phase 2 of the prerequisite migration: the NEW model is the reader. Anything not yet copied
     // by scripts/migrate-course-prerequisites.ts still resolves through the legacy M2M below.
+    // Tenant-scoped: a Course row may be SHARED (Course.universityId is nullable), so an unscoped
+    // read let institute B's minGradeCode block institute A's student. Own rows OR untenanted ones,
+    // with the tenant's row preferred per pair below — the same shape as getTermCalendar.
     prisma.coursePrerequisite.findMany({
-      where: { courseId: { in: courseIds } },
-      select: { courseId: true, prerequisiteId: true, minGradeCode: true, prerequisite: { select: { code: true } } },
+      where: {
+        AND: [
+          { courseId: { in: courseIds } },
+          uid ? { OR: [{ universityId: uid }, { universityId: null }] } : { universityId: null },
+        ],
+      },
+      select: { courseId: true, prerequisiteId: true, minGradeCode: true, universityId: true, prerequisite: { select: { code: true } } },
     }),
   ]);
   type StatusRow = (typeof statuses)[number];
@@ -302,6 +323,23 @@ export async function validateRegistration(
     // the tenant's own row always wins over the legacy untenanted one
     if (!seen || (uid && st.universityId === uid)) byCode.set(st.code, st);
   }
+  // The repeat ceiling is resolved BEFORE the history scan: the budget below may only count the
+  // repeats the bylaw actually pays for. «طلاب اللي عندهم تقدير اقل من 2 بتقدير مقبول علي الاقل
+  // يجوز لهم اعادة المواد الحاصلين فيهم علي تقدير راسب او مقبول» — a failing or barely-passing
+  // previous attempt. A course retaken above the ceiling is refused outright (see the per-section
+  // rule), and a withdrawal (W: non-pass, non-GPA) is no attempt at all.
+  const repeatCeiling = reg.repeatMaxGradeCode ? byCode.get(String(reg.repeatMaxGradeCode)) : undefined;
+  const ceilingName = repeatCeiling?.name ?? String(reg.repeatMaxGradeCode ?? '');
+  /** Does a retake AFTER this status consume the 17-hour allowance? */
+  const consumesRepeatBudget = (prev: StatusRow | undefined): boolean => {
+    if (!prev) return false; // an ungraded / unknown previous attempt is not counted against him
+    if (!prev.isPass) return prev.affectsGpa; // a real fail counts; W / non-GPA statuses do not
+    if (!repeatCeiling) return true; // no ceiling defined → every passed retake counts, as before
+    const cmp = compareLadder(prev, repeatCeiling);
+    return cmp == null || cmp < 0; // strictly below the ceiling = the «مقبول» retake the bylaw allows
+  };
+  /** the status of the student's PREVIOUS attempt at a course, in term order */
+  const lastStatus = new Map<string, StatusRow | undefined>();
   const passedCourseIds = new Set<string>();
   const attemptedCourseIds = new Set<string>();
   // consecutive fails per course — «اذا رسب الطالب في مقرر اكثر من 3 مرات علي التوالي»: a run that a
@@ -324,10 +362,17 @@ export async function validateRegistration(
   );
   for (const e of ordered) {
     const st = e.gradeStatusCode ? byCode.get(e.gradeStatusCode) : undefined;
-    attemptedCourseIds.add(e.courseId);
+    // an Enrollment for the term being validated: it counts as an attempt, but it is the SAME hours
+    // the basket is about to charge, so it must not also be charged as history
+    const isCurrentTerm = e.academicYear === academicYear && e.semester === semester;
+    // A first-ever attempt that is simply this term's own enrollment is NOT a repeat — re-validating
+    // an approved basket must not turn its own first attempt into one. A current-term row only
+    // confirms a repeat the earlier terms already established.
+    if (!isCurrentTerm || attemptedCourseIds.has(e.courseId)) attemptedCourseIds.add(e.courseId);
     const n = (attemptCount.get(e.courseId) ?? 0) + 1;
     attemptCount.set(e.courseId, n);
-    if (n > 1) repeatHoursUsed += e.course.creditHours;
+    if (!isCurrentTerm && n > 1 && consumesRepeatBudget(lastStatus.get(e.courseId))) repeatHoursUsed += e.course.creditHours;
+    lastStatus.set(e.courseId, st);
     if (st?.isPass) {
       passedCourseIds.add(e.courseId);
       // only a PASSING attempt can satisfy a minimum grade
@@ -335,13 +380,22 @@ export async function validateRegistration(
       const cmp = compareLadder(st, prev);
       if (!prev || cmp == null || cmp > 0) bestStatus.set(e.courseId, st);
       failStreak.set(e.courseId, 0); // «علي التوالي» — a pass breaks the run
-    } else if (st && st.affectsGpa && st.points != null) {
-      // a "fail" = a graded, non-pass, GPA-affecting status (F/NE/BL/DN/DS)
+    } else if (!isCurrentTerm && st && st.affectsGpa && st.points != null) {
+      // a "fail" = a graded, non-pass, GPA-affecting status (F/NE/BL/DN/DS). The term under
+      // validation is not counted: registering it is not yet a failed attempt.
       failStreak.set(e.courseId, (failStreak.get(e.courseId) ?? 0) + 1);
     }
   }
-  const rulesByCourse = new Map<string, typeof prereqRules>();
+  // One rule per (courseId, prerequisiteId): where both a tenant row and an untenanted legacy row
+  // exist for the same pair, the institute's own row wins.
+  const ruleByPair = new Map<string, (typeof prereqRules)[number]>();
   for (const r of prereqRules) {
+    const key = `${r.courseId}|${r.prerequisiteId}`;
+    const seen = ruleByPair.get(key);
+    if (!seen || (uid && r.universityId === uid)) ruleByPair.set(key, r);
+  }
+  const rulesByCourse = new Map<string, typeof prereqRules>();
+  for (const r of ruleByPair.values()) {
     const list = rulesByCourse.get(r.courseId) ?? [];
     list.push(r);
     rulesByCourse.set(r.courseId, list);
@@ -443,8 +497,6 @@ export async function validateRegistration(
   // repeatMaxGradeCode may not be retaken at all) and a total-hours BUDGET that only counts the
   // repeats the bylaw actually allows — a course retaken for improvement above the ceiling is
   // refused outright, so it never consumes the budget.
-  const repeatCeiling = reg.repeatMaxGradeCode ? byCode.get(String(reg.repeatMaxGradeCode)) : undefined;
-  const ceilingName = repeatCeiling?.name ?? String(reg.repeatMaxGradeCode ?? '');
   /** A course whose best passing grade is at or above the ceiling may not be repeated. */
   const aboveRepeatCeiling = (courseId: string): boolean => {
     if (!repeatCeiling) return false; // the institute never defined the ceiling code → no new restriction
@@ -464,13 +516,32 @@ export async function validateRegistration(
   const repeatHoursCap = repeatCapApplies ? repeatCapHours : null;
   // the allowance is a TOTAL, so what earlier terms already consumed counts against it
   const repeatHoursTotal = repeatHoursUsed + repeatHours;
+  // «بشرط الا تتجاوز عدد ساعات معتمدة في الاعادة 17 ساعة معتمدة» — the bylaw caps the REPEAT HOURS;
+  // it does not void the registration. So the error names the remaining allowance and falls on the
+  // repeat sections that do not fit — smallest kept first, so the fewest courses possible are
+  // refused and the rest of the basket, every non-repeat course included, stays registrable.
+  const overCapSections: typeof repeatSections = [];
   if (repeatHoursCap != null && repeatHoursTotal > repeatHoursCap) {
+    const remaining = Math.max(0, repeatHoursCap - repeatHoursUsed);
+    let kept = 0;
+    for (const sec of [...repeatSections].sort((a, b) => a.offering.course.creditHours - b.offering.course.creditHours)) {
+      const h = sec.offering.course.creditHours;
+      if (kept + h <= remaining) kept += h;
+      else overCapSections.push(sec);
+    }
+    // SUMMARY ONLY — a warning. The bylaw caps the repeat HOURS, it does not void the registration,
+    // so the refusal lives on the individual over-cap sections below and everything else in the
+    // basket (every non-repeat course included) stays registrable. The instruction «احذف …» is
+    // printed once, per course, and not repeated here.
     issues.push({
       rule: 'repeat-hours-cap',
-      message: `ساعات الإعادة ${repeatHoursTotal} (المستهلك سابقاً ${repeatHoursUsed} + ${repeatHours} في هذا الفصل) تتجاوز سقف ${repeatHoursCap} ساعة المقرر لرفع المعدل التراكمي إلى ${repeatCapCgpa.toFixed(2)}`,
-      severity: 'error',
+      message:
+        `ساعات الإعادة ${repeatHoursTotal} (المستهلك سابقاً ${repeatHoursUsed} + ${repeatHours} في هذا الفصل) تتجاوز سقف ${repeatHoursCap} ساعة ` +
+        `المقرر لرفع المعدل التراكمي إلى ${repeatCapCgpa.toFixed(2)} — المتبقي من سقف الإعادة ${remaining} ساعة`,
+      severity: 'warning',
     });
   }
+  const overCapCourseIds = new Set(overCapSections.map((x) => x.offering.course.id));
   // --- (4) repeated failure — the bylaw's direction ---
   // «اذا رسب الطالب في مقرر اكثر من 3 مرات علي التوالي لا يجوز التسجيل في مقرر جديد قبل نجاح في
   //  مقرر الذي رسب به ثلاث مرات». The block falls on NEW courses, not on the failed one: the failed
@@ -481,18 +552,27 @@ export async function validateRegistration(
     .filter(([id, n]) => n > reg.maxCourseAttempts && !passedCourseIds.has(id))
     .map(([id]) => id);
   const blockingCourseIds = new Set(blockingCourses);
-  const blockingCodes = blockingCourses.length
-    ? (await prisma.course.findMany({ where: { id: { in: blockingCourses } }, select: { code: true } })).map((c) => c.code)
-    : [];
+  const blockingCodeById = new Map(
+    blockingCourses.length
+      ? (await prisma.course.findMany({ where: { id: { in: blockingCourses } }, select: { id: true, code: true } })).map((c) => [c.id, c.code] as const)
+      : [],
+  );
+  const blockingCodes = blockingCourses.map((id) => blockingCodeById.get(id) ?? id);
   // The bylaw orders the student to retake the failed course first — which he cannot do if nobody
   // is offering it this term. When no open offering exists the block would leave him unable to
   // register ANYTHING, so it degrades to a warning instead of a dead end.
-  const blockingOfferable = blockingCourses.length
-    ? (await prisma.courseOffering.findMany({
-        where: { courseId: { in: blockingCourses }, academicYear, semester, status: 'open' },
-        select: { courseId: true },
-      })).length > 0
-    : false;
+  // Per BLOCKING COURSE, never one boolean for all of them: with two blocked courses of which only
+  // one is offered, a single flag applied the hard error to both and re-created the dead end.
+  const offerableBlocking = new Set(
+    blockingCourses.length
+      ? (await prisma.courseOffering.findMany({
+          where: { courseId: { in: blockingCourses }, academicYear, semester, status: 'open' },
+          select: { courseId: true },
+        })).map((o) => o.courseId)
+      : [],
+  );
+  const offerableBlockingCodes = blockingCourses.filter((id) => offerableBlocking.has(id)).map((id) => blockingCodeById.get(id) ?? id);
+  const blockingOfferable = offerableBlocking.size > 0;
   const blockingSeverity: 'error' | 'warning' = blockingOfferable ? 'error' : 'warning';
 
   for (const sec of sections) {
@@ -516,6 +596,15 @@ export async function validateRegistration(
       issues.push({ rule: 'already-passed', message: `${c.code}: سبق اجتيازه`, severity: 'warning' });
     }
 
+    // --- the repeat-hours budget, keyed per course: only the sections that do not fit are refused ---
+    if (overCapCourseIds.has(c.id)) {
+      issues.push({
+        rule: 'repeat-hours-cap',
+        message: `${c.code}: خارج سقف ساعات الإعادة (${repeatHoursCap} ساعة) — احذفه أو أجّله إلى فصل تالٍ`,
+        severity: 'error',
+      });
+    }
+
     // --- the repeat ceiling: «لا يجوز للطالب حصل علي تقدير C او اكثر اعاده دراسة المقرر» ---
     if (aboveRepeatCeiling(c.id)) {
       issues.push({
@@ -530,13 +619,15 @@ export async function validateRegistration(
     //  السياحي) — a MINIMUM GRADE, which the old bare M2M could not express. Rules come from
     //  CoursePrerequisite; a course with no row there yet still reads the legacy relation, so
     //  nothing changes for an institute before the copy script has run.
-    // Union of the two sources, keyed by prerequisiteId: a PARTIALLY migrated course (some pairs
-    // copied into CoursePrerequisite, some still only in the legacy M2M) would otherwise silently
-    // lose the pairs that were not copied. The new row wins where both exist — it is the only one
-    // that can carry a minimum grade.
+    // PER COURSE, not per pair: the typed rules are authoritative for a course that has any visible
+    // CoursePrerequisite row, and the legacy M2M is the fallback only for a course that has none
+    // (never migrated, never saved). A per-pair union meant a prerequisite the registrar REMOVED in
+    // the dialog came back from the untouched M2M and kept blocking students — and the only way to
+    // stop that was for one tenant to rewrite the global relation, which is not ours to rewrite.
+    const typedRules = rulesByCourse.get(c.id) ?? [];
     const byPrereq = new Map<string, { prerequisiteId: string; minGradeCode: string | null; prerequisite: { code: string } }>();
-    for (const p of c.prerequisites) byPrereq.set(p.id, { prerequisiteId: p.id, minGradeCode: null, prerequisite: { code: p.code } });
-    for (const r of rulesByCourse.get(c.id) ?? []) byPrereq.set(r.prerequisiteId, r);
+    if (typedRules.length) for (const r of typedRules) byPrereq.set(r.prerequisiteId, r);
+    else for (const p of c.prerequisites) byPrereq.set(p.id, { prerequisiteId: p.id, minGradeCode: null, prerequisite: { code: p.code } });
     const rules = [...byPrereq.values()];
     if (rules.length) {
       const notPassed: string[] = [];
@@ -577,7 +668,7 @@ export async function validateRegistration(
     if (blockingCourses.length && !blockingCourseIds.has(c.id) && !attemptedCourseIds.has(c.id)) {
       issues.push({
         rule: 'repeated-failure',
-        message: `${c.code}: مقرر جديد — لا يجوز التسجيل قبل النجاح في (${blockingCodes.join('، ')}) بعد الرسوب أكثر من ${reg.maxCourseAttempts} مرات${blockingOfferable ? '' : ' — المقرر غير مطروح هذا الفصل'}`,
+        message: `${c.code}: مقرر جديد — لا يجوز التسجيل قبل النجاح في (${(blockingOfferable ? offerableBlockingCodes : blockingCodes).join('، ')}) بعد الرسوب أكثر من ${reg.maxCourseAttempts} مرات${blockingOfferable ? '' : ' — المقرر غير مطروح هذا الفصل'}`,
         severity: blockingSeverity,
       });
     }

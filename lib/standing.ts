@@ -366,3 +366,113 @@ export async function computeStandingForStudents(studentIds: string[]): Promise<
   }
   return out;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// الحالة الأكاديمية للطالب — «حاله الاكاديمية للطالب ولابد من ادراجها في عمود بيانات الطالب :
+// وتكون ثلاث انواع ( انتظام ، وقف قيد ، المراقبة الاكاديمية )» (اللائحة، سطر 65)، ومكررة في بيان
+// حالة الطالب: «الحاله االاكاديمه ( انتظام ، مراقبه ، وقف قيد )» (سطر 93).
+//
+// It is DERIVED, deliberately, from the two facts the platform already owns — there is no second
+// column to drift out of step with Student.status:
+//   · وقف قيد        ⇐ Student.status === 'SUSPENDED'  (the same value lib/promotion.ts skips on and
+//                      lib/regulations.blockedRegistrationStatuses already refuses registration for)
+//   · المراقبة الأكاديمية ⇐ standing.onProbation (CGPA < probationGpa), when the record is otherwise active
+//   · انتظام         ⇐ everything else on an active record
+// Terminal registrations (خريج / منسحب / مفصول / منتسب) are NOT one of the bylaw's three states, so
+// they are reported under their own label rather than being flattened into «انتظام».
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Student.status value carrying الانتساب. A plain value of the existing free-text column — NOT a
+ *  new truth: it is deliberately absent from blockedRegistrationStatuses because the bylaw lets a
+ *  منتسب keep attending («مع حضور دروس عمليه»), unlike موقوف/مفصول. */
+export const AFFILIATE_STATUS = 'AFFILIATE';
+export const SUSPENDED_STATUS = 'SUSPENDED';
+export const DISMISSED_STATUS = 'DISMISSED';
+
+export type AcademicState = 'REGULAR' | 'SUSPENDED' | 'MONITORING' | 'AFFILIATE' | 'GRADUATED' | 'WITHDRAWN' | 'DISMISSED';
+
+export const ACADEMIC_STATE_LABELS: Record<AcademicState, string> = {
+  REGULAR: 'انتظام',
+  SUSPENDED: 'وقف قيد',
+  MONITORING: 'المراقبة الأكاديمية',
+  AFFILIATE: 'انتساب',
+  GRADUATED: 'خريج',
+  WITHDRAWN: 'منسحب',
+  DISMISSED: 'مفصول',
+};
+
+/**
+ * The bylaw's academic-state column for one student. `standing` may be omitted (a list screen that
+ * has not computed standing yet) — the state is then the registration state alone, never a guessed
+ * «مراقبة».
+ */
+export function academicStateOf(
+  status: string | null | undefined,
+  standing?: Pick<AcademicStanding, 'onProbation'> | null,
+): AcademicState {
+  const s = (status ?? '').toUpperCase();
+  if (s === SUSPENDED_STATUS) return 'SUSPENDED';
+  if (s === AFFILIATE_STATUS) return 'AFFILIATE';
+  if (s === 'GRADUATED') return 'GRADUATED';
+  if (s === 'WITHDRAWN') return 'WITHDRAWN';
+  if (s === DISMISSED_STATUS) return 'DISMISSED';
+  return standing?.onProbation ? 'MONITORING' : 'REGULAR';
+}
+
+/**
+ * The CGPA floor that puts a student تحت المراقبة الأكاديمية — «اذا حصل الطالب علي تقدير تراكمي 1.67
+ * بعد نهايه الفصل الدراسي الثاني من المستوي الاول بالتحاقه بالمعهد يوضع تحت المراقبه الاكاديميه».
+ * Read from the institute's own Regulations (key `monitoringGpa`); never a literal here. Until that
+ * key exists in the saved bylaw it falls back to `probationGpa`, which is what every caller used
+ * before — so an institute that configured nothing sees no change.
+ */
+export function monitoringGpaFloor(reg: Regulations): number {
+  const configured = Number((reg as unknown as Record<string, unknown>).monitoringGpa ?? 0);
+  return configured > 0 ? configured : Number(reg.probationGpa) || 0;
+}
+
+export type AnnulmentRecommendation = {
+  recommended: boolean;
+  /** Which half of the bylaw sentence fired, if any. */
+  basis: 'consecutive' | 'separate' | null;
+  reason: string; // Arabic, quotes the bylaw and the counts — printed on the screen and the decision
+  consecutive: number;
+  separate: number;
+  consecutiveLimit: number;
+  separateLimit: number;
+};
+
+/**
+ * «يلغي قيد الطالب ويتم ادراجه ضمن الانتساب : اذا كان تحت المراقبه ( ثلاث فصول متصله او اربعه فصول
+ *  منفصله )» — evaluated from the counts lib/standing already produced (probationConsecutive /
+ *  probationTermsTotal, both computed with الصيفي excluded). Nothing is recounted here, and nothing
+ *  is written: this returns a RECOMMENDATION the registrar acts on, because إلغاء القيد is
+ *  irreversible and the bylaw hands it to a human.
+ */
+export function annulmentRecommendation(
+  standing: Pick<AcademicStanding, 'probationConsecutive' | 'probationTermsTotal' | 'cgpa'>,
+  reg: Regulations,
+): AnnulmentRecommendation {
+  const consecutiveLimit = Number(reg.annulmentConsecutiveMonitoringTerms) || 0;
+  const separateLimit = Number(reg.annulmentSeparateMonitoringTerms) || 0;
+  const consecutive = standing.probationConsecutive;
+  const separate = standing.probationTermsTotal;
+  // ENTRY GATE. The sentence this function quotes speaks of a student «تحت المراقبه», and the bylaw
+  // states exactly one way into المراقبة: «اذا حصل الطالب علي تقدير تراكمي 1.67 بعد نهايه الفصل
+  // الدراسي الثاني من المستوي الاول بالتحاقه بالمعهد يوضع تحت المراقبه الاكاديميه». The counting loop
+  // above uses probationGpa (the الإنذار floor, 2.00), which is LOOSER — so without this gate a
+  // student who never entered المراقبة was recommended for the one irreversible action on the screen.
+  // Nothing in the counting loop changes; the verdict is simply refused for a record the bylaw never
+  // put under monitoring. When the institute has not configured a monitoring floor the threshold
+  // falls back to probationGpa, i.e. exactly today's behaviour.
+  const underMonitoring = standing.cgpa > 0 && standing.cgpa < monitoringGpaFloor(reg);
+  const byConsecutive = underMonitoring && consecutiveLimit > 0 && consecutive >= consecutiveLimit;
+  const bySeparate = underMonitoring && separateLimit > 0 && separate >= separateLimit;
+  const basis = byConsecutive ? 'consecutive' : bySeparate ? 'separate' : null;
+  const reason = byConsecutive
+    ? `تحت المراقبة الأكاديمية ${consecutive} فصول متصلة (الحد ${consecutiveLimit}) — «يلغي قيد الطالب ويتم ادراجه ضمن الانتساب : اذا كان تحت المراقبه ( ثلاث فصول متصله او اربعه فصول منفصله )»`
+    : bySeparate
+      ? `تحت المراقبة الأكاديمية ${separate} فصول منفصلة (الحد ${separateLimit}) — «يلغي قيد الطالب ويتم ادراجه ضمن الانتساب : اذا كان تحت المراقبه ( ثلاث فصول متصله او اربعه فصول منفصله )»`
+      : '';
+  return { recommended: basis != null, basis, reason, consecutive, separate, consecutiveLimit, separateLimit };
+}

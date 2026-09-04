@@ -94,6 +94,8 @@ const navItems = [
       { title: "تسجيل الطلاب الجدد", href: "/institute/students/import" },
       { title: "ترحيل الطلاب الناجحين", href: "/institute/students/promotion" },
       { title: "حجب الطلاب", href: "/institute/students/holds" },
+      { title: "حالة القيد (وقف/انتساب)", href: "/institute/students/enrollment-status" },
+      { title: "التدريب الصيفي / الميداني", href: "/institute/students/training" },
       { title: "الإرشاد الأكاديمي", href: "/institute/students/advising" },
       { title: "الإنذارات الأكاديمية", href: "/institute/students/warnings" },
       { title: "التخرج", href: "/institute/students/graduation" },

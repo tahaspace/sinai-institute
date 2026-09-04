@@ -4,6 +4,15 @@ import { getTenantCtx } from '@/lib/tenant-context';
 // Institute bylaw parameters. Configurable: an admin can override any of these by
 // saving a JSON blob under the Setting key "institute.regulations"; unset keys fall
 // back to these documented defaults.
+/**
+ * جدول 2 row — «طبيعة المقرر» and the marks it distributes. Kept as an exported type so the courses
+ * API and screen speak the same shape as the bylaw settings screen that edits it.
+ */
+export type CourseTypeRow = { code: string; nameAr: string; homework: number; written: number; practical: number; total: number };
+
+/** One round of التدريب الصيفي: which round, after which level, after which term number. */
+export type TrainingRoundRow = { round: number; nameAr: string; afterLevel: number | null; afterTermNo: number | null };
+
 export const DEFAULT_REGULATIONS = {
   probationGpa: 2.0, // CGPA below this → academic probation
   probationHourCap: 12, // max registered hours while on probation
@@ -16,7 +25,10 @@ export const DEFAULT_REGULATIONS = {
   // How many LEVELS a programme runs. Not derivable from Program.years: that is a count of YEARS,
   // and the bylaw needs a level the year count does not reach — «التخصص الفرعي الثاني … ويكون في
   // المستوي الخامس» on a four-year programme. «130 ساعة مقمسمه علي 8 فصول» is the term count.
-  planLevelCount: 8,
+  // 0 = NO ceiling. It must default to "unset": shipping 8 would impose a brand-new refusal on an
+  // institute that configured nothing, which is exactly the regression this work keeps closing. The
+  // institute types its own count («130 ساعة مقمسمه علي 8 فصول» is this bylaw's).
+  planLevelCount: 0,
 
   // ── Registration exceptions the bylaw grants, previously unexpressible ──────────────────────────
   // «العبء الدراسي يجوز زياده عن 21 ساعه ادا كان للطالب معدل تراكميا عاليا من 3 نقاط فاكثر او في
@@ -34,6 +46,30 @@ export const DEFAULT_REGULATIONS = {
   // A student in one of these states may not register at all. Kept as a list so an institute can
   // decide whether, say, a suspended registration blocks or merely warns.
   blockedRegistrationStatuses: 'WITHDRAWN,DISMISSED,SUSPENDED',
+  // ── وقف القيد / إلغاء القيد والانتساب — the enrolment-state block (lib/standing.ts + the
+  //    «حالة القيد» screen). Every number below is a bylaw sentence, never a literal in code.
+  // «ايقاف قيد الطالب : يسمح بايقاف قيد طالب تحت اذنه او طلبه لمده ( فصلين متالين او 3 فصول
+  //  منفصله ) ، عند انتهاء المده يطلب اعاده القيد باسبوعين علي الاقل».
+  suspensionMaxConsecutiveTerms: 2, // فصلان متتاليان في وقفٍ واحد
+  suspensionMaxSeparateTerms: 3, // ثلاثة فصول منفصلة على مدى القيد كله
+  reenrolmentNoticeWeeks: 2, // «يطلب اعاده القيد باسبوعين علي الاقل» قبل انتهاء المدة
+  // «يلغي قيد الطالب ويتم ادراجه ضمن الانتساب : اذا كان تحت المراقبه ( ثلاث فصول متصله او اربعه
+  //  فصول منفصله )». Distinct from maxConsecutiveProbation/maxSeparateProbation above, which the
+  //  bylaw attaches to الفصل الأكاديمي («اربع فصول متتالية») — same engine counts, different verdict.
+  annulmentConsecutiveMonitoringTerms: 3,
+  annulmentSeparateMonitoringTerms: 4,
+  // «اذا كان طالب من طلاب المستوي الثاني او الثالث او الرابع وتم فصله فيمكن اعاده القيد كطالب من
+  //  خارج مع حضور دروس عمليه ويكون اعاده القيد بحد اقصي ثلاث فصول متاليية».
+  affiliateMaxTerms: 3, // بحد أقصى ثلاثة فصول متتالية بنظام الانتساب
+  affiliateMinLevel: 2, // «من طلاب المستوي الثاني او الثالث او الرابع» — أقل مستوى يجيز الانتساب
+  // «اذا حصل الطالب علي تقدير تراكمي 1.67 بعد نهايه الفصل الدراسي الثاني من المستوي الاول بالتحاقه
+  // بالمعهد يوضع تحت المراقبه الاكاديميه» — the ENTRY into academic monitoring, which is a lower bar
+  // than probation and is what الغاء القيد / الانتساب is counted from.
+  monitoringGpa: 1.67,
+  // The prior-certificate total an admission percentage is computed against. The Egyptian ثانوية عامة
+  // total changes between years (410 at the time of this bylaw), and an applicant's stored grade is
+  // that RAW total — reading it as a percentage passed a 70/410 applicant through a 60% minimum.
+  priorCertificateMaxTotal: 410,
   maxCourseAttempts: 3, // a course failed this many times blocks re-registration (repeated failure)
   maxConsecutiveProbation: 4, // bylaw: «اقل من 2 لمدة اربع فصول متتالية يتم فصله» (summer excluded)
   maxSeparateProbation: 4, // separate (non-consecutive) probation terms → same (excl. summer)
@@ -101,6 +137,61 @@ export const DEFAULT_REGULATIONS = {
   ] as { minCgpa: number; nameAr: string }[],
   // minimum EARNED credit hours to be promoted INTO each level
   levelMinHours: { 1: 0, 2: 26, 3: 58, 4: 92 } as Record<string, number>, // bylaw: 26 / 58 / 92 earned hours
+  // ---- جدول 2 «مقررات دراسية توزيع الدرجات» — the mark split BY COURSE NATURE ------------------
+  // The bylaw distributes marks «طبقاً لطبيعة المقرر», and names the natures explicitly:
+  //   «المقرر النظري | 40 | 60 |    | 100»
+  //   «المقرر العملي | 40 |    | 60 | 100»
+  //   «المقرر المشترك يجمع بين النظري والعملي | 40 | 40 | 20 | 100»
+  //   «مشروع التخرج | 50 |    | 50 | 100»
+  // and the prose adds which BOXES each nature opens: «لو نظري يظهر عندي خانتين للتسجيل اعمال سنه ،
+  // تحريري. لوع عملي : يظهر له اعمال سنه وشفوي فقط … لو امتحان به جانب نظري وعملي : يبقي هنا اعمال
+  // سنه ، تحريري ، امتحان شفوي». Because «طبيعة المقرر» is open-ended (the four rows are this
+  // institute's, not the platform's), the LIST itself is data the institute types — never an enum.
+  //
+  // Why a Regulations key and not a new table: this is exactly the shape جدول 4 already has here
+  // (cgpaGradeBands) — a short, hand-typed, per-institute table with no rows referencing it. The
+  // bylaw screen renders every DEFAULT_REGULATIONS key automatically, so an institute can add a
+  // fifth nature («المقرر السريري»…) with no migration, and a Course merely stores the type CODE.
+  // Fields are the جدول 2 columns: أعمال السنة | التحريري | الشفوي/التطبيقي/العملي | الإجمالي.
+  courseTypes: [
+    { code: 'THEORY', nameAr: 'المقرر النظري', homework: 40, written: 60, practical: 0, total: 100 },
+    { code: 'PRACTICAL', nameAr: 'المقرر العملي', homework: 40, written: 0, practical: 60, total: 100 },
+    { code: 'MIXED', nameAr: 'المقرر المشترك يجمع بين النظري والعملي', homework: 40, written: 40, practical: 20, total: 100 },
+    { code: 'PROJECT', nameAr: 'مشروع التخرج', homework: 50, written: 0, practical: 50, total: 100 },
+  ] as CourseTypeRow[],
+
+  // ---- تعريف الساعة المعتمدة — contact hours → credit hours -------------------------------------
+  // «اسبوعيا : ساعة نظريا و(2-3 ) عملي او تطبيقي حيث يتم تسجيل المحاضرة الواحده خمسون دقيقة علي
+  // الاقل». So ONE weekly theoretical contact hour is one credit hour, while a practical/applied
+  // credit hour costs 2 to 3 weekly contact hours — the bylaw gives a RANGE, so the divisor the
+  // institute actually applies is its own choice inside that range and is typed here.
+  // Course.creditHours stays the stored, authoritative credit value; these only derive/-check it.
+  contactHoursPerCreditTheory: 1,
+  contactHoursPerCreditPractical: 2, // the bylaw's range is 2–3; 2 is its lower bound
+  lectureMinutes: 50, // «تسجيل المحاضرة الواحده خمسون دقيقة علي الاقل»
+
+  // ---- التدريب الصيفي / الميداني ----------------------------------------------------------------
+  // «التدريب الصيفي للطالب : يكون شرط من شروط النجاح ويكون التدريب عبارة عن 4 اسابيع لمدة شهر ويكون
+  // بعد المستوي الثاني بعد الفصل الدراسي الرابع وتدريب اخر بعد المستوي الثالث بعد الفصل الدراسي
+  // السادس» و«يعتبر التدريب الميداني ماده نجاح او رسوب ولكن لا تضاف الي التقدير التراكمي».
+  trainingWeeks: 4, // «4 اسابيع لمدة شهر»
+  // «(50% لجه التدريب موقع تدريب ، 50% للمعهد تعقسم (25% للتقرير الذي يقدمه الطالب ، 25% للمناقشه
+  //  وتبادل الخبرات)» — the institute's half is itself split 25/25.
+  trainingExternalPercent: 50,
+  trainingReportPercent: 25,
+  trainingDiscussionPercent: 25,
+  // The two rounds, «يبدا بعد المستوي الثاني … بعد الفصل الدراسي الرابع وتدريب اخر بعد المستوي
+  // الثالث بعد الفصل الدراسي السادس». Rows, not literals: an institute with three rounds types one.
+  trainingRounds: [
+    { round: 1, nameAr: 'التدريب الأول — بعد المستوى الثاني', afterLevel: 2, afterTermNo: 4 },
+    { round: 2, nameAr: 'التدريب الثاني — بعد المستوى الثالث', afterLevel: 3, afterTermNo: 6 },
+  ] as TrainingRoundRow[],
+  // جدول 3 «اجتياز / عدم اجتياز … لا تدخل في التقدير التراكمي». The verdict is recorded with the
+  // SEEDED pass/fail statuses (scripts/seed-result-states.ts) — no second pass/fail mechanism is
+  // invented here. Codes, so an institute whose ladder names them differently sets its own.
+  trainingPassStatusCode: 'P',
+  trainingFailStatusCode: 'NP',
+
   // ---- Traditional/annual system (النظام السنوي) — used only by ANNUAL programs (lib/annual.ts) ----
   annualPassPercent: 50, // per-subject pass threshold (%) = مقبول floor; below → راسب
   maxCarryOverSubjects: 2, // failed subjects ≤ this → له دور ثانٍ (makeup); more → باقٍ للإعادة
@@ -207,6 +298,11 @@ export async function getRegulations(tenant?: RegulationsTenant): Promise<Regula
     const exempt = String(merged.repeatExemptComponents ?? '').split(',').map((x) => x.trim()).filter(Boolean);
     if (exempt.length >= 4) merged.repeatExemptComponents = DEFAULT_REGULATIONS.repeatExemptComponents;
     merged.cgpaGradeBands = normalizeGradeBands(parsed.cgpaGradeBands);
+    // جدول 2 and the training rounds are hand-typed tables like جدول 4 above, so they get the same
+    // treatment: an unusable table falls back to the bylaw default instead of leaving every course
+    // with no nature (or the training screen with no round to pick).
+    merged.courseTypes = normalizeCourseTypes(parsed.courseTypes);
+    merged.trainingRounds = normalizeTrainingRounds(parsed.trainingRounds);
     return merged;
   } catch {
     return DEFAULT_REGULATIONS;
@@ -226,6 +322,104 @@ function normalizeGradeBands(raw: unknown): { minCgpa: number; nameAr: string }[
     .filter((b) => Number.isFinite(b.minCgpa) && b.nameAr.length > 0)
     .sort((a, b) => b.minCgpa - a.minCgpa);
   return bands.length ? bands : DEFAULT_REGULATIONS.cgpaGradeBands;
+}
+
+/** جدول 2, normalised: numeric columns, a non-empty code and name, defaults when nothing survives. */
+function normalizeCourseTypes(raw: unknown): CourseTypeRow[] {
+  if (!Array.isArray(raw)) return DEFAULT_REGULATIONS.courseTypes;
+  const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : 0; };
+  const rows = raw
+    .map((t) => {
+      const r = t as Partial<CourseTypeRow>;
+      const homework = num(r?.homework), written = num(r?.written), practical = num(r?.practical);
+      return {
+        code: String(r?.code ?? '').trim().toUpperCase(),
+        nameAr: String(r?.nameAr ?? '').trim(),
+        homework, written, practical,
+        // «الاجمالي» — the bylaw prints 100 on every row, but a typed table may omit it, so the
+        // components are the fallback: the total must equal what the columns add up to.
+        total: num(r?.total) || homework + written + practical,
+      };
+    })
+    .filter((t) => t.code.length > 0 && t.nameAr.length > 0);
+  return rows.length ? rows : DEFAULT_REGULATIONS.courseTypes;
+}
+
+/** التدريب الصيفي rounds, normalised. afterLevel/afterTermNo may legitimately be unset (null). */
+function normalizeTrainingRounds(raw: unknown): TrainingRoundRow[] {
+  if (!Array.isArray(raw)) return DEFAULT_REGULATIONS.trainingRounds;
+  const opt = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
+  const rows = raw
+    .map((t) => {
+      const r = t as Partial<TrainingRoundRow>;
+      return {
+        round: Number(r?.round),
+        nameAr: String(r?.nameAr ?? '').trim(),
+        afterLevel: opt(r?.afterLevel),
+        afterTermNo: opt(r?.afterTermNo),
+      };
+    })
+    .filter((t) => Number.isFinite(t.round) && t.round > 0 && t.nameAr.length > 0)
+    .sort((a, b) => a.round - b.round);
+  return rows.length ? rows : DEFAULT_REGULATIONS.trainingRounds;
+}
+
+/**
+ * The جدول 2 row a course's type points at, or null when the institute never set one / the code was
+ * removed from the table. Callers must treat null as "no rule applies" — never as a mismatch.
+ */
+export function courseTypeOf(code: string | null | undefined, reg: Regulations): CourseTypeRow | null {
+  if (!code) return null;
+  const rows = reg.courseTypes?.length ? reg.courseTypes : DEFAULT_REGULATIONS.courseTypes;
+  return rows.find((t) => t.code === code) ?? null;
+}
+
+/**
+ * Does a course's stored split contradict جدول 2 for its nature? Returns the mismatching columns in
+ * Arabic, or [] when it matches (or when no type/rule applies). A REPORT, never a rejection: a
+ * course typed before this existed keeps its numbers and is merely flagged on screen.
+ *
+ * Mapping to the Course columns: أعمال السنة = homeworkMax, التحريري = finalMax,
+ * الشفوي/التطبيقي/العملي = practicalMax. جدول 2 has no «نصفي» column at all, so under one of its
+ * natures midtermMax is 0 — reported only when the caller passes it (an older caller that omits it
+ * keeps the previous, narrower report and gains no new complaint).
+ */
+export function courseSplitMismatch(
+  split: { homeworkMax: number; finalMax: number; practicalMax: number; midtermMax?: number },
+  type: CourseTypeRow | null,
+): string[] {
+  if (!type) return [];
+  const out: string[] = [];
+  if (split.homeworkMax !== type.homework) out.push(`أعمال السنة ${split.homeworkMax} بدل ${type.homework}`);
+  if (split.finalMax !== type.written) out.push(`التحريري ${split.finalMax} بدل ${type.written}`);
+  if (split.practicalMax !== type.practical) out.push(`العملي/الشفوي ${split.practicalMax} بدل ${type.practical}`);
+  if (split.midtermMax != null) {
+    if (split.midtermMax !== 0) out.push(`النصفي ${split.midtermMax} بدل 0 (لا عمود له في جدول 2)`);
+    // «الاجمالي | 100» — the row's own total, never a literal.
+    const sum = split.homeworkMax + split.midtermMax + split.finalMax + split.practicalMax;
+    if (sum !== type.total) out.push(`الإجمالي ${sum} بدل ${type.total}`);
+  }
+  return out;
+}
+
+/**
+ * ساعات الاتصال → الساعات المعتمدة. «ساعة نظريا و(2-3 ) عملي او تطبيقي» — theoretical contact hours
+ * convert one-for-one, practical ones by the institute's divisor. Returns null when the institute
+ * typed no contact hours at all, so a course that predates the columns shows nothing rather than 0.
+ */
+export function creditHoursFromContact(
+  theoryHours: number | null | undefined,
+  practicalHours: number | null | undefined,
+  reg: Regulations,
+): number | null {
+  if ((theoryHours == null || theoryHours === 0) && (practicalHours == null || practicalHours === 0)) return null;
+  const t = Number(theoryHours) || 0;
+  const p = Number(practicalHours) || 0;
+  const tDiv = Number(reg.contactHoursPerCreditTheory) > 0 ? Number(reg.contactHoursPerCreditTheory) : 1;
+  const pDiv = Number(reg.contactHoursPerCreditPractical) > 0 ? Number(reg.contactHoursPerCreditPractical) : 2;
+  // Rounded to two places: 3 practical hours at a divisor of 2 is 1.5 credit hours, and hiding the
+  // half would make the derived value silently disagree with the stored one.
+  return Math.round((t / tDiv + p / pDiv) * 100) / 100;
 }
 
 /** Printed where a CGPA matches no band in the institute's جدول 4 — «no تقدير», never a guessed one. */
