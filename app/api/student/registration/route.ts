@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { resolveStudent } from '@/lib/student';
-import { validateRegistration } from '@/lib/registration';
+import { validateRegistration, getCurrentTermForStudent } from '@/lib/registration';
 import { computeAcademicStanding } from '@/lib/standing';
 import { scopeBlock } from '@/lib/holds';
 
+// Last-resort literal only: the term now comes from the row the registrar marked «الفصل الحالي»
+// on /institute/settings/academic-terms. An institute that marked none behaves exactly as before.
 const DEFAULT_TERM = { academicYear: '2024-2025', semester: 'second' };
 
 // GET /api/student/registration?academicYear=&semester=
@@ -16,8 +18,9 @@ export async function GET(request: NextRequest) {
     const student = await resolveStudent(searchParams.get('studentCode'));
     if (!student) return NextResponse.json({ error: 'الطالب غير موجود' }, { status: 404 });
 
-    const academicYear = searchParams.get('academicYear') || DEFAULT_TERM.academicYear;
-    const semester = searchParams.get('semester') || DEFAULT_TERM.semester;
+    const cur = await getCurrentTermForStudent(student.id);
+    const academicYear = searchParams.get('academicYear') || cur?.academicYear || DEFAULT_TERM.academicYear;
+    const semester = searchParams.get('semester') || cur?.termType || DEFAULT_TERM.semester;
 
     const [offerings, current, standing] = await Promise.all([
       prisma.courseOffering.findMany({
@@ -97,8 +100,9 @@ export async function POST(request: NextRequest) {
     const student = await resolveStudent(body?.studentCode);
     if (!student) return NextResponse.json({ error: 'الطالب غير موجود' }, { status: 404 });
 
-    const academicYear = body.academicYear || DEFAULT_TERM.academicYear;
-    const semester = body.semester || DEFAULT_TERM.semester;
+    const curTerm = await getCurrentTermForStudent(student.id);
+    const academicYear = body.academicYear || curTerm?.academicYear || DEFAULT_TERM.academicYear;
+    const semester = body.semester || curTerm?.termType || DEFAULT_TERM.semester;
     const action: string = body.action || 'save';
     const sectionIds: string[] = Array.isArray(body.sectionIds) ? body.sectionIds : [];
 
@@ -136,7 +140,10 @@ export async function POST(request: NextRequest) {
       return r;
     });
 
-    const validation = await validateRegistration(student.id, academicYear, semester, sectionIds);
+    // The ONLY caller that enforces the registration window: it binds submission, not approval.
+    const validation = await validateRegistration(student.id, academicYear, semester, sectionIds, {
+      enforceCalendar: action === 'submit',
+    });
 
     let status = 'Draft';
     if (action === 'submit') {

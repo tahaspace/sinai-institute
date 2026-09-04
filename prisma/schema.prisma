@@ -204,7 +204,89 @@ model Specialization {
   updatedAt    DateTime   @updatedAt
   department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
 
+  // ── Programme-level fields (nullable: the model predates them and was never queried) ───────────
+  // The bylaw hangs specialisations off the PROGRAMME («ثلاث تخصصات رئيسة») and separates the
+  // main track from the minor, which it allows only at a given level («التخصص الفرعي يكون في
+  // المستوي الرابع فقط») and a second minor only above a CGPA threshold.
+  programId        String?
+  kind             String? // MAIN | MINOR — تخصص رئيسي / فرعي
+  minLevel         Int? // the earliest level a student may choose it
+  // The LAST level it may be chosen at. The bylaw names a single level — «ملاحظه التخصص الفرعي يكون
+  // في المستوي الرابع فقط» — which a floor alone cannot express: minLevel=4 would also admit levels
+  // 5 and 6. With both set the institute types the exact range its own لائحة states.
+  maxLevel         Int?
+  minCgpaForSecond Float? // CGPA required to take a SECOND minor as extra load
+
+  program        Program?        @relation(fields: [programId], references: [id], onDelete: SetNull)
+  studyPlanItems StudyPlanItem[]
+  students       Student[]
+
   @@index([departmentId])
+  @@index([programId])
+}
+
+// A course that must be passed before another may be registered. The engine already enforces
+// prerequisites (lib/registration.ts) but had no way to STORE them except a seed script — and no way
+// at all to express the bylaw's «بشرط الحصول على تقدير جيد على الأقل», which is a minimum GRADE, not
+// merely a pass.
+//
+model CoursePrerequisite {
+  id             String  @id @default(cuid())
+  courseId       String
+  prerequisiteId String
+  // Minimum letter code required in the prerequisite (a GradeStatus code such as 'C' or 'B').
+  // null = a pass is enough, which is what the engine did before this existed.
+  minGradeCode   String?
+  universityId   String?
+
+  course       Course @relation("CoursePrereqOf", fields: [courseId], references: [id], onDelete: Cascade)
+  prerequisite Course @relation("CoursePrereqFor", fields: [prerequisiteId], references: [id], onDelete: Cascade)
+
+  // Scoped by tenant: a Course row may be shared/untenanted, so without universityId in the key two
+  // institutes could not each hold their own rule (with their own minGradeCode) for the same pair —
+  // the second write would collide.
+  @@unique([universityId, courseId, prerequisiteId])
+  @@index([courseId])
+  @@index([prerequisiteId])
+  @@index([universityId])
+}
+
+// The academic calendar: one row per term. Without it every week-based bylaw rule is unenforceable —
+// Regulations.withdrawWeek exists and is editable but NOTHING reads it, because there is no term
+// start to count weeks from. It also carries the registration window and its late fee, the add/drop
+// window, and the exam period, all of which the bylaw states («فصل التسجيل أسبوع واحد … الدراسة 12
+// أسبوعًا … أسبوعا امتحانات», «الفصل الصيفي 8 أسابيع»).
+//
+model AcademicTerm {
+  id           String  @id @default(cuid())
+  universityId String?
+  academicYear String // "2024-2025"
+  termType     String // first | second | summer
+  nameAr       String?
+
+  registrationStart   DateTime?
+  registrationEnd     DateTime?
+  lateRegistrationFee Float?    @default(0)
+  teachingStart       DateTime?
+  teachingEnd         DateTime?
+  addDropDeadline     DateTime?
+  withdrawDeadline    DateTime?
+  examsStart          DateTime?
+  examsEnd            DateTime?
+
+  // INVARIANTS THE DATABASE CANNOT ENFORCE — the write API must:
+  //  1. keep at most ONE isCurrent term per (universityId, academicYear). No SQL constraint expresses
+  //     "one true row per group", so a second current term is only stoppable in the handler.
+  //  2. reject a duplicate (academicYear, termType) for an UNTENANTED row. The @@unique below does
+  //     not catch it: Postgres treats two NULL universityIds as distinct, so two global rows for the
+  //     same term both insert cleanly — and tenantOrGlobalWhere then reads both.
+  isCurrent Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([universityId, academicYear, termType])
+  @@index([universityId])
+  @@index([academicYear])
 }
 
 model Result {
@@ -478,16 +560,37 @@ model StudyPlanItem {
   id           String  @id @default(cuid())
   programId    String?
   programName  String
-  year         String // "السنة الأولى"
-  semester     String // "الفصل الأول"
+  year         String // "السنة الأولى" — legacy free text, kept so existing rows still read
+  semester     String // "الفصل الأول" — legacy free text
   courseCode   String
   courseName   String
   hours        Int     @default(3)
   order        Int     @default(0)
   universityId String?
 
+  // ── Structured half (all nullable: legacy rows predate it) ────────────────────────────────────
+  // The plan is 31 of the bylaw's 35 tables and had no write path at all, so it could only be
+  // seeded. These fields are what an institute must be able to type in for its own plan.
+  courseId         String? // real FK; courseCode stays as the legacy/fallback key
+  levelNo          Int? // numeric مستوى/فرقة, so level rules can be evaluated
+  termNo           Int? // 1 | 2 | 3(صيفي) — numeric form of `semester`
+  requirementType  String? // MANDATORY | ELECTIVE — «اجباري» / «اختياري»
+  // The bylaw's جدول 1 splits the hours into buckets per specialisation (32/28/4/54/4/8):
+  // GENERAL | DEPARTMENT | MAJOR_MANDATORY | MAJOR_ELECTIVE | MINOR | TRAINING
+  bucket           String?
+  specializationId String? // the تخصص this row belongs to (main or minor)
+  // «اختر مقررين من هذه القائمة»: rows sharing a group are alternatives, and chooseCount says how
+  // many of them count toward the plan.
+  electiveGroup    String?
+  chooseCount      Int?
+
+  course         Course?         @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  specialization Specialization? @relation(fields: [specializationId], references: [id], onDelete: SetNull)
+
   @@index([programId])
   @@index([universityId])
+  @@index([courseId])
+  @@index([specializationId])
 }
 
 model ExamCommittee {
@@ -774,6 +877,12 @@ model Student {
   invoices                Invoice[]
   receipts                Receipt[]
   holds                   StudentHold[]
+  // The تخصص the student is enrolled on. AUTHORITATIVE — `section` above is the legacy free text
+  // that predates it and must never be read as the specialisation once this is set; anything that
+  // needs the تخصص resolves this FK and falls back to `section` only for rows never migrated.
+  // Two sources for one fact is the exact failure this schema has been cleaning up elsewhere.
+  specializationId        String?
+  specializationRef       Specialization?            @relation(fields: [specializationId], references: [id], onDelete: SetNull)
 
   @@index([departmentId])
   @@index([studentCode])
@@ -787,6 +896,10 @@ model Course {
   code                String                     @unique
   nameAr              String
   nameEn              String?
+  // Which level the study plan places this course at. Nullable: a course may be shared across
+  // levels, and the plan row is the authority when both exist. The bylaw needs it for level rules —
+  // «طالب في مستوي وبيمتحن مادة من مستويات سابقة» — which nothing could express before.
+  level               Int?
   creditHours         Int                        @default(3)
   departmentId        String?
   instructorId        String?
@@ -816,6 +929,12 @@ model Course {
   // prerequisite self-relation (registration validation)
   prerequisites       Course[]                   @relation("CoursePrereq")
   prerequisiteFor     Course[]                   @relation("CoursePrereq")
+  studyPlanItems      StudyPlanItem[]
+  // The graded prerequisite rules. Kept ALONGSIDE the implicit `prerequisites` M2M above rather than
+  // replacing it: that relation holds real links in production and lib/registration.ts reads it, so
+  // the switch is a two-phase migration — copy the pairs in, move the reader over, then drop the M2M.
+  prereqRules         CoursePrerequisite[]       @relation("CoursePrereqOf")
+  prereqRuleFor       CoursePrerequisite[]       @relation("CoursePrereqFor")
 
   @@index([departmentId])
   @@index([instructorId])
@@ -2279,6 +2398,7 @@ model Program {
   students         Student[]
   applications     Application[]
   transferRequests TransferRequest[]
+  specializations  Specialization[]
 
   @@index([departmentId])
   @@index([universityId])

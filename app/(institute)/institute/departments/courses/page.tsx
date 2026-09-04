@@ -50,6 +50,12 @@ interface CourseRow {
   availableInSummer: boolean
   isGraduationProject: boolean
   gradeSplit: { midterm: number; final: number; practical: number; homework: number }
+  /** المستوى الدراسي — the effective level: the course's own, else the study-plan row */
+  level: number | null
+  /** المستوى المُدخل على المقرر نفسه؛ null = لم يُدخل، فيُعرض المشتق من الخطة الدراسية */
+  courseLevel: number | null
+  /** متطلبات سابقة, with the bylaw's optional minimum grade («تقدير جيد على الأقل») */
+  prerequisites: { id: string; code: string; name: string; minGradeCode: string | null }[]
 }
 
 interface DepartmentRow {
@@ -72,6 +78,8 @@ interface CourseForm {
   finalMax: string
   practicalMax: string
   homeworkMax: string
+  level: string
+  prerequisites: { id: string; minGradeCode: string }[]
 }
 
 // Defaults mirror the Course model column defaults (midterm 50 / final 100 / practical 0 / homework 20).
@@ -89,6 +97,8 @@ const EMPTY_FORM: CourseForm = {
   finalMax: "100",
   practicalMax: "0",
   homeworkMax: "20",
+  level: "",
+  prerequisites: [],
 }
 
 export default function CoursesPage() {
@@ -167,6 +177,8 @@ export default function CoursesPage() {
       finalMax: String(course.gradeSplit.final),
       practicalMax: String(course.gradeSplit.practical),
       homeworkMax: String(course.gradeSplit.homework),
+      level: course.courseLevel != null ? String(course.courseLevel) : "",
+      prerequisites: (course.prerequisites ?? []).map((p) => ({ id: p.id, minGradeCode: p.minGradeCode ?? "" })),
     })
     setFormError(null)
     setDialogOpen(true)
@@ -190,6 +202,12 @@ export default function CoursesPage() {
     finalMax: Number(form.finalMax) || 0,
     practicalMax: Number(form.practicalMax) || 0,
     homeworkMax: Number(form.homeworkMax) || 0,
+    // فارغ = لا مستوى محدد للمقرر، فيُقرأ من الخطة الدراسية إن وُجد
+    level: form.level.trim() === "" ? null : Number(form.level),
+    // An empty minGradeCode means «النجاح يكفي» — sent as null so the engine reads it that way.
+    prerequisites: form.prerequisites
+      .filter((p) => p.id)
+      .map((p) => ({ id: p.id, minGradeCode: p.minGradeCode.trim() || null })),
   })
 
   const handleSave = async () => {
@@ -285,7 +303,9 @@ export default function CoursesPage() {
                 <TableHead>كود المقرر</TableHead>
                 <TableHead>اسم المقرر</TableHead>
                 <TableHead>القسم</TableHead>
+                <TableHead>المستوى</TableHead>
                 <TableHead>الساعات</TableHead>
+                <TableHead>متطلب سابق</TableHead>
                 <TableHead>يدخل في المعدل</TableHead>
                 <TableHead>النوع</TableHead>
                 <TableHead>الفصل الصيفي</TableHead>
@@ -303,7 +323,17 @@ export default function CoursesPage() {
                     <Badge variant="outline">{course.department}</Badge>
                   </TableCell>
                   <TableCell>
+                    {course.level != null
+                      ? <Badge variant="outline">المستوى {course.level}</Badge>
+                      : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell>
                     <Badge className="bg-institute-blue text-institute-blue">{course.creditHours}</Badge>
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {course.prerequisites?.length
+                      ? course.prerequisites.map((p) => `${p.code}${p.minGradeCode ? ` (${p.minGradeCode} فأعلى)` : ""}`).join("، ")
+                      : <span className="text-muted-foreground">—</span>}
                   </TableCell>
                   <TableCell>
                     {course.countsInGpa
@@ -355,6 +385,21 @@ export default function CoursesPage() {
               <div className="space-y-2">
                 <Label>الساعات المعتمدة</Label>
                 <Input type="number" value={form.creditHours} onChange={(e) => updateField("creditHours", e.target.value)} />
+              </div>
+            </div>
+
+            {/* المستوى — «المستوي الاول … الرابع» في جداول الخطة الدراسية باللائحة. تركه فارغاً يعني
+                قراءة المستوى من الخطة الدراسية كما كان. */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>المستوى</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.level}
+                  onChange={(e) => updateField("level", e.target.value)}
+                  placeholder="اتركه فارغاً ليُقرأ من الخطة الدراسية"
+                />
               </div>
             </div>
 
@@ -437,6 +482,40 @@ export default function CoursesPage() {
                   <Input type="number" value={form.midtermMax} onChange={(e) => updateField("midtermMax", e.target.value)} />
                 </div>
               </div>
+            </div>
+
+            {/* متطلبات سابقة — «متطلب سابق» عمود في كل جداول الخطة الدراسية باللائحة.
+                يجوز اشتراط تقدير أدنى في المتطلب («حصول علي تقدير جيد في اللغة الاجنيبيه الاولي
+                المتخصصه» لقسم الإرشاد السياحي)؛ تركه فارغاً يعني أن النجاح يكفي. */}
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">المتطلبات السابقة</Label>
+              {form.prerequisites.map((p, i) => (
+                <div key={i} className="grid grid-cols-[1fr_150px_auto] gap-2 items-center">
+                  <Select
+                    value={p.id || undefined}
+                    onValueChange={(v) => updateField("prerequisites", form.prerequisites.map((x, j) => (j === i ? { ...x, id: v } : x)))}
+                  >
+                    <SelectTrigger><SelectValue placeholder="اختر المقرر" /></SelectTrigger>
+                    <SelectContent>
+                      {allCourses.filter((c) => c.id !== editingId).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.code} — {c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={p.minGradeCode}
+                    onChange={(e) => updateField("prerequisites", form.prerequisites.map((x, j) => (j === i ? { ...x, minGradeCode: e.target.value } : x)))}
+                    placeholder="أدنى تقدير (اختياري)"
+                  />
+                  <Button variant="outline" size="sm" onClick={() => updateField("prerequisites", form.prerequisites.filter((_, j) => j !== i))}>حذف</Button>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" onClick={() => updateField("prerequisites", [...form.prerequisites, { id: "", minGradeCode: "" }])}>
+                <Plus className="w-4 h-4 ml-1" />إضافة متطلب سابق
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                أدنى تقدير = كود من سلّم التقديرات (جدول 3) مثل C أو B؛ اتركه فارغاً إذا كان النجاح كافياً.
+              </p>
             </div>
 
             {formError && <p className="text-sm text-red-600">{formError}</p>}

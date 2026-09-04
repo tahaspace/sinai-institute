@@ -13,6 +13,27 @@ export const DEFAULT_REGULATIONS = {
   minRegHours: 16,
   maxRegHours: 21, // maximum hours in a regular term — bylaw: «يجوز زيادة عن 21 ساعة» for CGPA ≥ 3 / graduating
   summerMaxHours: 8, // maximum hours in a summer term — bylaw: «الفصل الصيفي … بحد اقصي 8 ساعات»
+  // How many LEVELS a programme runs. Not derivable from Program.years: that is a count of YEARS,
+  // and the bylaw needs a level the year count does not reach — «التخصص الفرعي الثاني … ويكون في
+  // المستوي الخامس» on a four-year programme. «130 ساعة مقمسمه علي 8 فصول» is the term count.
+  planLevelCount: 8,
+
+  // ── Registration exceptions the bylaw grants, previously unexpressible ──────────────────────────
+  // «العبء الدراسي يجوز زياده عن 21 ساعه ادا كان للطالب معدل تراكميا عاليا من 3 نقاط فاكثر او في
+  // حالات التخرج» — an allowance above maxRegHours, not a replacement for it.
+  overloadMinCgpa: 3.0, // the CGPA from which the extra load is permitted
+  overloadMaxHours: 24, // the ceiling once the allowance applies
+  overloadForGraduating: true, // «او في حالات التخرج» — a graduating student qualifies regardless of CGPA
+  // «طلاب اللي عندهم تقدير اقل من 2 … يجوز لهم اعادة المواد الحاصلين فيهم علي تقدير راسب او مقبول
+  // بشرط الا تتجاوز عدد ساعات معتمدة في الاعادة 17 ساعة معتمدة». A TOTAL allowance, not per term.
+  repeatHoursCap: 17,
+  repeatHoursCapCgpa: 2.0, // the CGPA below which the repeat allowance applies
+  // «لا يجوز للطالب حصل علي تقدير C او اكثر اعاده دراسة المقرر» — the ceiling above which a course
+  // may not be repeated at all. A GradeStatus code, so an institute with another ladder can set its own.
+  repeatMaxGradeCode: 'C',
+  // A student in one of these states may not register at all. Kept as a list so an institute can
+  // decide whether, say, a suspended registration blocks or merely warns.
+  blockedRegistrationStatuses: 'WITHDRAWN,DISMISSED,SUSPENDED',
   maxCourseAttempts: 3, // a course failed this many times blocks re-registration (repeated failure)
   maxConsecutiveProbation: 4, // bylaw: «اقل من 2 لمدة اربع فصول متتالية يتم فصله» (summer excluded)
   maxSeparateProbation: 4, // separate (non-consecutive) probation terms → same (excl. summer)

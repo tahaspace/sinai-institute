@@ -69,7 +69,7 @@ const navItems = [
       { title: "جميع الأقسام", href: "/institute/departments" },
       { title: "البرامج الأكاديمية", href: "/institute/departments/programs" },
       { title: "المقررات الدراسية", href: "/institute/departments/courses" },
-      { title: "الخطط الدراسية", href: "/institute/departments/plans" },
+      { title: "الخطط الدراسية والتخصصات", href: "/institute/departments/plans" },
     ],
   },
   {
@@ -253,6 +253,7 @@ const navItems = [
     children: [
       { title: "الإعدادات العامة", href: "/institute/settings" },
       { title: "السنوات الدراسية", href: "/institute/settings/academic-years" },
+      { title: "التقويم الأكاديمي", href: "/institute/settings/academic-terms" },
       { title: "النظام الأكاديمي للبرامج", href: "/institute/settings/academic-system" },
       // «إعدادات الساعات المعتمدة» removed: it was a second bylaw form whose Setting key nothing
       // read, sitting right above the real one. Its route now redirects to «اللوائح والقواعد».
@@ -284,6 +285,8 @@ const NAV_REQUIRES: Record<string, string> = {
   // The bylaw screen answers only «إعدادات المعهد»; middleware bounces anyone else, so don't
   // offer the link to a role that would be redirected away from it.
   "/institute/settings/regulations": "institute.settings.view",
+  // Term dates are bylaw data like the regulations themselves — same gate.
+  "/institute/settings/academic-terms": "institute.settings.view",
 }
 
 export default function InstituteLayout({
